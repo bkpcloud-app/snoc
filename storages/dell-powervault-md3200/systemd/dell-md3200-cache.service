@@ -1,0 +1,15 @@
+[Unit]
+Description=Dell PowerVault MD3200 cache collector
+After=network-online.target zabbix-proxy.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=zabbix
+Group=zabbix
+Environment=HOME=/var/lib/zabbix
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ExecStart=/usr/local/sbin/dell-md3200-cache-update
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=10min
