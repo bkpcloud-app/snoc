@@ -1,10 +1,16 @@
 {
   "package": "BRASANITAS-ZABBIX-AGENT2-PSEXEC",
-  "package_version": "2.0",
+  "package_version": "2.1",
   "integration": "BKPCloud Zabbix Windows product ZIP",
   "default_product_zip": "C:\\BKPCloud\\Clientes\\BKPCloud-Zabbix-Windows-BRASANITAS.zip",
+  "required_product_sha256": "9D540DA24170E4BA5C6940C1ABD23DDE85DBAC807FEA5216B40EFB410D674EBC",
   "default_psexec": "C:\\temp\\PSTools\\PsExec.exe",
   "pilot": "SV-DBS-BRASA03",
   "modes": ["Diagnose", "Apply"],
-  "change": "Substitui o instalador paralelo antigo pelo produto oficial gerado e validado."
+  "ad_scopes": [
+    {"name": "CenturyLink", "search_base": "OU=CenturyLink,DC=adb01,DC=local", "search_scope": "Subtree"},
+    {"name": "Servers", "search_base": "OU=Servers,DC=adb01,DC=local", "search_scope": "OneLevel"},
+    {"name": "Domain Controllers", "search_base": "OU=Domain Controllers,DC=adb01,DC=local", "search_scope": "OneLevel"}
+  ],
+  "change": "Descoberta automatica do AD nas tres OUs; elimina SERVIDORES.txt; valida hash do produto corrigido antes do lote."
 }
