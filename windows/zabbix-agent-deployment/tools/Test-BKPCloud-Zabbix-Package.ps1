@@ -32,6 +32,19 @@ Get-ChildItem -LiteralPath $PackageRoot -Recurse -Filter *.ps1 | ForEach-Object 
 if ($parseErrors.Count -gt 0) { throw "Erros de sintaxe PowerShell:`r`n$($parseErrors -join "`r`n")" }
 
 . (Join-Path $PackageRoot "config\Product.ps1")
+if ([string]$ProductConfig.AgentFamily -ne "AGENT2") { throw "AgentFamily deve ser AGENT2." }
+if ([string]$ProductConfig.AgentServiceName -ne "Zabbix Agent 2") { throw "AgentServiceName invalido." }
+if ([string]$ProductConfig.AgentMsiFile -notlike "zabbix_agent2-*.msi") { throw "MSI configurado nao pertence ao Agent 2." }
+if ([string]$ProductConfig.InstallDirectory -notlike "*Zabbix Agent 2") { throw "InstallDirectory nao aponta para o Agent 2." }
+
+$enginePath = Join-Path $PackageRoot "Install-BKPCloud-Zabbix-Windows.ps1"
+$engineText = Get-Content -LiteralPath $enginePath -Raw
+foreach ($requiredText in @("zabbix_agent2.exe","zabbix_agent2.conf","zabbix_agent2.d","Plugins.SystemRun.LogRemoteCommands=1")) {
+    if ($engineText -notmatch [regex]::Escape($requiredText)) { throw "Motor Agent 2 incompleto: ausente $requiredText" }
+}
+if ($engineText -match 'StartAgents=') { throw "Motor Agent 2 ainda contem StartAgents, parametro do agente classico." }
+if ($engineText -match 'DisableAgent2') { throw "Motor ainda contem logica antiga de desabilitar Agent 2." }
+
 $msi = Join-Path $PackageRoot ([string]$ProductConfig.AgentMsiFile)
 if (-not (Test-Path -LiteralPath $msi)) { throw "MSI ausente: $msi" }
 $hash = (Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash.ToUpperInvariant()
@@ -47,5 +60,5 @@ else {
     if ($null -eq (Get-Command Get-BKPClientIdentity -ErrorAction SilentlyContinue)) { throw "Get-BKPClientIdentity nao definida." }
 }
 
-Write-Host "Pacote validado com sucesso: $PackageRoot" -ForegroundColor Green
-Write-Host "Produto: $($ProductConfig.ProductVersion) / Agent: $($ProductConfig.AgentVersion)" -ForegroundColor Green
+Write-Host "Pacote Agent 2 validado com sucesso: $PackageRoot" -ForegroundColor Green
+Write-Host "Produto: $($ProductConfig.ProductVersion) / Agent 2: $($ProductConfig.AgentVersion)" -ForegroundColor Green
