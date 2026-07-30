@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Parse all PowerShell sources
         shell: powershell
@@ -24,7 +24,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $parseErrors = @()
 
-          Get-ChildItem "windows\zabbix-agent-deployment" -Recurse -Filter *.ps1 | ForEach-Object {
+          Get-ChildItem "windows\zabbix-agent-deployment" -Recurse -File -Filter *.ps1 | ForEach-Object {
               $tokens = $null
               $syntaxErrors = $null
               [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$syntaxErrors) | Out-Null
