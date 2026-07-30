@@ -23,7 +23,7 @@ foreach ($relative in $required) {
 }
 
 $parseErrors = @()
-Get-ChildItem -LiteralPath $PackageRoot -Recurse -Filter *.ps1 | ForEach-Object {
+Get-ChildItem -LiteralPath $PackageRoot -Recurse -File -Filter *.ps1 | ForEach-Object {
     $tokens = $null
     $syntaxErrors = $null
     [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$syntaxErrors) | Out-Null
