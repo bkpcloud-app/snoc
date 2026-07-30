@@ -37,6 +37,56 @@ jobs:
               throw "PowerShell syntax errors:`r`n$($parseErrors -join "`r`n")"
           }
 
+      - name: Test empty optional client fields
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . (Resolve-Path "windows\zabbix-agent-deployment\tools\lib\Common.ps1")
+
+          $definition = [pscustomobject][ordered]@{
+              SchemaVersion = 2
+              ClientId = "TEST"
+              Domains = @("test.local")
+              ServersOnly = $true
+              HostnamePattern = "SRV-{CLIENT}-{COMPUTER}"
+              MetadataPrefixPattern = "{CLIENT}-{SITE}"
+              StripServerPrefix = $false
+              StripClientPrefix = $false
+              Networks = @(
+                  [pscustomobject][ordered]@{
+                      Network = "10.0.0.0"
+                      Prefix = 24
+                      Site = "TEST"
+                      GroupSite = "TEST"
+                      Proxy = "SNOC-TEST"
+                      Priority = 100
+                      Class = "SERVER"
+                      Area = ""
+                  }
+              )
+              HyperVNodes = [ordered]@{}
+              IgnoredIpsForHyperV = @()
+              LegacyManagedFiles = @()
+          }
+
+          $result = Initialize-DefinitionDefaults $definition
+          Test-Definition $result
+
+          foreach ($propertyName in @("HyperVNodes", "IgnoredIpsForHyperV", "LegacyManagedFiles")) {
+              if ($null -eq $result.PSObject.Properties[$propertyName]) {
+                  throw "Expected property was removed: $propertyName"
+              }
+          }
+
+          if (@($result.IgnoredIpsForHyperV).Count -ne 0) {
+              throw "IgnoredIpsForHyperV must remain empty."
+          }
+          if (@($result.LegacyManagedFiles).Count -ne 0) {
+              throw "LegacyManagedFiles must remain empty."
+          }
+
+          Write-Host "Empty optional fields regression test passed." -ForegroundColor Green
+
       - name: Build and validate base Agent 2 package
         shell: powershell
         run: |
