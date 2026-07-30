@@ -1,0 +1,10 @@
+{
+  "package": "BRASANITAS-ZABBIX-AGENT2-PSEXEC",
+  "package_version": "2.0",
+  "integration": "BKPCloud Zabbix Windows product ZIP",
+  "default_product_zip": "C:\\BKPCloud\\Clientes\\BKPCloud-Zabbix-Windows-BRASANITAS.zip",
+  "default_psexec": "C:\\temp\\PSTools\\PsExec.exe",
+  "pilot": "SV-DBS-BRASA03",
+  "modes": ["Diagnose", "Apply"],
+  "change": "Substitui o instalador paralelo antigo pelo produto oficial gerado e validado."
+}
