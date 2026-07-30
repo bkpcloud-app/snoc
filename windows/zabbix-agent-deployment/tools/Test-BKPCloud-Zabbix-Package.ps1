@@ -25,9 +25,9 @@ foreach ($relative in $required) {
 $parseErrors = @()
 Get-ChildItem -LiteralPath $PackageRoot -Recurse -Filter *.ps1 | ForEach-Object {
     $tokens = $null
-    $errors = $null
-    [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
-    foreach ($error in @($errors)) { $parseErrors += "$($_.FullName): $($error.Message)" }
+    $syntaxErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$syntaxErrors) | Out-Null
+    foreach ($parseError in @($syntaxErrors)) { $parseErrors += "$($_.FullName): $($parseError.Message)" }
 }
 if ($parseErrors.Count -gt 0) { throw "Erros de sintaxe PowerShell:`r`n$($parseErrors -join "`r`n")" }
 
