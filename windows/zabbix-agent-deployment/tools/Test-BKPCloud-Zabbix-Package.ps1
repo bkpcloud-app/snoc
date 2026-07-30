@@ -39,11 +39,21 @@ if ([string]$ProductConfig.InstallDirectory -notlike "*Zabbix Agent 2") { throw 
 
 $enginePath = Join-Path $PackageRoot "Install-BKPCloud-Zabbix-Windows.ps1"
 $engineText = Get-Content -LiteralPath $enginePath -Raw
-foreach ($requiredText in @("zabbix_agent2.exe","zabbix_agent2.conf","zabbix_agent2.d","Plugins.SystemRun.LogRemoteCommands=1")) {
+foreach ($requiredText in @(
+    "zabbix_agent2.exe",
+    "zabbix_agent2.conf",
+    "zabbix_agent2.d",
+    "Plugins.SystemRun.LogRemoteCommands=1",
+    'Test-Path -LiteralPath (Join-Path $ClassicInstallDir "zabbix_agentd.exe")',
+    'Remove-Item -LiteralPath $ClassicInstallDir -Recurse -Force'
+)) {
     if ($engineText -notmatch [regex]::Escape($requiredText)) { throw "Motor Agent 2 incompleto: ausente $requiredText" }
 }
 if ($engineText -match 'StartAgents=') { throw "Motor Agent 2 ainda contem StartAgents, parametro do agente classico." }
 if ($engineText -match 'DisableAgent2') { throw "Motor ainda contem logica antiga de desabilitar Agent 2." }
+if ($engineText -match [regex]::Escape('$classicPresent = ($null -ne $classicService -or $null -ne $classicApp -or (Test-Path -LiteralPath $ClassicInstallDir))')) {
+    throw "Motor ainda usa a existencia da pasta classica como sinal permanente de migracao."
+}
 
 $legacyPath = 'C:\Program Files\Zabbix Agent\'
 $legacyReferences = @(
