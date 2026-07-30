@@ -27,7 +27,20 @@ foreach ($group in $partDirectories) {
     foreach ($part in ($group.Group | Sort-Object Name)) {
         [void]$builder.Append([System.IO.File]::ReadAllText($part.FullName,[System.Text.Encoding]::UTF8))
     }
-    [System.IO.File]::WriteAllText($target,$builder.ToString(),$utf8NoBom)
+
+    $content = $builder.ToString()
+
+    # O coletor Veeam veio do produto Agent 1 com caminhos absolutos. A fonte
+    # continua dividida em partes, mas a entrega final precisa apontar somente
+    # para a arvore controlada do Zabbix Agent 2.
+    if ($relativeTarget -ieq "modules\VEEAM\scripts\zabbix_vbr_job.ps1") {
+        $content = $content.Replace(
+            "C:\Program Files\Zabbix Agent\scripts",
+            "C:\Program Files\Zabbix Agent 2\scripts"
+        )
+    }
+
+    [System.IO.File]::WriteAllText($target,$content,$utf8NoBom)
     Write-Host "Reconstruido: $relativeTarget" -ForegroundColor Green
 }
 
