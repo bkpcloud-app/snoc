@@ -45,6 +45,16 @@ foreach ($requiredText in @("zabbix_agent2.exe","zabbix_agent2.conf","zabbix_age
 if ($engineText -match 'StartAgents=') { throw "Motor Agent 2 ainda contem StartAgents, parametro do agente classico." }
 if ($engineText -match 'DisableAgent2') { throw "Motor ainda contem logica antiga de desabilitar Agent 2." }
 
+$legacyPath = 'C:\Program Files\Zabbix Agent\'
+$legacyReferences = @(
+    Get-ChildItem -LiteralPath (Join-Path $PackageRoot 'modules') -Recurse -File -Include *.conf,*.ps1 |
+        Select-String -SimpleMatch $legacyPath
+)
+if ($legacyReferences.Count -gt 0) {
+    $details = @($legacyReferences | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" })
+    throw "Modulos ainda apontam para a arvore do Agent classico:`r`n$($details -join "`r`n")"
+}
+
 $msi = Join-Path $PackageRoot ([string]$ProductConfig.AgentMsiFile)
 if (-not (Test-Path -LiteralPath $msi)) { throw "MSI ausente: $msi" }
 $hash = (Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash.ToUpperInvariant()
