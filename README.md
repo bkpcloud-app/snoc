@@ -8,11 +8,20 @@ Repositório técnico da BKPCLOUD para guardar, de forma organizada e reproduzí
 storages/
 ├── dell-powervault-me/
 └── dell-powervault-md3200/
+
+windows/
+└── zabbix-agent-deployment/
 ```
+
+## Produtos atuais
+
+- **Dell PowerVault ME**: template, testes e documentação da coleta por API.
+- **Dell PowerVault MD3200**: template, coletores, cache, systemd, instalação e troubleshooting.
+- **BKPCloud Zabbix Windows**: pacote comum do Agent, perfil separado por cliente e assistente para gerar um novo ambiente de Active Directory.
 
 Cada solução deve conter:
 
-- template final do Zabbix;
+- template ou código final;
 - scripts e coletores necessários;
 - procedimento de instalação do zero;
 - validação e troubleshooting;
