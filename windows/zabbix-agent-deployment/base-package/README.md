@@ -1,11 +1,11 @@
 # Pacote base
 
-Esta pasta contém a origem comum do **BKPCloud Zabbix Windows 1.0.7**.
+Esta pasta contém a origem comum do **BKPCloud Zabbix Windows 2.0.0**, padronizado no Zabbix Agent 2.
 
 Ela não deve ser copiada diretamente para o NETLOGON porque:
 
 - `config\Client.ps1` é um bloqueio de segurança, sem dados reais;
-- o motor principal e o script Veeam ficam versionados em `.parts`;
+- arquivos auxiliares grandes podem ficar versionados em `.parts`;
 - o MSI é baixado e validado durante a geração.
 
 Para criar um pacote completo:
@@ -17,10 +17,12 @@ Para criar um pacote completo:
 
 O gerador:
 
-1. copia a base;
-2. reconstrói os arquivos grandes com `Restore-SplitFiles.ps1`;
+1. copia a base Agent 2;
+2. reconstrói os arquivos auxiliares versionados em partes;
 3. cria o perfil real do cliente;
-4. baixa e valida o MSI 7.0.28;
+4. baixa e valida o MSI oficial do Agent 2 7.0.28;
 5. gera o manifesto;
-6. valida o pacote;
+6. valida sintaxe, família do agente, executável, configuração e hash do MSI;
 7. entrega a pasta e o ZIP finais.
+
+Na aplicação, o motor valida o Agent 2 antes de remover o Agent clássico. Sempre execute primeiro em um servidor piloto compatível.
