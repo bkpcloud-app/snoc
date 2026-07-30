@@ -70,6 +70,40 @@ $classicPresent = (
         throw "Nao foi possivel normalizar a deteccao do Agent classico no motor."
     }
 
+    # O nome do pacote Agent2 Plugins comeca por "Zabbix Agent2". Filtros amplos
+    # como "Zabbix Agent*" podem remove-lo por engano. Aceitamos somente os nomes
+    # exatos conhecidos do MSI do Agent classico.
+    $oldInstalledFilter = @'
+            $_.DisplayName -like "Zabbix Agent*" -and
+            $_.DisplayName -notlike "Zabbix Agent 2*" -and
+            $_.DisplayVersion
+'@
+    $newInstalledFilter = @'
+            (([string]$_.DisplayName) -match '^Zabbix Agent(?: \((?:32|64)-bit\))?$') -and
+            $_.DisplayVersion
+'@
+
+    if ($engine.Contains($oldInstalledFilter)) {
+        $engine = $engine.Replace($oldInstalledFilter,$newInstalledFilter)
+    }
+    elseif (-not $engine.Contains("^Zabbix Agent(?: \((?:32|64)-bit\))?$")) {
+        throw "Nao foi possivel normalizar a deteccao MSI do Agent classico."
+    }
+
+    $oldRemovalFilter = @'
+        $_.DisplayName -like "Zabbix Agent*" -and $_.DisplayName -notlike "Zabbix Agent 2*"
+'@
+    $newRemovalFilter = @'
+        ([string]$_.DisplayName) -match '^Zabbix Agent(?: \((?:32|64)-bit\))?$'
+'@
+
+    if ($engine.Contains($oldRemovalFilter)) {
+        $engine = $engine.Replace($oldRemovalFilter,$newRemovalFilter)
+    }
+    elseif (-not $engine.Contains("^Zabbix Agent(?: \((?:32|64)-bit\))?$")) {
+        throw "Nao foi possivel normalizar a remocao MSI do Agent classico."
+    }
+
     $oldRemoval = @'
     $classicService = Get-ServiceSafe $ProductConfig.ClassicServiceName
     if ($null -ne $classicService) {
