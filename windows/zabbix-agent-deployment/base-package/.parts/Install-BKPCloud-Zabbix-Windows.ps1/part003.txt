@@ -1,0 +1,135 @@
+tected {
+    param($Services)
+    foreach ($service in $Services) {
+        $text = ("{0} {1} {2}" -f $service.Name, $service.DisplayName, $service.PathName).ToLowerInvariant()
+        foreach ($term in $ProductConfig.TotvsDetectionTerms) {
+            if ($text -like ("*" + ([string]$term).ToLowerInvariant() + "*")) { return $true }
+        }
+    }
+    return $false
+}
+
+function Test-VeeamDetected {
+    param($Services)
+    if (Test-Path "HKLM:\SOFTWARE\Veeam\Veeam Backup and Replication") { return $true }
+    foreach ($service in $Services) {
+        if ($service.Name -eq "VeeamBackupSvc" -or $service.Name -eq "VeeamBrokerSvc") { return $true }
+    }
+    return $false
+}
+
+function Test-SqlDetected {
+    param($Services)
+    foreach ($service in $Services) {
+        if ($service.Name -eq "MSSQLSERVER" -or $service.Name -like 'MSSQL$*') { return $true }
+    }
+    return $false
+}
+
+function Get-DetectionInfo {
+    param($Profile, $SystemInfo, [string]$ComputerName)
+
+    # IMPORTANTE:
+    # Esta deteccao existe SOMENTE para HostMetadata, hostname, site/proxy e
+    # auto-registration no Zabbix. Ela NAO decide quais arquivos serao copiados.
+    # Todos os .conf e .ps1 do pacote sao implantados em todas as maquinas do escopo.
+    $detectedModules = @("CORE")
+    $services = @(Get-WindowsServicesInventory)
+    $isDc = ($SystemInfo.DomainRole -eq 4 -or $SystemInfo.DomainRole -eq 5)
+    $isExplicitHyperV = $Profile.HyperVNodes.ContainsKey($ComputerName)
+    $isHyperV = $isExplicitHyperV
+    foreach ($service in $services) { if ($service.Name -eq "vmms") { $isHyperV = $true; break } }
+    $isTotvs = Test-TotvsDetected $services
+    $isVeeam = Test-VeeamDetected $services
+    $isSql = Test-SqlDetected $services
+
+    if ($isDc) { $detectedModules += "ADDS" }
+    if ($isHyperV) { $detectedModules += "HYPERV" }
+    if ($isTotvs) { $detectedModules += "TOTVS" }
+    if ($isVeeam) { $detectedModules += "VEEAM" }
+    if ($isSql) { $detectedModules += "SQL" }
+
+    return New-Object PSObject -Property @{
+        Modules=@($detectedModules | Select-Object -Unique);
+        IsDomainController=$isDc; IsHyperV=$isHyperV; IsExplicitHyperV=$isExplicitHyperV;
+        IsTotvs=$isTotvs; IsVeeam=$isVeeam; IsSql=$isSql
+    }
+}
+
+function Expand-HostnamePattern {
+    param([string]$Pattern, [string]$Client, [string]$Site, [string]$Computer)
+    return $Pattern.Replace("{CLIENT}",$Client).Replace("{SITE}",$Site).Replace("{COMPUTER}",$Computer).ToUpperInvariant()
+}
+
+function Get-ClientIdentity {
+    param(
+        $Profile,
+        $SystemInfo,
+        $Network,
+        [string]$ComputerName,
+        [string]$Role,
+        [string]$GroupRole,
+        [string]$Cluster,
+        [string[]]$Modules
+    )
+
+    # A identidade especifica de cada cliente fica exclusivamente em config\Client.ps1.
+    # O motor nao deve conter regra de hostname ou metadata de cliente.
+    $identityCommand = Get-Command Get-BKPClientIdentity -ErrorAction SilentlyContinue
+    if ($null -eq $identityCommand) {
+        throw "Funcao Get-BKPClientIdentity nao encontrada em config\\Client.ps1."
+    }
+
+    return Get-BKPClientIdentity -Profile $Profile -SystemInfo $SystemInfo -Network $Network -ComputerName $ComputerName -Role $Role -GroupRole $GroupRole -Cluster $Cluster -Modules $Modules -ProductVersion $ProductConfig.ProductVersion
+}
+
+function Get-DesiredFiles {
+    # Copia universal: todos os arquivos .conf e .ps1 existentes em modules.
+    # A deteccao do servidor NAO participa desta lista.
+    $result = @()
+    $modulesRoot = Join-Path $PackageRoot "modules"
+    if (-not (Test-Path $modulesRoot)) { throw "Pasta de modulos nao encontrada: $modulesRoot" }
+
+    foreach ($moduleDir in @(Get-ChildItem -Path $modulesRoot -ErrorAction Stop | Where-Object { $_.PSIsContainer } | Sort-Object Name)) {
+        $module = $moduleDir.Name.ToUpperInvariant()
+        $sourceIncludes = Join-Path $moduleDir.FullName "includes"
+        $sourceScripts = Join-Path $moduleDir.FullName "scripts"
+
+        if (Test-Path $sourceIncludes) {
+            foreach ($file in @(Get-ChildItem -Path $sourceIncludes -Filter "*.conf" -Recurse -ErrorAction Stop | Where-Object { -not $_.PSIsContainer })) {
+                $relative = $file.FullName.Substring($sourceIncludes.Length).TrimStart([char]92)
+                $result += New-Object PSObject -Property @{ Source=$file.FullName; Relative=("zabbix_agentd.d\" + $relative); Destination=(Join-Path $IncludeDir $relative); Module=$module }
+            }
+        }
+        if (Test-Path $sourceScripts) {
+            foreach ($file in @(Get-ChildItem -Path $sourceScripts -Filter "*.ps1" -Recurse -ErrorAction Stop | Where-Object { -not $_.PSIsContainer })) {
+                $relative = $file.FullName.Substring($sourceScripts.Length).TrimStart([char]92)
+                $result += New-Object PSObject -Property @{ Source=$file.FullName; Relative=("scripts\" + $relative); Destination=(Join-Path $ScriptsDir $relative); Module=$module }
+            }
+        }
+    }
+
+    $duplicates = @($result | Group-Object Relative | Where-Object { $_.Count -gt 1 })
+    if ($duplicates.Count -gt 0) { throw "Arquivos de modulos com destino duplicado: $($duplicates.Name -join ', ')" }
+    return $result
+}
+
+function Get-PreviousManagedFiles {
+    if (-not (Test-Path $ManagedListPath)) { return @() }
+    return @(Get-Content $ManagedListPath | Where-Object { -not (Test-IsBlank $_) })
+}
+
+
+function Get-LegacyBackupArtifacts {
+    # Backups gerados pelos instaladores antigos nao devem permanecer nas pastas
+    # ativas do Zabbix Agent. Eles sao apenas arquivados em ProgramData.
+    $result = @()
+
+    if (Test-Path $IncludeDir) {
+        foreach ($dir in @(Get-ChildItem -Path $IncludeDir -Filter "_backup_*" -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer })) {
+            $result += New-Object PSObject -Property @{
+                Source=$dir.FullName
+                Relative=("zabbix_agentd.d\\" + $dir.Name)
+                Kind="PASTA"
+            }
+     

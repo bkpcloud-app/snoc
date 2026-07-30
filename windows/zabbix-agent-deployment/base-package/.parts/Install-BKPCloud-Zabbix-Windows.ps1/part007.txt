@@ -1,0 +1,115 @@
+yArtifacts.Count -gt 0) {
+        Write-Log "--- PLANO DE ARQUIVAMENTO DE BACKUPS LEGADOS ---"
+        foreach ($artifact in $LegacyArtifacts) {
+            Write-Log ("ARQUIVAR {0}: {1}" -f $artifact.Kind, $artifact.Relative)
+        }
+    }
+
+    if (-not $Apply) {
+        Write-Log "Diagnostico concluido. Nenhuma alteracao aplicada."
+        if ($hasChanges) { Write-Log "Para aplicar agora, execute Apply-Zabbix-Now.cmd como Administrador." }
+        else { Write-Log "Servidor ja esta conforme o pacote." }
+        exit 0
+    }
+
+    if (-not $hasChanges) {
+        Write-Log "Tudo conforme. Nenhuma alteracao e nenhum restart necessario."
+        Write-AsciiFile (Join-Path $StateRoot "lastapply.status") "OK - no changes - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+        exit 0
+    }
+
+    if ($needsMsi -and -not (Test-Path $MsiPath)) { throw "MSI necessario, mas nao encontrado: $MsiPath" }
+    foreach ($entry in $desiredFiles) { if (-not (Test-Path $entry.Source)) { throw "Arquivo obrigatorio do modulo nao encontrado: $($entry.Source)" } }
+
+    $backupDir = Join-Path $BackupRoot $RunId
+    $CurrentBackupDir = $backupDir
+    New-Item -Path $backupDir -ItemType Directory -Force | Out-Null
+    Write-Log "Backup da execucao: $backupDir"
+
+    # Backup antes do MSI, pois uma remocao/upgrade pode alterar a pasta do Agent.
+    Backup-File -Path $ConfPath -Relative "zabbix_agentd.conf" -BackupDir $backupDir
+    foreach ($entry in $filesToCopy) { Backup-File -Path $entry.Destination -Relative $entry.Relative -BackupDir $backupDir }
+    foreach ($relative in $obsolete) { Backup-File -Path (Join-Path $InstallDir $relative) -Relative $relative -BackupDir $backupDir }
+
+    if ($needsMsi -or $configChanged -or $filesToCopy.Count -gt 0 -or $obsolete.Count -gt 0 -or $servicePathChanged -or $ForceRepair) {
+        $ChangesStarted = $true
+        Stop-AgentProcesses
+    }
+
+    if ($needsMsi) { Install-AgentMsi -Proxy $network.Proxy -Hostname $hostname -Metadata $metadata }
+
+    foreach ($dir in @($InstallDir, $IncludeDir, $ScriptsDir)) { if (-not (Test-Path $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null } }
+
+    if ($configChanged -or $ForceRepair) {
+        Write-AsciiFile -Path $ConfPath -Value $desiredConfig
+        Write-Log "Configuracao principal atualizada."
+    }
+
+    foreach ($entry in $filesToCopy) {
+        if (-not (Test-Path $entry.Destination)) { $CreatedFiles += $entry.Destination }
+        $destDir = Split-Path -Parent $entry.Destination
+        if (-not (Test-Path $destDir)) { New-Item -Path $destDir -ItemType Directory -Force | Out-Null }
+        if ([System.IO.Path]::GetExtension($entry.Source) -ieq '.conf') {
+            Write-ConfFile -Source $entry.Source -Destination $entry.Destination
+        }
+        else {
+            Copy-Item -Path $entry.Source -Destination $entry.Destination -Force
+        }
+        Write-Log "Arquivo sincronizado [$($entry.Module)]: $($entry.Relative)"
+    }
+
+    foreach ($relative in $obsolete) {
+        $path = Join-Path $InstallDir $relative
+        Remove-Item -Path $path -Force
+        Write-Log "Arquivo legado/obsoleto removido com backup: $relative"
+    }
+
+    $service = Get-ZabbixService
+    if ($null -eq $service) { throw "Servico Zabbix Agent nao encontrado apos instalacao." }
+    Set-Service -Name $service.Name -StartupType Automatic
+
+    $servicePath = Get-ServicePath $service.Name
+    if ($servicePathChanged -or $servicePath.ToLowerInvariant() -notlike "*$($ConfPath.ToLowerInvariant())*") {
+        $output = & sc.exe config $service.Name binPath= $desiredServicePath 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Falha ao ajustar PathName do servico: $($output -join ' | ')" }
+        Write-Log "PathName do servico ajustado para o conf padrao."
+    }
+
+    if ($ProductConfig.DisableAgent2 -and $null -ne $agent2) {
+        Stop-Service -Name $agent2.Name -Force -ErrorAction SilentlyContinue
+        Set-Service -Name $agent2.Name -StartupType Manual -ErrorAction SilentlyContinue
+        Write-Log "Zabbix Agent 2 mantido parado/Manual para evitar conflito de porta."
+    }
+
+    $testOutput = & $AgentExe -c $ConfPath -t agent.version 2>&1
+    if ($LASTEXITCODE -ne 0 -or (($testOutput | Out-String) -match "ZBX_NOTSUPPORTED|ERROR")) {
+        throw "Validacao do arquivo de configuracao falhou: $($testOutput -join ' | ')"
+    }
+    Write-Log "Configuracao validada pelo zabbix_agentd.exe."
+
+    Start-Service -Name $service.Name -ErrorAction Stop
+    Start-Sleep -Seconds 5
+    $service = Get-Service -Name $service.Name
+    if ($service.Status -ne "Running") { throw "Zabbix Agent nao ficou Running. Status=$($service.Status)" }
+
+    $finalVersionText = ""
+    try { $finalVersionText = (& $AgentExe --version 2>$null | Select-Object -First 1) } catch {}
+    $finalVersion = Get-ReleaseVersion $finalVersionText
+    if ($null -eq $finalVersion) { throw "Nao foi possivel validar a versao final do Agent." }
+    if ($finalVersion -lt $desiredAgentVersion) { throw "Agent final ainda esta abaixo da versao desejada. Detectado=$finalVersionText" }
+
+    if ($LegacyArtifacts.Count -gt 0) {
+        $legacyArchiveDir = Join-Path $LegacyArchiveRoot $RunId
+        New-Item -Path $legacyArchiveDir -ItemType Directory -Force | Out-Null
+        Archive-LegacyBackupArtifacts -Artifacts $LegacyArtifacts -ArchiveDir $legacyArchiveDir
+        Write-Log "Backups legados movidos para: $legacyArchiveDir"
+    }
+
+    Test-LiveTreeClean -DesiredFiles $desiredFiles
+    Write-Log "Arquivos do produto validados e backups legados ausentes das pastas ativas."
+
+    Write-AsciiFile $ManagedListPath (([string]::Join("`r`n", ($desiredRelative | Sort-Object))) + "`r`n")
+    Write-AsciiFile $LocalProductVersionPath ([string]$ProductConfig.ProductVersion)
+    Write-AsciiFile (Join-Path $StateRoot "client.id") ([string]$profile.Id)
+    Write-AsciiFile (Join-Path $StateRoot "modules.detected") ($moduleList -join ',')
+    Write-AsciiFile (Join-Path $StateRoot "modules.active") ($moduleL

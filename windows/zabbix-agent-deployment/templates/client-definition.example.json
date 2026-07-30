@@ -1,12 +1,14 @@
 {
-  "SchemaVersion": 1,
+  "SchemaVersion": 2,
   "ClientId": "CLIENTE",
   "Domains": [
     "cliente.local"
   ],
   "ServersOnly": true,
-  "IdentityMode": "STANDARD",
   "HostnamePattern": "SRV-{CLIENT}-{SITE}-{COMPUTER}",
+  "MetadataPrefixPattern": "{CLIENT}-{SITE}",
+  "StripServerPrefix": true,
+  "StripClientPrefix": false,
   "Networks": [
     {
       "Network": "10.50.1.0",
@@ -20,12 +22,10 @@
     }
   ],
   "HyperVNodes": {
-    "HV01": "CLUSTER-DCM",
-    "HV02": "CLUSTER-DCM"
+    "HV01": "CLUSTER-DCM"
   },
   "IgnoredIpsForHyperV": [
     "10.50.1.250"
   ],
-  "DisabledModules": [],
   "LegacyManagedFiles": []
 }

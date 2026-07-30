@@ -1,90 +1,71 @@
-# Novo cliente — procedimento
+# Novo cliente — do zero
 
-## 1. Preparar o pacote base
+## Opção mais simples: baixar um único PowerShell
 
-O diretório informado em `-BasePackageRoot` precisa conter, no mínimo:
-
-```text
-Install-BKPCloud-Zabbix-Windows.ps1
-Apply-Zabbix-Now.cmd
-Diagnose-Zabbix.cmd
-config/
-└── Product.ps1
-modules/
-├── CORE/
-├── ADDS/
-├── HYPERV/
-├── TOTVS/
-├── VEEAM/
-└── SQL/
-```
-
-Também deve conter o MSI definido no `config\Product.ps1`.
-
-## 2. Executar o assistente
+No Windows PowerShell 5.1:
 
 ```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
+
+Invoke-WebRequest `
+  -Uri "https://raw.githubusercontent.com/bkpcloud-app/snoc/main/windows/zabbix-agent-deployment/tools/Bootstrap-New-BKPCloud-Zabbix-Client.ps1" `
+  -OutFile "$env:TEMP\Bootstrap-New-BKPCloud-Zabbix-Client.ps1"
+
+& "$env:TEMP\Bootstrap-New-BKPCloud-Zabbix-Client.ps1"
+```
+
+O bootstrap baixa a versão atual do repositório, chama o gerador, baixa o MSI oficial 7.0.28, valida o SHA-256 e entrega o ZIP final.
+
+## Executar diretamente após clonar o repositório
+
+```powershell
+cd .\windows\zabbix-agent-deployment
+
 .\tools\New-BKPCloud-Zabbix-Client.ps1 `
-  -BasePackageRoot "C:\BKPCloud\Zabbix-Windows-Base" `
   -OutputRoot "C:\BKPCloud\Clientes"
 ```
 
-O assistente solicita:
+O `-BasePackageRoot` é opcional. O padrão é a pasta `base-package` deste produto.
 
-1. identificador do cliente;
-2. domínio ou domínios;
-3. escopo somente servidores ou também estações;
-4. padrão de hostname;
-5. redes CIDR;
-6. site, grupo e proxy de cada rede;
-7. hosts e clusters Hyper-V explícitos;
-8. IPs virtuais a ignorar;
-9. exceções de módulos;
-10. arquivos legados controlados durante a migração.
+## Dados solicitados
 
-## 3. Saída
+- identificador do cliente;
+- domínio ou domínios;
+- somente servidores ou também estações;
+- padrão de hostname;
+- prefixo inicial da HostMetadata;
+- remoção opcional dos prefixos `SRV-` e `<CLIENTE>-` do nome original;
+- redes, prefixos CIDR, sites, grupos e proxies;
+- classe e área opcionais;
+- hosts e clusters Hyper-V explícitos;
+- IPs virtuais ignorados;
+- arquivos legados controlados.
 
-Para um cliente chamado `CLIENTE`, são criados:
+## Saída
+
+Para o cliente `CLIENTE`:
 
 ```text
 C:\BKPCloud\Clientes\BKPCloud-Zabbix-Windows-CLIENTE\
 C:\BKPCloud\Clientes\BKPCloud-Zabbix-Windows-CLIENTE.zip
 ```
 
-O pacote contém `config\Client.ps1`, `client-definition.json`, `README-CLIENTE.md` e todos os arquivos copiados do pacote base.
+A entrega contém o motor, módulos, MSI, perfil do cliente, definição JSON, manifesto SHA-256 e documentação.
 
-## 4. Piloto obrigatório
-
-Execute primeiro:
+## Validação obrigatória
 
 ```cmd
 Diagnose-Zabbix.cmd
 ```
 
-Confira no log:
-
-- cliente e domínio;
-- IP selecionado;
-- site e proxy;
-- hostname esperado no Zabbix;
-- role e cluster;
-- módulos detectados;
-- plano de cópia, correção e remoção.
-
-Aplique somente no piloto:
+Confirme domínio, IP selecionado, site, proxy, hostname, metadata, role, cluster e módulos. Depois aplique somente em piloto:
 
 ```cmd
 Apply-Zabbix-Now.cmd
 ```
 
-Valide pelo menos um servidor de cada função existente no cliente antes do deploy em massa.
-
-## 5. Publicação no Active Directory
-
-Depois do piloto, publique em:
+Somente após o piloto copie para:
 
 ```text
 \\DOMINIO\NETLOGON\SCRIPTS\ZBX
 ```
-
-A GPO deve chamar o wrapper do produto em contexto `SYSTEM`. O motor comum não deve ser alterado por cliente. As diferenças ficam somente em `config\Client.ps1`.

@@ -1,46 +1,26 @@
-# Pacote base validado
+# Pacote base
 
-Este diretório representa a origem comum do produto **BKPCloud Zabbix Windows**.
+Esta pasta contém a origem comum do **BKPCloud Zabbix Windows 1.0.7**.
 
-Não recrie o motor a partir de logs, trechos ou exemplos. Deve ser colocada aqui somente uma versão completa que já tenha sido validada em servidor piloto.
+Ela não deve ser copiada diretamente para o NETLOGON porque:
 
-## Estrutura esperada
+- `config\Client.ps1` é um bloqueio de segurança, sem dados reais;
+- o motor principal e o script Veeam ficam versionados em `.parts`;
+- o MSI é baixado e validado durante a geração.
 
-```text
-Install-BKPCloud-Zabbix-Windows.ps1
-Apply-Zabbix-GPO.cmd
-Apply-Zabbix-Now.cmd
-Diagnose-Zabbix.cmd
-VERSION.txt
-MANIFEST.sha256
-config/
-├── Product.ps1
-└── Client.ps1
-modules/
-├── CORE/
-├── ADDS/
-├── HYPERV/
-├── TOTVS/
-├── VEEAM/
-└── SQL/
-zabbix_agent-<versao>-windows-amd64-openssl.msi
+Para criar um pacote completo:
+
+```powershell
+..\tools\New-BKPCloud-Zabbix-Client.ps1 `
+  -OutputRoot "C:\BKPCloud\Clientes"
 ```
 
-## Regra do produto
+O gerador:
 
-- o motor e o `config\Product.ps1` são iguais para todos os clientes;
-- todos os arquivos comuns `.ps1` e `.conf` pertencem ao produto;
-- a detecção de função determina identidade, metadata e uso dos módulos, não cria um instalador diferente;
-- somente `config\Client.ps1` muda por cliente;
-- o gerador copia o pacote base e substitui o perfil do cliente;
-- nenhuma senha ou credencial deve ser armazenada no pacote.
-
-## Antes de promover uma versão
-
-1. validar hashes e manifesto;
-2. testar modo diagnóstico;
-3. testar instalação limpa;
-4. testar atualização sobre versão anterior;
-5. confirmar rollback e backup;
-6. validar Windows comum, ADDS, Hyper-V, TOTVS, Veeam e SQL conforme o escopo;
-7. registrar versão e changelog.
+1. copia a base;
+2. reconstrói os arquivos grandes com `Restore-SplitFiles.ps1`;
+3. cria o perfil real do cliente;
+4. baixa e valida o MSI 7.0.28;
+5. gera o manifesto;
+6. valida o pacote;
+7. entrega a pasta e o ZIP finais.

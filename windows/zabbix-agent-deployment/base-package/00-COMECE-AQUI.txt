@@ -1,0 +1,12 @@
+BKPCloud Zabbix Windows 1.0.7
+
+ESTA E A BASE GENERICA DO PRODUTO.
+NAO COPIE ESTA PASTA DIRETAMENTE PARA O NETLOGON.
+
+1. Execute tools\New-BKPCloud-Zabbix-Client.ps1.
+2. Informe os dados do cliente.
+3. O gerador baixa e valida o MSI 7.0.28, cria config\Client.ps1,
+   gera o manifesto e entrega uma pasta e um ZIP completos.
+4. Rode Diagnose-Zabbix.cmd em um servidor piloto.
+5. Somente depois rode Apply-Zabbix-Now.cmd.
+6. Publique o pacote aprovado em \\DOMINIO\NETLOGON\SCRIPTS\ZBX.

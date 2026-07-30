@@ -1,0 +1,144 @@
+r "Name='$safe'" -ErrorAction Stop).PathName
+        }
+        return (Get-WmiObject Win32_Service -Filter "Name='$safe'" -ErrorAction Stop).PathName
+    }
+    catch { return $null }
+}
+
+function Get-ServiceStartMode {
+    param([string]$ServiceName)
+    try {
+        $safe = $ServiceName.Replace("'", "''")
+        if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+            return [string](Get-CimInstance Win32_Service -Filter "Name='$safe'" -ErrorAction Stop).StartMode
+        }
+        return [string](Get-WmiObject Win32_Service -Filter "Name='$safe'" -ErrorAction Stop).StartMode
+    }
+    catch { return "UNKNOWN" }
+}
+
+function Test-IsAdmin {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Get-SystemInfo {
+    if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+        $cs = Get-CimInstance Win32_ComputerSystem
+        $os = Get-CimInstance Win32_OperatingSystem
+    }
+    else {
+        $cs = Get-WmiObject Win32_ComputerSystem
+        $os = Get-WmiObject Win32_OperatingSystem
+    }
+    return New-Object PSObject -Property @{
+        Domain      = ([string]$cs.Domain).ToLowerInvariant()
+        DomainRole  = [int]$cs.DomainRole
+        IsServer    = ($os.ProductType -eq 2 -or $os.ProductType -eq 3)
+        OsTag       = $(if ($os.ProductType -eq 2 -or $os.ProductType -eq 3) { "WIN_SERVER" } else { "WIN_WKS" })
+        Caption     = [string]$os.Caption
+    }
+}
+
+function Get-ClientProfile {
+    param([string]$Domain)
+    if ($null -eq $ClientProfile) { return $null }
+    foreach ($candidate in $ClientProfile.Domains) {
+        if ($Domain -eq ([string]$candidate).ToLowerInvariant()) { return $ClientProfile }
+    }
+    return $null
+}
+
+function ConvertTo-IPv4UInt32 {
+    param([string]$Ip)
+    $parts = $Ip.Split('.')
+    if ($parts.Count -ne 4) { return $null }
+    $values = @()
+    foreach ($part in $parts) {
+        $number = 0
+        if (-not [int]::TryParse($part, [ref]$number)) { return $null }
+        if ($number -lt 0 -or $number -gt 255) { return $null }
+        $values += $number
+    }
+    return [uint32](
+        ([uint64]$values[0] * 16777216) +
+        ([uint64]$values[1] * 65536) +
+        ([uint64]$values[2] * 256) +
+        ([uint64]$values[3])
+    )
+}
+
+function Test-IPv4InCidr {
+    param([string]$Ip, [string]$Network, [int]$Prefix)
+    $ipValue = ConvertTo-IPv4UInt32 $Ip
+    $networkValue = ConvertTo-IPv4UInt32 $Network
+    if ($null -eq $ipValue -or $null -eq $networkValue) { return $false }
+    if ($Prefix -eq 0) { $mask = [uint32]0 }
+    else { $mask = [uint32]([uint64]4294967296 - [uint64]([Math]::Pow(2, (32 - $Prefix)))) }
+    return (($ipValue -band $mask) -eq ($networkValue -band $mask))
+}
+
+function Get-LocalIPv4 {
+    $ips = @()
+    if (Get-Command Get-NetIPAddress -ErrorAction SilentlyContinue) {
+        $ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" -and ($_.AddressState -eq "Preferred" -or -not $_.AddressState) } |
+            Select-Object -ExpandProperty IPAddress -Unique)
+    }
+    if ($ips.Count -eq 0) {
+        $ips = @(Get-WmiObject Win32_NetworkAdapterConfiguration -Filter "IPEnabled = True" -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.IPAddress } |
+            Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' -and $_ -notlike "127.*" -and $_ -notlike "169.254.*" } |
+            Select-Object -Unique)
+    }
+    return $ips
+}
+
+function Get-NetworkSelection {
+    param($Profile, [string[]]$Ips, [bool]$IsExplicitHyperVNode)
+    $usableIps = @($Ips)
+    $ignored = @()
+    if ($IsExplicitHyperVNode) {
+        foreach ($ignoreIp in $Profile.IgnoredIpsForHyperV) {
+            if ($usableIps -contains $ignoreIp) { $ignored += $ignoreIp }
+        }
+        $usableIps = @($usableIps | Where-Object { $Profile.IgnoredIpsForHyperV -notcontains $_ })
+    }
+
+    $matchesFound = @()
+    foreach ($ip in $usableIps) {
+        foreach ($rule in $Profile.Networks) {
+            if (Test-IPv4InCidr -Ip $ip -Network $rule.Network -Prefix ([int]$rule.Prefix)) {
+                $ruleClass = ""
+                $ruleArea = ""
+                if ($rule.ContainsKey("Class")) { $ruleClass = [string]$rule.Class }
+                if ($rule.ContainsKey("Area")) { $ruleArea = [string]$rule.Area }
+                $matchesFound += New-Object PSObject -Property @{
+                    Ip=$ip; Network=$rule.Network; Prefix=[int]$rule.Prefix; Site=$rule.Site;
+                    GroupSite=$rule.GroupSite; Proxy=$rule.Proxy; Priority=[int]$rule.Priority;
+                    Class=$ruleClass; Area=$ruleArea
+                }
+            }
+        }
+    }
+    if ($matchesFound.Count -eq 0) {
+        return New-Object PSObject -Property @{ Ok=$false; Reason="Nenhum IP pertence as redes configuradas para o cliente."; Match=$null; Ignored=$ignored }
+    }
+    $identities = @($matchesFound | ForEach-Object { "$($_.Site)|$($_.GroupSite)|$($_.Proxy)" } | Select-Object -Unique)
+    if ($identities.Count -gt 1) {
+        return New-Object PSObject -Property @{ Ok=$false; Reason="Foram encontrados IPs validos apontando para sites/proxies diferentes."; Match=$null; Ignored=$ignored }
+    }
+    $selected = $matchesFound | Sort-Object @{Expression="Priority";Descending=$true}, @{Expression="Prefix";Descending=$true}, Ip | Select-Object -First 1
+    return New-Object PSObject -Property @{ Ok=$true; Reason=$null; Match=$selected; Ignored=$ignored }
+}
+
+function Get-WindowsServicesInventory {
+    try {
+        if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) { return @(Get-CimInstance Win32_Service -ErrorAction Stop) }
+        return @(Get-WmiObject Win32_Service -ErrorAction Stop)
+    }
+    catch { return @() }
+}
+
+function Test-TotvsDe

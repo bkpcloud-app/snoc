@@ -1,44 +1,27 @@
 # BKPCloud Zabbix Windows
 
-Produto para padronizar o deploy e a manutenção do Zabbix Agent em ambientes Windows com Active Directory.
+Produto para criar, instalar, atualizar e padronizar o Zabbix Agent clássico em ambientes Windows com Active Directory.
 
-## Objetivo
-
-Manter um único motor e uma única versão do produto para todos os clientes. Não deve existir um instalador diferente para Mizu, Plascar, Britta ou um cliente novo.
-
-O que muda por cliente fica somente em `config\Client.ps1`:
-
-- identificador e domínio;
-- escopo de servidores e estações;
-- padrão de hostname e metadata;
-- redes, sites, grupos e proxies;
-- nós e clusters Hyper-V;
-- IPs virtuais que devem ser ignorados;
-- exceções reais de módulos;
-- arquivos legados controlados durante migração.
-
-Todos os arquivos comuns `.ps1` e `.conf` pertencem ao mesmo produto. A detecção de função identifica `ADDS`, `HYPERV`, `TOTVS`, `VEEAM` e `SQL` para metadata e uso dos módulos; ela não cria pacotes diferentes.
-
-## Criar um cliente novo
-
-Execute no Windows PowerShell 5.1:
+## Começar um cliente novo com um único PowerShell
 
 ```powershell
-.\tools\New-BKPCloud-Zabbix-Client.ps1 `
-  -BasePackageRoot "C:\BKPCloud\Zabbix-Windows-Base" `
-  -OutputRoot "C:\BKPCloud\Clientes"
+Set-ExecutionPolicy -Scope Process Bypass -Force
+
+Invoke-WebRequest `
+  -Uri "https://raw.githubusercontent.com/bkpcloud-app/snoc/main/windows/zabbix-agent-deployment/tools/Bootstrap-New-BKPCloud-Zabbix-Client.ps1" `
+  -OutFile "$env:TEMP\Bootstrap-New-BKPCloud-Zabbix-Client.ps1"
+
+& "$env:TEMP\Bootstrap-New-BKPCloud-Zabbix-Client.ps1"
 ```
 
-O assistente pergunta os dados do cliente, gera `config\Client.ps1`, cria `client-definition.json`, copia o pacote base validado e entrega uma pasta e um ZIP por cliente.
+O assistente pergunta os dados técnicos do cliente, reconstrói o motor completo, baixa e valida o MSI oficial, gera `config\Client.ps1` e entrega uma pasta e um ZIP completos.
 
-Também é possível usar um JSON já revisado:
+## Versão base
 
-```powershell
-.\tools\New-BKPCloud-Zabbix-Client.ps1 `
-  -BasePackageRoot "C:\BKPCloud\Zabbix-Windows-Base" `
-  -OutputRoot "C:\BKPCloud\Clientes" `
-  -DefinitionFile ".\templates\client-definition.example.json"
-```
+- Produto: `1.0.7`;
+- Zabbix Agent clássico: `7.0.28`;
+- MSI: `zabbix_agent-7.0.28-windows-amd64-openssl.msi`;
+- SHA-256: `f1c7b960e2caecf5d53e31c6fc730397390d380e5293886b7821f73034639319`.
 
 ## Estrutura
 
@@ -46,36 +29,32 @@ Também é possível usar um JSON já revisado:
 windows/zabbix-agent-deployment/
 ├── README.md
 ├── base-package/
-│   └── README.md
+│   ├── .parts/                 fontes grandes versionadas em partes
+│   ├── config/
+│   ├── modules/
+│   └── wrappers CMD
 ├── docs/
-│   └── NEW-CLIENT.md
+│   ├── ARCHITECTURE.md
+│   ├── NEW-CLIENT.md
+│   └── SOURCE-PACKAGE.md
 ├── templates/
-│   ├── Client.example.ps1
-│   └── client-definition.example.json
 └── tools/
-    └── New-BKPCloud-Zabbix-Client.ps1
+    ├── Bootstrap-New-BKPCloud-Zabbix-Client.ps1
+    ├── New-BKPCloud-Zabbix-Client.ps1
+    ├── Restore-SplitFiles.ps1
+    ├── Get-Zabbix-Agent-MSI.ps1
+    ├── Build-Manifest.ps1
+    └── Test-BKPCloud-Zabbix-Package.ps1
 ```
 
-## Fluxo
+Durante a geração, `Restore-SplitFiles.ps1` reconstrói `Install-BKPCloud-Zabbix-Windows.ps1` e o coletor Veeam dentro do pacote final. A pasta `.parts` é removida da entrega.
 
-```text
-pacote base validado
-        +
-dados do novo cliente
-        ↓
-gerador de pacote
-        ↓
-diagnóstico em servidor piloto
-        ↓
-aplicação controlada
-        ↓
-publicação em NETLOGON\SCRIPTS\ZBX e GPO
-```
+## Regra do produto
 
-## Estado do pacote base
+O motor, os módulos e o `Product.ps1` são comuns. O que muda por cliente fica em `config\Client.ps1`.
 
-O repositório já contém o gerador, exemplos e manuais. O motor completo, módulos e MSI só devem ser adicionados quando forem obtidos da versão exata já validada. Não será recriado código de produção a partir de logs ou trechos incompletos.
+O pacote final deve ser validado em piloto antes de ser publicado em `NETLOGON\SCRIPTS\ZBX` e associado a uma GPO.
 
 ## Segurança
 
-Não guardar senhas, credenciais de domínio ou inventários reais. O perfil contém somente parâmetros técnicos necessários ao deploy.
+O repositório público não contém perfis de clientes reais, credenciais, tokens ou inventários internos.
