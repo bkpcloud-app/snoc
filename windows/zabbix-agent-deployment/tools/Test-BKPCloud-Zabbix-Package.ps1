@@ -55,6 +55,24 @@ if ($engineText -match [regex]::Escape('$classicPresent = ($null -ne $classicSer
     throw "Motor ainda usa a existencia da pasta classica como sinal permanente de migracao."
 }
 
+$classicDisplayNamePattern = '^Zabbix Agent(?: \((?:32|64)-bit\))?$'
+if ($engineText -notmatch [regex]::Escape($classicDisplayNamePattern)) {
+    throw "Motor nao possui filtro fechado para o MSI do Agent classico."
+}
+if ($engineText -match [regex]::Escape('$_.DisplayName -like "Zabbix Agent*"')) {
+    throw "Motor ainda usa filtro amplo que pode remover Zabbix Agent2 Plugins."
+}
+foreach ($classicName in @('Zabbix Agent','Zabbix Agent (32-bit)','Zabbix Agent (64-bit)')) {
+    if ($classicName -notmatch $classicDisplayNamePattern) {
+        throw "Filtro do Agent classico nao reconheceu: $classicName"
+    }
+}
+foreach ($protectedName in @('Zabbix Agent 2','Zabbix Agent 2 (64-bit)','Zabbix Agent2 Plugins','Zabbix Agent2 Plugins (64-bit)')) {
+    if ($protectedName -match $classicDisplayNamePattern) {
+        throw "Filtro do Agent classico capturou pacote protegido: $protectedName"
+    }
+}
+
 $legacyPath = 'C:\Program Files\Zabbix Agent\'
 $legacyReferences = @(
     Get-ChildItem -LiteralPath (Join-Path $PackageRoot 'modules') -Recurse -File -Include *.conf,*.ps1 |
