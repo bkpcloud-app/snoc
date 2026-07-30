@@ -13,9 +13,22 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\ClientProfile.ps1")
 
 function Copy-BasePackage([string]$Source,[string]$Destination) {
-    $required = @('config\Product.ps1','config\Client.ps1','Apply-Zabbix-Now.cmd','Apply-Zabbix-GPO.cmd','Diagnose-Zabbix.cmd','modules\CORE\includes\zabbix.conf','.parts')
+    $required = @(
+        'Install-BKPCloud-Zabbix-Windows.ps1',
+        'config\Product.ps1',
+        'config\Client.ps1',
+        'Apply-Zabbix-Now.cmd',
+        'Apply-Zabbix-GPO.cmd',
+        'Diagnose-Zabbix.cmd',
+        'modules\CORE\includes\zabbix.conf',
+        '.parts'
+    )
     if (-not (Test-Path -LiteralPath $Source)) { throw "Pacote base nao encontrado: $Source" }
-    foreach ($relative in $required) { if (-not (Test-Path -LiteralPath (Join-Path $Source $relative))) { throw "Pacote base incompleto: $relative" } }
+    foreach ($relative in $required) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Source $relative))) {
+            throw "Pacote base incompleto: $relative"
+        }
+    }
     Get-ChildItem -LiteralPath $Source -Force | Copy-Item -Destination $Destination -Recurse -Force
 }
 
@@ -56,14 +69,16 @@ if (-not $SkipMsiDownload) { Invoke-ProductTool 'Get-Zabbix-Agent-MSI.ps1' $dest
 Invoke-ProductTool 'Build-Manifest.ps1' $destination
 Invoke-ProductTool 'Test-BKPCloud-Zabbix-Package.ps1' $destination
 
+. (Join-Path $destination 'config\Product.ps1')
 $summary = @"
 # Pacote BKPCloud Zabbix Windows - $clientId
 
 Gerado em: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
 Dominios: $(@($definition.Domains) -join ', ')
-Produto: 1.0.7
-Agent: 7.0.28
+Produto: $($ProductConfig.ProductVersion)
+Agente: Zabbix Agent 2 $($ProductConfig.AgentVersion)
 
+Compatibilidade: Windows 10/11 64 bits ou Windows Server 2016 e superior.
 Validacao: revise config\Client.ps1, rode Diagnose-Zabbix.cmd e depois Apply-Zabbix-Now.cmd somente em piloto.
 "@
 [System.IO.File]::WriteAllText((Join-Path $destination 'README-CLIENTE.md'),$summary,(New-Object System.Text.UTF8Encoding($false)))
@@ -71,7 +86,7 @@ Invoke-ProductTool 'Build-Manifest.ps1' $destination
 
 if (-not (Test-Path -LiteralPath $OutputRoot)) { New-Item -Path $OutputRoot -ItemType Directory -Force | Out-Null }
 Compress-Archive -Path (Join-Path $destination '*') -DestinationPath $zipPath -CompressionLevel Optimal
-Write-Title 'PACOTE GERADO E VALIDADO'
+Write-Title 'PACOTE AGENT 2 GERADO E VALIDADO'
 Write-Host "Cliente : $clientId" -ForegroundColor Green
 Write-Host "Pasta   : $destination" -ForegroundColor Green
 Write-Host "ZIP     : $zipPath" -ForegroundColor Green
