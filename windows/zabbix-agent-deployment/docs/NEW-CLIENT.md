@@ -14,7 +14,15 @@ Invoke-WebRequest `
 & "$env:TEMP\Bootstrap-New-BKPCloud-Zabbix-Client.ps1"
 ```
 
-O bootstrap baixa a versão atual do repositório, chama o gerador, baixa o MSI oficial 7.0.28, valida o SHA-256 e entrega o ZIP final.
+O bootstrap baixa a versão atual do repositório, chama o gerador, baixa o MSI oficial do **Zabbix Agent 2 7.0.28**, valida o SHA-256 e entrega o ZIP final.
+
+## Compatibilidade obrigatória
+
+- Windows 10/11 64 bits;
+- Windows Server 2016 ou superior;
+- Windows PowerShell 5.1.
+
+Máquinas incompatíveis são interrompidas antes de qualquer alteração.
 
 ## Executar diretamente após clonar o repositório
 
@@ -50,7 +58,7 @@ C:\BKPCloud\Clientes\BKPCloud-Zabbix-Windows-CLIENTE\
 C:\BKPCloud\Clientes\BKPCloud-Zabbix-Windows-CLIENTE.zip
 ```
 
-A entrega contém o motor, módulos, MSI, perfil do cliente, definição JSON, manifesto SHA-256 e documentação.
+A entrega contém o motor Agent 2, módulos, MSI, perfil do cliente, definição JSON, manifesto SHA-256 e documentação.
 
 ## Validação obrigatória
 
@@ -58,11 +66,13 @@ A entrega contém o motor, módulos, MSI, perfil do cliente, definição JSON, m
 Diagnose-Zabbix.cmd
 ```
 
-Confirme domínio, IP selecionado, site, proxy, hostname, metadata, role, cluster e módulos. Depois aplique somente em piloto:
+Confirme domínio, sistema operacional, IP selecionado, site, proxy, hostname, metadata, role, cluster, módulos, versão detectada e presença do Agent clássico. Depois aplique somente em piloto:
 
 ```cmd
 Apply-Zabbix-Now.cmd
 ```
+
+Na migração, o Agent clássico só é removido depois que o Agent 2 passa na validação de configuração, item local, versão e serviço.
 
 Somente após o piloto copie para:
 

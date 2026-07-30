@@ -14,7 +14,9 @@ function ConvertTo-ClientPs1 {
     $lines.Add(('    StripClientPrefix     = ${0}' -f ([bool]$Definition.StripClientPrefix).ToString().ToLowerInvariant()))
     $lines.Add('')
     $lines.Add('    Networks = @(')
-    foreach ($network in $Definition.Networks) {
+    $networks = @($Definition.Networks)
+    for ($index = 0; $index -lt $networks.Count; $index++) {
+        $network = $networks[$index]
         $class = if ([string]::IsNullOrWhiteSpace([string]$network.Class)) { 'SERVER' } else { [string]$network.Class }
         $area = [string]$network.Area
         $parts = @(
@@ -23,7 +25,8 @@ function ConvertTo-ClientPs1 {
             ('Proxy="{0}"' -f (Escape-PsString $network.Proxy)),('Priority={0}' -f [int]$network.Priority),
             ('Class="{0}"' -f (Escape-PsString $class)),('Area="{0}"' -f (Escape-PsString $area))
         )
-        $lines.Add(('        @{{ {0} }},' -f ($parts -join '; ')))
+        $suffix = if ($index -lt ($networks.Count - 1)) { ',' } else { '' }
+        $lines.Add(('        @{{ {0} }}{1}' -f ($parts -join '; '),$suffix))
     }
     $lines.Add('    )')
     $lines.Add('')

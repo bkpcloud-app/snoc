@@ -1,0 +1,128 @@
+name: Validate Zabbix Agent 2 Windows product
+
+on:
+  pull_request:
+    paths:
+      - "windows/zabbix-agent-deployment/**"
+      - ".github/workflows/zabbix-agent2-windows-product.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-agent2-package:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Parse all PowerShell sources
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $parseErrors = @()
+
+          Get-ChildItem "windows\zabbix-agent-deployment" -Recurse -File -Filter *.ps1 | ForEach-Object {
+              $tokens = $null
+              $syntaxErrors = $null
+              [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$syntaxErrors) | Out-Null
+              foreach ($parseError in @($syntaxErrors)) {
+                  $parseErrors += "$($_.FullName): $($parseError.Message)"
+              }
+          }
+
+          if ($parseErrors.Count -gt 0) {
+              throw "PowerShell syntax errors:`r`n$($parseErrors -join "`r`n")"
+          }
+
+      - name: Test generated client profile and empty optional fields
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          . (Resolve-Path "windows\zabbix-agent-deployment\tools\lib\Common.ps1")
+          . (Resolve-Path "windows\zabbix-agent-deployment\tools\lib\ClientProfile.ps1")
+
+          $definition = [pscustomobject][ordered]@{
+              SchemaVersion = 2
+              ClientId = "TEST"
+              Domains = @("test.local")
+              ServersOnly = $true
+              HostnamePattern = "SRV-{CLIENT}-{COMPUTER}"
+              MetadataPrefixPattern = "{CLIENT}-{SITE}"
+              StripServerPrefix = $false
+              StripClientPrefix = $false
+              Networks = @(
+                  [pscustomobject][ordered]@{
+                      Network = "10.0.0.0"
+                      Prefix = 24
+                      Site = "TEST"
+                      GroupSite = "TEST"
+                      Proxy = "SNOC-TEST"
+                      Priority = 100
+                      Class = "SERVER"
+                      Area = ""
+                  }
+              )
+              HyperVNodes = [ordered]@{}
+              IgnoredIpsForHyperV = @()
+              LegacyManagedFiles = @()
+          }
+
+          $result = Initialize-DefinitionDefaults $definition
+          Test-Definition $result
+
+          foreach ($propertyName in @("HyperVNodes", "IgnoredIpsForHyperV", "LegacyManagedFiles")) {
+              if ($null -eq $result.PSObject.Properties[$propertyName]) {
+                  throw "Expected property was removed: $propertyName"
+              }
+          }
+
+          if (@($result.IgnoredIpsForHyperV).Count -ne 0) {
+              throw "IgnoredIpsForHyperV must remain empty."
+          }
+          if (@($result.LegacyManagedFiles).Count -ne 0) {
+              throw "LegacyManagedFiles must remain empty."
+          }
+
+          $generatedClient = ConvertTo-ClientPs1 $result
+          $generatedClientPath = Join-Path $env:RUNNER_TEMP "Client.generated.ps1"
+          [System.IO.File]::WriteAllText(
+              $generatedClientPath,
+              $generatedClient,
+              (New-Object System.Text.UTF8Encoding($false))
+          )
+
+          $tokens = $null
+          $syntaxErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+              $generatedClientPath,
+              [ref]$tokens,
+              [ref]$syntaxErrors
+          ) | Out-Null
+
+          if (@($syntaxErrors).Count -gt 0) {
+              throw "Generated Client.ps1 syntax errors:`r`n$(@($syntaxErrors | ForEach-Object Message) -join "`r`n")"
+          }
+
+          Write-Host "Generated client profile regression test passed." -ForegroundColor Green
+
+      - name: Build and validate base Agent 2 package
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $productRoot = Resolve-Path "windows\zabbix-agent-deployment"
+          $packageRoot = Join-Path $env:RUNNER_TEMP "BKPCloud-Zabbix-Agent2-Base"
+
+          if (Test-Path -LiteralPath $packageRoot) {
+              Remove-Item -LiteralPath $packageRoot -Recurse -Force
+          }
+          New-Item -Path $packageRoot -ItemType Directory -Force | Out-Null
+          Copy-Item -Path (Join-Path $productRoot "base-package\*") -Destination $packageRoot -Recurse -Force
+
+          & (Join-Path $productRoot "tools\Restore-SplitFiles.ps1") -PackageRoot $packageRoot -RemoveParts
+          & (Join-Path $productRoot "tools\Get-Zabbix-Agent-MSI.ps1") -PackageRoot $packageRoot
+          & (Join-Path $productRoot "tools\Test-BKPCloud-Zabbix-Package.ps1") -PackageRoot $packageRoot -AllowBasePackage
+
+          Write-Host "Agent 2 package validated on Windows runner." -ForegroundColor Green

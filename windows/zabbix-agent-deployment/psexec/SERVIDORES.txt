@@ -1,0 +1,3 @@
+# Um servidor por linha.
+# Linhas iniciadas com # sao ignoradas.
+# SV-DBS-BRASA03

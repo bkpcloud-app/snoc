@@ -132,7 +132,12 @@ function Initialize-DefinitionDefaults {
         StripClientPrefix=$false; HyperVNodes=([ordered]@{}); IgnoredIpsForHyperV=@(); LegacyManagedFiles=@()
     }
     foreach ($name in $defaults.Keys) {
-        if ($null -eq $Definition.$name) { $Definition | Add-Member -NotePropertyName $name -NotePropertyValue $defaults[$name] }
+        $property = $Definition.PSObject.Properties[$name]
+        if ($null -eq $property) {
+            $Definition | Add-Member -NotePropertyName $name -NotePropertyValue $defaults[$name]
+        } elseif ($null -eq $property.Value) {
+            $property.Value = $defaults[$name]
+        }
     }
     return $Definition
 }

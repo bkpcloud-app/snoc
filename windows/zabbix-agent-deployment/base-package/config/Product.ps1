@@ -3,24 +3,27 @@
 
 $ProductConfig = @{
     ProductName       = "BKPCloud Zabbix Windows"
-    ProductVersion    = "1.0.7"
+    ProductVersion    = "2.0.0"
 
+    AgentFamily       = "AGENT2"
     AgentVersion      = "7.0.28"
-    AgentMsiFile      = "zabbix_agent-7.0.28-windows-amd64-openssl.msi"
-    AgentMsiSha256    = "F1C7B960E2CAECF5D53E31C6FC730397390D380E5293886B7821F73034639319"
-    AgentDownloadUrl  = "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.28/zabbix_agent-7.0.28-windows-amd64-openssl.msi"
+    AgentMsiFile      = "zabbix_agent2-7.0.28-windows-amd64-openssl.msi"
+    AgentMsiSha256    = "FB4B0BABF413FF374BCB681B8132EF77B84425499F96CCDCC5C3486CC405739D"
+    AgentDownloadUrl  = "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.28/zabbix_agent2-7.0.28-windows-amd64-openssl.msi"
 
-    InstallDirectory  = "C:\Program Files\Zabbix Agent"
-    StateDirectory    = "C:\ProgramData\BKPCloud\Zabbix"
+    AgentServiceName        = "Zabbix Agent 2"
+    ClassicServiceName      = "Zabbix Agent"
+    InstallDirectory        = "C:\Program Files\Zabbix Agent 2"
+    ClassicInstallDirectory = "C:\Program Files\Zabbix Agent"
+    StateDirectory          = "C:\ProgramData\BKPCloud\Zabbix"
 
     ListenPort        = 10050
-    StartAgents       = 3
     Timeout           = 30
     DebugLevel        = 3
     LogFileSize       = 10
 
-    DisableAgent2     = $true
-    AllowSystemRun    = $true
+    RemoveClassicAgent   = $true
+    AllowSystemRun       = $true
     UnsafeUserParameters = $true
 
     NoAutomaticDowngrade = $true
