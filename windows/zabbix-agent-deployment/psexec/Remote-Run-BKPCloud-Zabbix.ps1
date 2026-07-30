@@ -62,7 +62,7 @@ Write-Step "Produto: $($ProductConfig.ProductVersion) / Agent 2: $($ProductConfi
 $CommandName = if ($Mode -eq 'Apply') { 'Apply-Zabbix-Now.cmd' } else { 'Diagnose-Zabbix.cmd' }
 $CommandPath = Join-Path $ExtractRoot $CommandName
 
-Write-Step "Executando modo $Mode: $CommandPath"
+Write-Step "Executando modo ${Mode}: $CommandPath"
 & $env:ComSpec /d /c $CommandPath
 $ExitCode = $LASTEXITCODE
 
