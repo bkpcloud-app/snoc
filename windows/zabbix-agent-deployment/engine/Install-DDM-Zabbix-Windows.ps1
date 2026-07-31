@@ -128,12 +128,10 @@ function Get-DDMTargetAgent {
 
     if (-not $SystemInfo.Is64Bit) { throw 'Este produto exige Windows 64 bits.' }
 
-    # Windows Server 2008 (6.0) e 2008 R2 (6.1): fluxo legado Agent 1.
     if ($SystemInfo.IsServer -and $SystemInfo.Version.Major -eq 6 -and $SystemInfo.Version.Minor -le 1) {
         return 'AGENT1'
     }
 
-    # Windows Server 2012/2012 R2 (6.2/6.3): excecao operacional DDM para Agent 2.
     $IsServer2012 = $SystemInfo.IsServer -and $SystemInfo.Version.Major -eq 6 -and $SystemInfo.Version.Minor -ge 2
     $IsModernServer = $SystemInfo.IsServer -and $SystemInfo.Version.Major -ge 10
     $IsModernClient = (-not $SystemInfo.IsServer) -and $SystemInfo.Version.Major -ge 10
@@ -212,7 +210,7 @@ function Test-DDMAuthenticode {
         throw "Assinatura digital invalida em $Path. Status: $($Signature.Status)."
     }
     $Subject = [string]$Signature.SignerCertificate.Subject
-    if ($Subject -notmatch '(?i)Zabbix') { throw "Assinante inesperado em $Path: $Subject" }
+    if ($Subject -notmatch '(?i)Zabbix') { throw "Assinante inesperado em ${Path}: $Subject" }
 }
 
 function Resolve-DDMArtifact {
