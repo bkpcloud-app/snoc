@@ -1,0 +1,73 @@
+name: Validate DDM Zabbix Windows
+
+on:
+  pull_request:
+    paths:
+      - 'windows/zabbix-agent-deployment/**'
+      - '.github/workflows/ddm-zabbix-windows-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate PowerShell syntax
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Root = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $Files = @(
+            Join-Path $Root 'Start-DDM-Zabbix.ps1'
+            Join-Path $Root 'config\DDM-Product.ps1'
+            Join-Path $Root 'engine\Install-DDM-Zabbix-Windows.ps1'
+            Join-Path $Root 'tools\Prepare-DDM-OfflinePackage.ps1'
+            Join-Path $Root 'templates\client-profile.example.ps1'
+            Join-Path $Root 'templates\client-identity.example.ps1'
+          )
+
+          foreach ($File in $Files) {
+            if (-not (Test-Path -LiteralPath $File)) { throw "Arquivo ausente: $File" }
+            $Tokens = $null
+            $Errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $File,
+              [ref]$Tokens,
+              [ref]$Errors
+            )
+            if ($Errors.Count -gt 0) {
+              $Errors | ForEach-Object { Write-Error "$File :: $($_.Message) :: $($_.Extent.Text)" }
+              throw "Falha de sintaxe: $File"
+            }
+            Write-Host "OK: $File"
+          }
+
+      - name: Validate public catalog
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Path = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\catalog\clients.public.json'
+          $Catalog = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+          if ($Catalog.SchemaVersion -ne 1) { throw 'SchemaVersion invalido.' }
+
+          $Ids = @($Catalog.Clients | ForEach-Object { $_.Id })
+          if ($Ids -notcontains 'BRASANITAS') { throw 'BRASANITAS ausente.' }
+          if ($Ids -notcontains 'AGL') { throw 'AGL ausente.' }
+
+          $Aliases = @($Catalog.Clients | ForEach-Object { $_.Aliases } | ForEach-Object { $_.ToUpperInvariant() })
+          foreach ($Required in @('BRA','BRASANITAS','MIZU','AGL')) {
+            if ($Aliases -notcontains $Required) { throw "Alias ausente: $Required" }
+          }
+
+      - name: Run safe diagnose with example profile
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Root = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          & (Join-Path $Root 'engine\Install-DDM-Zabbix-Windows.ps1') `
+            -Mode Diagnose `
+            -ProfilePath (Join-Path $Root 'templates\client-profile.example.ps1') `
+            -IdentityPath (Join-Path $Root 'templates\client-identity.example.ps1')
+          if ($LASTEXITCODE -ne 0) { throw "Diagnostico retornou $LASTEXITCODE" }
