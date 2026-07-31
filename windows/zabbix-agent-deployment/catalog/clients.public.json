@@ -1,0 +1,22 @@
+{
+  "SchemaVersion": 1,
+  "Product": "DDM Zabbix Windows",
+  "Clients": [
+    {
+      "Id": "BRASANITAS",
+      "DisplayName": "Brasanitas",
+      "Aliases": ["BRASANITAS", "BRA"],
+      "ProfileFile": "brasanitas.profile.ps1",
+      "IdentityFile": "brasanitas.identity.ps1",
+      "ProfileVisibility": "private"
+    },
+    {
+      "Id": "AGL",
+      "DisplayName": "Mizu / AGL",
+      "Aliases": ["MIZU", "AGL"],
+      "ProfileFile": "agl.profile.ps1",
+      "IdentityFile": "agl.identity.ps1",
+      "ProfileVisibility": "private"
+    }
+  ]
+}
