@@ -2,7 +2,9 @@
 $DDMClientProfile = @{
     SchemaVersion   = 1
     ClientId        = 'CLIENTE'
-    AcceptedDomains = @('cliente.local')
+
+    # Vazio apenas para testes publicos. Perfis reais devem listar os dominios aceitos.
+    AcceptedDomains = @()
     ServersOnly     = $true
     DefaultSite     = 'DC'
     Proxy           = '192.0.2.10'
