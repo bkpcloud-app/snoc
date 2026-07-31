@@ -81,7 +81,7 @@ if ((Test-Path -LiteralPath $PackageRoot) -or (Test-Path -LiteralPath $ZipPath))
 }
 
 New-Item -Path $PackageRoot -ItemType Directory -Force | Out-Null
-foreach ($Directory in @('catalog','config','engine','tools','clients','artifacts','modules')) {
+foreach ($Directory in @('catalog','config','engine','clients','artifacts','modules')) {
     New-Item -Path (Join-Path $PackageRoot $Directory) -ItemType Directory -Force | Out-Null
 }
 
@@ -98,10 +98,12 @@ if (Test-Path -LiteralPath $SourceModules) {
     Get-ChildItem -LiteralPath $SourceModules -Force | Copy-Item -Destination (Join-Path $PackageRoot 'modules') -Recurse -Force
 }
 
+$ProfileName = Split-Path -Leaf $ProfilePath
+$IdentityName = Split-Path -Leaf $IdentityPath
 $ClientRoot = Join-Path $PackageRoot ("clients\{0}" -f $SafeClient)
 New-Item -Path $ClientRoot -ItemType Directory -Force | Out-Null
-Copy-Item -LiteralPath $ProfilePath -Destination (Join-Path $ClientRoot (Split-Path -Leaf $ProfilePath)) -Force
-Copy-Item -LiteralPath $IdentityPath -Destination (Join-Path $ClientRoot (Split-Path -Leaf $IdentityPath)) -Force
+Copy-Item -LiteralPath $ProfilePath -Destination (Join-Path $ClientRoot $ProfileName) -Force
+Copy-Item -LiteralPath $IdentityPath -Destination (Join-Path $ClientRoot $IdentityName) -Force
 
 $Artifacts = @(
     @{ File=$DDMProduct.Agent2File; Url=$DDMProduct.Agent2Url; Sha='' },
@@ -122,14 +124,14 @@ $DiagnoseCmd = @"
 @echo off
 setlocal
 cd /d "%~dp0"
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Start-DDM-Zabbix.ps1" -Client "$SafeClient" -Action Diagnose -ProfileRoot "%~dp0clients" -ArtifactsRoot "%~dp0artifacts"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0engine\Install-DDM-Zabbix-Windows.ps1" -Mode Diagnose -ProfilePath "%~dp0clients\$SafeClient\$ProfileName" -IdentityPath "%~dp0clients\$SafeClient\$IdentityName" -ArtifactsRoot "%~dp0artifacts"
 exit /b %ERRORLEVEL%
 "@
 $InstallCmd = @"
 @echo off
 setlocal
 cd /d "%~dp0"
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Start-DDM-Zabbix.ps1" -Client "$SafeClient" -Action Apply -ProfileRoot "%~dp0clients" -ArtifactsRoot "%~dp0artifacts"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0engine\Install-DDM-Zabbix-Windows.ps1" -Mode Apply -ProfilePath "%~dp0clients\$SafeClient\$ProfileName" -IdentityPath "%~dp0clients\$SafeClient\$IdentityName" -ArtifactsRoot "%~dp0artifacts"
 exit /b %ERRORLEVEL%
 "@
 [System.IO.File]::WriteAllText((Join-Path $PackageRoot '01-DIAGNOSTICAR.cmd'),$DiagnoseCmd,[System.Text.Encoding]::ASCII)
@@ -146,6 +148,8 @@ Agent: $($DDMProduct.AgentVersion)
 2. Confira cliente, hostname, proxy, agente alvo e modulos.
 3. Execute 02-INSTALAR.cmd como administrador somente apos o diagnostico correto.
 
+O executor offline usa o motor compativel com PowerShell 2.0 ou superior.
+O seletor Start-DDM-Zabbix.ps1 e usado apenas na maquina administrativa.
 Este pacote foi preparado a partir do produto oficial versionado no GitHub.
 Os servidores do cliente nao precisam acessar a internet.
 "@
