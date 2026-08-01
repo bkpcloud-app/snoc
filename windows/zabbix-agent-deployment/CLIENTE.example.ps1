@@ -7,7 +7,7 @@ $DDMClient = @{
     DisplayName          = 'Cliente de exemplo'
     Status               = 'DRAFT'
     ProductionReady      = $false
-    MinimumEngineVersion = '2.0.0'
+    MinimumEngineVersion = '2.0.2'
     ProductTag           = 'DDMSNOCWIN'
     Blockers              = @('Preencher e aprovar os dados reais do ambiente.')
 
