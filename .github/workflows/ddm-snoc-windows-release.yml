@@ -13,7 +13,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build immutable asset
+
+      - name: Validate tag and clean production tree
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
@@ -21,22 +22,49 @@ jobs:
           . (Join-Path $Product 'config\DDM-Product.ps1')
           $ExpectedTag='ddm-snoc-windows-v' + $DDMProduct.ProductVersion
           if ($env:GITHUB_REF_NAME -ne $ExpectedTag) { throw "Tag $env:GITHUB_REF_NAME nao corresponde a $ExpectedTag" }
+          foreach($Legacy in @('base-package','templates\Client.example.ps1','templates\client-definition.example.json','tools\New-BKPCloud-Zabbix-Client.ps1','tools\Bootstrap-New-BKPCloud-Zabbix-Client.ps1')) {
+            if(Test-Path (Join-Path $Product $Legacy)){ throw "Arquivo legado presente na arvore de producao: $Legacy" }
+          }
+          if(-not(Test-Path (Join-Path $Product 'modules'))){throw 'Pasta modules ausente.'}
+
+      - name: Build motor and AD seed assets
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          . (Join-Path $Product 'config\DDM-Product.ps1')
           $Dist=Join-Path $env:GITHUB_WORKSPACE 'dist'
-          $Folder=Join-Path $Dist ('DDM-SNOC-WINDOWS-' + $DDMProduct.ProductVersion)
-          New-Item $Dist -ItemType Directory -Force | Out-Null
-          New-Item $Folder -ItemType Directory -Force | Out-Null
-          foreach($Name in @('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','README.md','CHANGELOG.md')){ $P=Join-Path $Product $Name; if(Test-Path $P){Copy-Item $P (Join-Path $Folder $Name) -Force} }
-          foreach($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')){ $P=Join-Path $Product $Name; if(Test-Path $P){Copy-Item $P (Join-Path $Folder $Name) -Recurse -Force} }
-          if(-not(Test-Path (Join-Path $Folder 'modules'))){$Legacy=Join-Path $Product 'base-package\modules'; if(Test-Path $Legacy){Copy-Item $Legacy (Join-Path $Folder 'modules') -Recurse -Force}else{New-Item (Join-Path $Folder 'modules') -ItemType Directory -Force|Out-Null}}
-          $Zip=Join-Path $Dist ('DDM-SNOC-WINDOWS-' + $DDMProduct.ProductVersion + '.zip')
-          Compress-Archive -Path $Folder -DestinationPath $Zip -CompressionLevel Optimal
-          $Hash=(Get-FileHash $Zip -Algorithm SHA256).Hash
-          Set-Content -LiteralPath ($Zip + '.sha256') -Value ($Hash + ' *' + (Split-Path -Leaf $Zip)) -Encoding ASCII
+          $Motor=Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-' + $DDMProduct.ProductVersion)
+          $Seed=Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-' + $DDMProduct.ProductVersion)
+          New-Item $Motor,$Seed -ItemType Directory -Force | Out-Null
+          foreach($Name in @('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','README.md','CHANGELOG.md')){Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Force}
+          foreach($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')){Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Recurse -Force}
+
+          Copy-Item (Join-Path $Product 'templates\central\ATUALIZAR-AD.cmd') (Join-Path $Seed 'ATUALIZAR-AD.cmd') -Force
+          Copy-Item (Join-Path $Product 'CLIENTE.example.ps1') (Join-Path $Seed 'CLIENTE.example.ps1') -Force
+          Copy-Item (Join-Path $Product 'docs\UPDATE-AD.md') (Join-Path $Seed 'LEIA-ME-UPDATE-AD.md') -Force
+          $Updater=Join-Path $Seed 'CENTRAL-UPDATER'
+          foreach($Rel in @('central\Update-DDM-SNOC-Central.ps1','central\lib\DDM-Central-Client.ps1','central\lib\DDM-Central-Supply.ps1','central\lib\Invoke-DDM-Central-Publish.ps1','config\DDM-Product.ps1','lib\DDM-Common.ps1')){
+            $Source=Join-Path $Product $Rel; $Destination=Join-Path $Updater $Rel; New-Item (Split-Path -Parent $Destination) -ItemType Directory -Force | Out-Null; Copy-Item $Source $Destination -Force
+          }
+          foreach($Root in @($Motor,$Seed)){
+            if(Get-ChildItem $Root -Recurse -Force | Where-Object {$_.FullName -match '\\base-package\\|\\\.parts\\|New-BKPCloud-Zabbix-Client'}){throw "Conteudo legado no asset: $Root"}
+          }
+          $MotorZip=Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-' + $DDMProduct.ProductVersion + '.zip')
+          $SeedZip=Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-' + $DDMProduct.ProductVersion + '.zip')
+          Compress-Archive -Path $Motor -DestinationPath $MotorZip -CompressionLevel Optimal
+          Compress-Archive -Path (Join-Path $Seed '*') -DestinationPath $SeedZip -CompressionLevel Optimal
+          foreach($Zip in @($MotorZip,$SeedZip)){
+            $Hash=(Get-FileHash $Zip -Algorithm SHA256).Hash
+            Set-Content -LiteralPath ($Zip + '.sha256') -Value ($Hash + ' *' + (Split-Path -Leaf $Zip)) -Encoding ASCII
+          }
+
       - name: Publish GitHub Release
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $Version=(Get-Content 'windows\zabbix-agent-deployment\config\DDM-Product.ps1' -Raw | Select-String "ProductVersion\s*=\s*'([^']+)'" -AllMatches).Matches[0].Groups[1].Value
-          $Zip="dist\DDM-SNOC-WINDOWS-$Version.zip"
-          gh release create $env:GITHUB_REF_NAME $Zip ($Zip + '.sha256') --verify-tag --generate-notes --title "DDM SNOC Windows $Version"
+          $Motor="dist\DDM-SNOC-WINDOWS-MOTOR-$Version.zip"
+          $Seed="dist\DDM-SNOC-WINDOWS-AD-SEED-$Version.zip"
+          gh release create $env:GITHUB_REF_NAME $Motor ($Motor + '.sha256') $Seed ($Seed + '.sha256') --verify-tag --generate-notes --title "DDM SNOC Windows $Version"

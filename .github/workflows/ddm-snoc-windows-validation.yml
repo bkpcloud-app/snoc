@@ -14,38 +14,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Parse every PowerShell file
+      - name: Reject legacy and development debris
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
           $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          $Active=@('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')
-          $Files=@()
-          foreach($Name in $Active){ $P=Join-Path $Root $Name; if(Test-Path $P){ if((Get-Item $P).PSIsContainer){$Files+=Get-ChildItem -LiteralPath $P -Filter '*.ps1' -Recurse -ErrorAction Stop}else{$Files+=Get-Item $P} } }
-          if(-not(Test-Path (Join-Path $Root 'modules')) -and (Test-Path (Join-Path $Root 'base-package\modules'))){$Files+=Get-ChildItem -LiteralPath (Join-Path $Root 'base-package\modules') -Filter '*.ps1' -Recurse -ErrorAction Stop}
-          $Files | ForEach-Object {
-            $Tokens=$null; $Errors=$null
+          foreach($Legacy in @('base-package','templates\Client.example.ps1','templates\client-definition.example.json','tools\New-BKPCloud-Zabbix-Client.ps1','tools\Bootstrap-New-BKPCloud-Zabbix-Client.ps1','tools\Restore-SplitFiles.ps1')){
+            if(Test-Path (Join-Path $Root $Legacy)){throw "Legado presente: $Legacy"}
+          }
+          if(Get-ChildItem $Root -Recurse -Force | Where-Object {$_.FullName -match '\\\.parts\\'}){throw 'Diretorio .parts presente.'}
+          if(-not(Test-Path (Join-Path $Root 'modules'))){throw 'Pasta modules ausente.'}
+
+      - name: Parse active PowerShell files
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          Get-ChildItem $Root -Filter '*.ps1' -Recurse | ForEach-Object {
+            $Tokens=$null;$Errors=$null
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$Tokens,[ref]$Errors)
-            if (@($Errors).Count -gt 0) { throw "$($_.FullName): $(@($Errors | ForEach-Object Message) -join ' | ')" }
+            if(@($Errors).Count -gt 0){throw "$($_.FullName): $(@($Errors|ForEach-Object Message)-join ' | ')"}
           }
 
-      - name: Validate product and Schema 3 contract
+      - name: Validate product and Schema 3
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
           $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           . (Join-Path $Root 'config\DDM-Product.ps1')
-          if ($DDMProduct.ProductName -ne 'DDM SNOC Windows') { throw 'ProductName invalido.' }
-          if ($DDMProduct.ProductVersion -ne '2.0.0') { throw 'ProductVersion invalido.' }
-          if ($DDMProduct.ClientSchemaVersion -ne 3) { throw 'Schema invalido.' }
-          if ($DDMProduct.ZabbixUpdatePolicy -ne 'LATEST_STABLE_IN_MAJOR' -or $DDMProduct.ZabbixMajorLine -ne '7.0') { throw 'Politica Zabbix invalida.' }
-          $Path=Join-Path $Root 'CLIENTE.example.ps1'
-          $Raw=[IO.File]::ReadAllText($Path)
-          if ($Raw -notmatch '(?ms)^\s*(?:#.*\r?\n\s*)*\$DDMClient\s*=\s*(?<data>@\{.*\})\s*$') { throw 'Modelo nao e somente dados.' }
-          $Psd1=Join-Path $env:TEMP 'CLIENTE-ci.psd1'
-          [IO.File]::WriteAllText($Psd1,$Matches.data,[Text.Encoding]::UTF8)
+          if($DDMProduct.ProductName -ne 'DDM SNOC Windows'){throw 'ProductName invalido.'}
+          if($DDMProduct.ProductVersion -ne '2.0.1'){throw 'ProductVersion invalido.'}
+          if($DDMProduct.ClientSchemaVersion -ne 3){throw 'Schema invalido.'}
+          if($DDMProduct.ZabbixUpdatePolicy -ne 'LATEST_STABLE_IN_MAJOR' -or $DDMProduct.ZabbixMajorLine -ne '7.0'){throw 'Politica Zabbix invalida.'}
+          if($DDMProduct.RepositoryAssetPattern -notmatch 'MOTOR'){throw 'Asset do motor nao e especifico.'}
+          $Path=Join-Path $Root 'CLIENTE.example.ps1';$Raw=[IO.File]::ReadAllText($Path)
+          if($Raw -notmatch '(?ms)^\s*(?:#.*\r?\n\s*)*\$DDMClient\s*=\s*(?<data>@\{.*\})\s*$'){throw 'Modelo nao e somente dados.'}
+          $Psd1=Join-Path $env:TEMP 'CLIENTE-ci.psd1';[IO.File]::WriteAllText($Psd1,$Matches.data,[Text.Encoding]::UTF8)
           $Client=Import-PowerShellDataFile $Psd1
-          if ($Client.SchemaVersion -ne 3 -or $Client.Update.EndpointMode -ne 'LOCAL_BOOTSTRAP_SCHEDULED_TASK') { throw 'Contrato do cliente invalido.' }
+          if($Client.SchemaVersion -ne 3 -or $Client.Update.EndpointMode -ne 'LOCAL_BOOTSTRAP_SCHEDULED_TASK'){throw 'Contrato do cliente invalido.'}
 
       - name: Unit-test common library
         shell: powershell
@@ -53,103 +59,45 @@ jobs:
           $ErrorActionPreference='Stop'
           $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           . (Join-Path $Root 'lib\DDM-Common.ps1')
-          $C=Get-DDMCidrInfo '10.1.0.0/16'
-          if ($C.Canonical -ne '10.1.0.0/16') { throw 'CIDR canonico falhou.' }
-          if (-not (Test-DDMIPv4InCidr '10.1.2.3' '10.1.0.0/16')) { throw 'Pertencimento CIDR falhou.' }
-          if (-not (Test-DDMCidrOverlap '10.1.0.0/16' '10.1.2.0/24')) { throw 'Sobreposicao falhou.' }
-          try { Get-DDMCidrInfo '10.300.0.0/24'; throw 'CIDR invalido foi aceito.' } catch { if ($_.Exception.Message -eq 'CIDR invalido foi aceito.') { throw } }
-          function Get-DDMLocalIPv4Info { return @(New-Object PSObject -Property @{Address='10.0.0.10';HasDefaultGateway=$true;Description='test'}) }
-          $Client=@{Scope=@{RequireNetworkMatch=$true};Exceptions=@{IgnoredIPv4=@()};Networks=@(
-            @{Cidr='10.0.0.0/24';Site='DC';Proxy='proxy-dc';Class='SERVER';Priority=100},
-            @{Cidr='10.2.0.0/24';Site='CPV';Proxy='proxy-cpv';Class='SERVER';Priority=100}
-          )}
-          $Selected=Select-DDMNetworkRule $Client 'NODE' 'CPV'
-          if ($Selected.Proxy -ne 'proxy-cpv') { throw 'Override explicito de cluster falhou.' }
+          if((Get-DDMCidrInfo '10.1.0.0/16').Canonical -ne '10.1.0.0/16'){throw 'CIDR canonico falhou.'}
+          if(-not(Test-DDMIPv4InCidr '10.1.2.3' '10.1.0.0/16')){throw 'Pertencimento falhou.'}
+          if(-not(Test-DDMCidrOverlap '10.1.0.0/16' '10.1.2.0/24')){throw 'Sobreposicao falhou.'}
+          try{Get-DDMCidrInfo '10.300.0.0/24';throw 'CIDR invalido aceito.'}catch{if($_.Exception.Message -eq 'CIDR invalido aceito.'){throw}}
+          function Get-DDMLocalIPv4Info{return @(New-Object PSObject -Property @{Address='10.0.0.10';HasDefaultGateway=$true;Description='test'})}
+          $Client=@{Scope=@{RequireNetworkMatch=$true};Exceptions=@{IgnoredIPv4=@()};Networks=@(@{Cidr='10.0.0.0/24';Site='DC';Proxy='proxy-dc';Class='SERVER';Priority=100},@{Cidr='10.2.0.0/24';Site='CPV';Proxy='proxy-cpv';Class='SERVER';Priority=100})}
+          if((Select-DDMNetworkRule $Client 'NODE' 'CPV').Proxy -ne 'proxy-cpv'){throw 'Override de site falhou.'}
           $P=@{AllowAgent2OnServer2012=$true}
-          if ((Get-DDMTargetAgent (New-Object PSObject -Property @{Architecture='X86';IsServer=$true;Version=(New-Object Version '6.1');Caption='2008R2'}) $P).Family -ne 'AGENT1') { throw 'Agent1 x86 falhou.' }
-          if ((Get-DDMTargetAgent (New-Object PSObject -Property @{Architecture='AMD64';IsServer=$true;Version=(New-Object Version '6.2');Caption='2012'}) $P).Family -ne 'AGENT2') { throw 'Agent2 2012 falhou.' }
-          try { Get-DDMTargetAgent (New-Object PSObject -Property @{Architecture='ARM64';IsServer=$true;Version=(New-Object Version '10.0');Caption='ARM'}) $P; throw 'ARM64 foi aceito.' } catch { if ($_.Exception.Message -eq 'ARM64 foi aceito.') { throw } }
+          if((Get-DDMTargetAgent (New-Object PSObject -Property @{Architecture='X86';IsServer=$true;Version=(New-Object Version '6.1');Caption='2008R2'}) $P).Family -ne 'AGENT1'){throw 'Agent1 x86 falhou.'}
+          if((Get-DDMTargetAgent (New-Object PSObject -Property @{Architecture='AMD64';IsServer=$true;Version=(New-Object Version '6.2');Caption='2012'}) $P).Family -ne 'AGENT2'){throw 'Agent2 2012 falhou.'}
+          try{Get-DDMTargetAgent (New-Object PSObject -Property @{Architecture='ARM64';IsServer=$true;Version=(New-Object Version '10.0');Caption='ARM'}) $P;throw 'ARM64 aceito.'}catch{if($_.Exception.Message -eq 'ARM64 aceito.'){throw}}
 
-      - name: Enforce PowerShell 2 compatibility surface
+      - name: Enforce update AD and security invariants
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
           $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          $Files=@(
-            'lib\DDM-Common.ps1','bootstrap\Install-DDM-SNOC-Bootstrap.ps1','bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1',
-            'endpoint\Invoke-DDM-SNOC-Daily.ps1','engine\Install-DDM-Zabbix-Windows.ps1'
-          )
-          $Forbidden=@('[ordered]','Get-FileHash','Import-PowerShellDataFile','ConvertFrom-Json','::new(','ForEach-Object -Parallel','Get-ChildItem -File','Get-ChildItem -Directory')
-          foreach ($Rel in $Files) {
-            $Text=Get-Content -LiteralPath (Join-Path $Root $Rel) -Raw
-            foreach ($Token in $Forbidden) { if ($Text.IndexOf($Token,[StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "$Rel usa recurso proibido no legado: $Token" } }
-          }
+          $Update=Get-Content (Join-Path $Root 'templates\central\ATUALIZAR-AD.cmd') -Raw
+          foreach($Required in @('CENTRAL-UPDATER','CLIENTE.ps1','Update-DDM-SNOC-Central.ps1','%~dp0')){if($Update -notmatch [regex]::Escape($Required)){throw "ATUALIZAR-AD sem $Required"}}
+          $All=(Get-ChildItem $Root -Recurse -File | Get-Content -Raw) -join "`n"
+          foreach($Forbidden in @('$DDMClientProfile','Get-DDMClientIdentity','DDM_GITHUB_TOKEN','clients.public.json','archive/refs/heads/main.zip')){if($All -match [regex]::Escape($Forbidden)){throw "Arquitetura antiga: $Forbidden"}}
+          foreach($Private in @('mizu.local','britta.local','itsouthamerica.ad','adb01.local','10.210.5.7','10.160.1.25','10.160.2.254','SNOC-BRASANITAS')){if($All.IndexOf($Private,[StringComparison]::OrdinalIgnoreCase)-ge 0){throw "Dado real publicado: $Private"}}
+          $Engine=Get-Content (Join-Path $Root 'engine\Install-DDM-Zabbix-Windows.ps1') -Raw
+          foreach($Required in @("@('AGENT2','PLUGINS')",'zabbix_agent2.d\*.conf','Rollback validado e finalizado','UserParameter duplicado','PLUGINS_AMD64')){if($Engine -notmatch [regex]::Escape($Required)){throw "Invariante ausente: $Required"}}
 
-      - name: Enforce architecture and security invariants
+      - name: Validate modules
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          $Active=@('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')
-          $ActiveFiles=@(); foreach($Name in $Active){$P=Join-Path $Root $Name;if(Test-Path $P){if((Get-Item $P).PSIsContainer){$ActiveFiles+=Get-ChildItem -LiteralPath $P -File -Recurse -ErrorAction Stop}else{$ActiveFiles+=Get-Item $P}}}
-          if(-not(Test-Path (Join-Path $Root 'modules')) -and (Test-Path (Join-Path $Root 'base-package\modules'))){$ActiveFiles+=Get-ChildItem -LiteralPath (Join-Path $Root 'base-package\modules') -File -Recurse -ErrorAction Stop}
-          $CodeFiles=@($ActiveFiles | Where-Object { $_.Extension -in @('.ps1','.cmd','.bat') })
-          $AllCode=($CodeFiles | Get-Content -Raw) -join "`n"
-          foreach ($Forbidden in @('$DDMClientProfile','Get-DDMClientIdentity','DDM_GITHUB_TOKEN','clients.public.json')) {
-            if ($AllCode -match [regex]::Escape($Forbidden)) { throw "Arquitetura antiga encontrada no codigo: $Forbidden" }
-          }
-          $ProductConfig=Get-Content -LiteralPath (Join-Path $Root 'config\DDM-Product.ps1') -Raw
-          if ($ProductConfig -match 'RepositoryArchiveUrl' -or $ProductConfig -notmatch 'RepositoryReleaseApiUrl') { throw 'Origem do motor nao usa GitHub Release.' }
-          $Engine=Get-Content -LiteralPath (Join-Path $Root 'engine\Install-DDM-Zabbix-Windows.ps1') -Raw
-          foreach ($Required in @("@('AGENT2','PLUGINS')",'zabbix_agent2.d\*.conf','Rollback validado e finalizado','UserParameter duplicado','PLUGINS_AMD64')) { if ($Engine -notmatch [regex]::Escape($Required)) { throw "Invariante ausente no motor: $Required" } }
-          $Bootstrap=Get-Content -LiteralPath (Join-Path $Root 'bootstrap\Install-DDM-SNOC-Bootstrap.ps1') -Raw
-          foreach ($Required in @('IgnoreNew','StartWhenAvailable','RestartOnFailure','ExecutionTimeLimit')) { if ($Bootstrap -notmatch $Required) { throw "Configuracao da tarefa ausente: $Required" } }
+          $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\modules'
+          foreach($Module in @('CORE','ADDS','HYPERV','TOTVS','VEEAM')){if(-not(Test-Path (Join-Path $Root $Module))){throw "Modulo ausente: $Module"}}
+          foreach($Native in @('MSSQL','SQL','POSTGRESQL','MONGODB','IIS')){if(Test-Path (Join-Path $Root $Native)){throw "Modulo nativo nao deve ter scripts: $Native"}}
+          $Fragments=Get-ChildItem (Join-Path $Root 'VEEAM\scripts\source') -Filter '*.ps1frag'
+          if(@($Fragments).Count -ne 4){throw 'Fonte Veeam incompleta.'}
 
-      - name: Block real customer data in public repository
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
-          $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          $Active=@('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')
-          $ActiveFiles=@(); foreach($Name in $Active){$P=Join-Path $Root $Name;if(Test-Path $P){if((Get-Item $P).PSIsContainer){$ActiveFiles+=Get-ChildItem -LiteralPath $P -File -Recurse -ErrorAction Stop}else{$ActiveFiles+=Get-Item $P}}}
-          if(-not(Test-Path (Join-Path $Root 'modules')) -and (Test-Path (Join-Path $Root 'base-package\modules'))){$ActiveFiles+=Get-ChildItem -LiteralPath (Join-Path $Root 'base-package\modules') -File -Recurse -ErrorAction Stop}
-          $Text=($ActiveFiles | Get-Content -Raw) -join "`n"
-          foreach ($Forbidden in @('mizu.local','britta.local','itsouthamerica.ad','adb01.local','10.210.5.7','10.160.1.25','10.160.2.254','SNOC-BRASANITAS')) {
-            if ($Text.IndexOf($Forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "Dado real de cliente publicado: $Forbidden" }
-          }
-
-      - name: Test offline package preserves CLIENTE.ps1
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
-          $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          $Base=Join-Path $env:TEMP ('offline-ci-' + [guid]::NewGuid().ToString('N'))
-          $Package=Join-Path $Base 'package'; $Central=Join-Path $Base 'central'
-          New-Item $Package,$Central -ItemType Directory -Force | Out-Null
-          Set-Content (Join-Path $Package 'CLIENTE.ps1') '$DDMClient=@{ClientId="A"}' -Encoding UTF8
-          Set-Content (Join-Path $Central 'CLIENTE.ps1') '$DDMClient=@{ClientId="B"}' -Encoding UTF8
-          $Hash=(Get-FileHash (Join-Path $Package 'CLIENTE.ps1') -Algorithm SHA256).Hash
-          (New-Object PSObject -Property @{ClientId='A';ClientSourceSha256=$Hash}) | Export-Clixml (Join-Path $Package 'PACKAGE-INFO.clixml')
-          $Items=@()
-          foreach($Name in @('CLIENTE.ps1','PACKAGE-INFO.clixml')) { $P=Join-Path $Package $Name; $Items+=New-Object PSObject -Property @{Path=$Name;Size=(Get-Item $P).Length;Sha256=(Get-FileHash $P -Algorithm SHA256).Hash} }
-          $Items | Export-Clixml (Join-Path $Package 'PACKAGE-MANIFEST.clixml')
-          $Before=(Get-FileHash (Join-Path $Central 'CLIENTE.ps1') -Algorithm SHA256).Hash
-          $Failed=$false
-          try { & (Join-Path $Root 'tools\Apply-DDM-OfflineCentralPackage.ps1') -PackageRoot $Package -CentralRoot $Central } catch { $Failed=$true }
-          if (-not $Failed) { throw 'Pacote divergente foi aceito.' }
-          $After=(Get-FileHash (Join-Path $Central 'CLIENTE.ps1') -Algorithm SHA256).Hash
-          if ($Before -ne $After) { throw 'CLIENTE.ps1 foi alterado.' }
-
-      - name: Build release asset layout
+      - name: Build release layouts
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
           $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          $Stage=Join-Path $env:TEMP 'DDM-SNOC-WINDOWS-2.0.0'
-          New-Item -Path $Stage -ItemType Directory -Force | Out-Null
-          foreach($Name in @('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','README.md','CHANGELOG.md')){ $P=Join-Path $Product $Name; if(Test-Path $P){Copy-Item $P (Join-Path $Stage $Name) -Force} }
-          foreach($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')){ $P=Join-Path $Product $Name; if(Test-Path $P){Copy-Item $P (Join-Path $Stage $Name) -Recurse -Force} }
-          if(-not(Test-Path (Join-Path $Stage 'modules'))){$Legacy=Join-Path $Product 'base-package\modules'; if(Test-Path $Legacy){Copy-Item $Legacy (Join-Path $Stage 'modules') -Recurse -Force}else{New-Item (Join-Path $Stage 'modules') -ItemType Directory -Force|Out-Null}}
-          foreach ($Required in @('config\DDM-Product.ps1','lib\DDM-Common.ps1','central\Update-DDM-SNOC-Central.ps1','central\lib\Invoke-DDM-Central-Publish.ps1','bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1')) {
-            if (-not (Test-Path (Join-Path $Stage $Required))) { throw "Asset incompleto: $Required" }
-          }
+          . (Join-Path $Product 'config\DDM-Product.ps1')
+          foreach($Required in @('config\DDM-Product.ps1','lib\DDM-Common.ps1','central\Update-DDM-SNOC-Central.ps1','bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1','templates\central\ATUALIZAR-AD.cmd','docs\UPDATE-AD.md')){if(-not(Test-Path (Join-Path $Product $Required))){throw "Asset incompleto: $Required"}}

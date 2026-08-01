@@ -1,63 +1,63 @@
 # DDM SNOC Windows
 
-Produto único para instalar, migrar, atualizar, reparar e manter o agente de monitoramento em Windows.
+Produto unico para instalar, migrar, atualizar, reparar e manter o agente de monitoramento em Windows.
 
 ## Arquitetura
 
 ```text
-GitHub Release imutável
-        ↓
-Servidor central do ambiente
-        ↓
+GitHub Release imutavel + CDN oficial Zabbix 7.0
+                    ↓
+maquina central executa ATUALIZAR-AD.cmd
+                    ↓
 MOTOR + ARTIFACTS + RELEASES + CURRENT.txt
-        ↓
-Bootstrap local executado como SYSTEM
-        ↓
-Cache local validado
-        ↓
-Agente e módulos
+                    ↓
+bootstrap local executado como SYSTEM
+                    ↓
+cache local validado
+                    ↓
+agente e modulos
 ```
 
-Cada ambiente possui um único arquivo local `CLIENTE.ps1`, no Schema 3 e somente com dados. O motor nunca cria nem substitui esse arquivo.
+Cada ambiente possui um unico `CLIENTE.ps1`, no Schema 3 e somente com dados. O motor nunca cria nem substitui esse arquivo.
 
-## Atualização do Zabbix
+## Update para o AD
 
-O servidor central consulta o diretório oficial do Zabbix e seleciona automaticamente o patch estável mais recente da linha `7.0`. O número resolvido é congelado na release central, junto com hashes e assinatura Authenticode dos MSIs.
+A primeira implantacao usa o asset `DDM-SNOC-WINDOWS-AD-SEED-<versao>.zip`. Depois disso, coloque `ATUALIZAR-AD.cmd` no Agendador de Tarefas da maquina central.
 
-- Server 2008/2008 R2: Agent 1, x86 ou AMD64 conforme o sistema.
-- Server 2012/2012 R2: Agent 2 AMD64 + pacote completo de plugins, como exceção operacional sujeita a piloto.
-- Server 2016+, Windows 10/11: Agent 2 AMD64 + pacote completo de plugins.
+O CMD:
 
-## Execução dos módulos
+- consulta a release mais nova do motor;
+- consulta o patch estavel mais novo da linha Zabbix 7.0;
+- baixa Agent 1 x86/AMD64, Agent 2 AMD64 e plugins;
+- valida digest, SHA-256, assinatura e cadeia do certificado;
+- publica por staging e altera `CURRENT.txt` somente no final;
+- preserva `CLIENTE.ps1`.
 
-Todos os módulos de scripts compatíveis são instalados. A existência dos arquivos não inicia coleta; o template vinculado no Zabbix decide o que será executado. MSSQL, PostgreSQL, MongoDB e IIS usam plugin ou template nativo e não recebem scripts externos do motor.
+Os endpoints nunca acessam GitHub ou CDN.
 
-## Segurança e confiabilidade
+## Sistemas
 
-- endpoints nunca acessam GitHub;
-- publicação por estágio, manifesto e marcador `READY`;
-- `CURRENT.txt` aponta para uma release completa, não apenas para uma versão do motor;
-- cache local usado mesmo quando a central está indisponível;
-- seleção de rede determinística e fail-closed;
-- MSI validado por SHA-256 e assinatura `Zabbix SIA`;
-- migração transacional, backup do cache MSI e rollback validado;
-- ACL local impede alteração dos scripts por usuários comuns;
-- `CLIENTE.ps1` rejeita comandos e campos de segredo;
-- tarefas locais usam `SYSTEM`, `IgnoreNew`, retry e limite de execução.
+- Server 2008/2008 R2: Agent 1, x86 ou AMD64 conforme o Windows.
+- Server 2012/2012 R2: Agent 2 AMD64 + plugins, como excecao operacional sujeita a piloto.
+- Server 2016+, Windows 10/11: Agent 2 AMD64 + plugins.
 
-`AllowKey=system.run[*]` e `UnsafeUserParameters=1` permanecem habilitados por decisão operacional. A proteção depende de ACL local, `Server`/`ServerActive` restritos e segurança do Zabbix Server/Proxy.
+## Modulos
+
+Todos os modulos locais compativeis ficam instalados. A coleta somente ocorre quando o template correspondente e vinculado no Zabbix.
+
+MSSQL, PostgreSQL, MongoDB e IIS usam plugin ou template nativo e nao recebem scripts externos do motor.
 
 ## Estrutura central
 
 ```text
 CLIENTE.ps1
+ATUALIZAR-AD.cmd
 CURRENT.txt
-MOTOR\<versão do motor>
-ARTIFACTS\<versão do Zabbix>
+MOTOR\<versao do motor>
+ARTIFACTS\<versao do Zabbix>
 RELEASES\<release completa>
 CENTRAL-UPDATER\
 BOOTSTRAP-INSTALL\
-ATUALIZAR-MOTOR.cmd
 INSTALAR-BOOTSTRAP.cmd
 DIAGNOSTICAR.cmd
 INSTALAR.cmd
@@ -65,8 +65,19 @@ REPARAR.cmd
 GPO-DIARIA.cmd
 ```
 
-## Estado de liberação
+## Seguranca
 
-Código validado em CI não substitui piloto real. Antes da implantação ampla, cada ambiente deve validar identidade, proxy, autorregistro, Agent 1/2, plugins, rollback e comportamento da tarefa local.
+- releases imutaveis;
+- publicacao transacional;
+- selecao de rede fail-closed;
+- MSI validado por hash e assinatura;
+- rollback validado;
+- ACL local restrita;
+- dados reais de clientes fora do repositorio;
+- `AllowKey=system.run[*]` mantido por decisao operacional, protegido por ACL e restricao de Server/ServerActive.
 
-Consulte os documentos em `docs/`.
+## Desenvolvimento e producao
+
+O trabalho ocorre em branch e pull request. Somente tags aprovadas geram releases de producao. Nao e necessario um segundo repositorio enquanto branch protection, CI e release por tag forem obrigatorios.
+
+Consulte `docs/UPDATE-AD.md`, `docs/ARQUITETURA.md`, `docs/SEGURANCA.md` e `docs/TESTES-E-LIBERACAO.md`.

@@ -1,17 +1,28 @@
-# Histórico
+# Historico
 
-## 2.0.0 — implementação candidata a piloto
+## 2.0.1 — update para o AD e higienizacao de producao
+
+- criado `ATUALIZAR-AD.cmd` para uso direto no Agendador de Tarefas;
+- criado asset AD-SEED para a primeira implantacao do atualizador central;
+- separado asset MOTOR do asset AD-SEED;
+- removido produto 1.x, `base-package`, `.parts`, gerador antigo por cliente e documentacao duplicada;
+- modulos uteis movidos para a estrutura oficial `modules`;
+- corrigido modulo CORE para ler o estado real do DDM SNOC Windows;
+- adicionada validacao de higiene e ausencia de legado no CI;
+- mantida atualizacao automatica para o patch estavel mais recente da linha Zabbix 7.0.
+
+## 2.0.0 — implementacao candidata a piloto
 
 - Schema 3 somente de dados, compilado na central;
 - bootstrap local e tarefa SYSTEM;
-- GitHub Release imutável em vez de branch `main`;
-- resolução automática do patch estável mais recente do Zabbix 7.0;
+- GitHub Release imutavel em vez de branch `main`;
+- resolucao automatica do patch estavel mais recente do Zabbix 7.0;
 - Agent 1 x86/x64 no legado e Agent 2 + plugins no moderno;
 - release interna com manifestos e `READY`;
-- seleção determinística de rede e cluster;
-- módulos compatíveis instalados independentemente da detecção;
+- selecao deterministica de rede e cluster;
+- modulos compativeis instalados independentemente da deteccao;
 - bancos e IIS sem scripts externos;
 - rollback MSI validado;
 - pacote offline que preserva `CLIENTE.ps1`;
-- ACL local e validação de ACL central;
-- novos testes e portões de liberação.
+- ACL local e validacao de ACL central;
+- novos testes e portoes de liberacao.
