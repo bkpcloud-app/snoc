@@ -1,4 +1,4 @@
-name: Validate DDM Zabbix Windows
+name: Validate DDM SNOC Windows
 
 on:
   pull_request:
@@ -51,6 +51,7 @@ jobs:
           $Path = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\catalog\clients.public.json'
           $Catalog = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
           if ($Catalog.SchemaVersion -ne 1) { throw 'SchemaVersion invalido.' }
+          if ($Catalog.Product -ne 'DDM SNOC Windows') { throw 'Nome publico do produto invalido.' }
 
           $Ids = @($Catalog.Clients | ForEach-Object { $_.Id })
           foreach ($RequiredId in @('BRASANITAS','BRITTA','PLASCAR','AGL')) {
