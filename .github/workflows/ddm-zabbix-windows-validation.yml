@@ -53,12 +53,12 @@ jobs:
           if ($Catalog.SchemaVersion -ne 1) { throw 'SchemaVersion invalido.' }
 
           $Ids = @($Catalog.Clients | ForEach-Object { $_.Id })
-          foreach ($RequiredId in @('BRASANITAS','BRITTA','AGL')) {
+          foreach ($RequiredId in @('BRASANITAS','BRITTA','PLASCAR','AGL')) {
             if ($Ids -notcontains $RequiredId) { throw "$RequiredId ausente." }
           }
 
           $Aliases = @($Catalog.Clients | ForEach-Object { $_.Aliases } | ForEach-Object { $_.ToUpperInvariant() })
-          foreach ($Required in @('BRA','BRASANITAS','BRI','BRITTA','MIZU','AGL')) {
+          foreach ($Required in @('BRA','BRASANITAS','BRI','BRITTA','PLA','PLASCAR','MIZU','AGL')) {
             if ($Aliases -notcontains $Required) { throw "Alias ausente: $Required" }
           }
 
