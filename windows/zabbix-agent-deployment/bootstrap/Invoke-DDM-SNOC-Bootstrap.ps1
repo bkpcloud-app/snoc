@@ -194,7 +194,7 @@ try {
         $LocalArtifacts=Join-Path (Join-Path $StateRoot 'Artifacts') $AgentVersion
         New-Item -Path $LocalArtifacts -ItemType Directory -Force | Out-Null
         foreach ($Item in @($ArtifactManifest)) { Copy-FileVerified (Join-Path $CentralArtifacts $Item.Name) (Join-Path $LocalArtifacts $Item.Name) ([string]$Item.Sha256) }
-        Export-DDMClixmlAtomic $ArtifactManifest (Join-Path $LocalArtifacts $DDMProduct.ArtifactManifestFile) 6
+        Copy-FileVerified $ArtifactManifestPath (Join-Path $LocalArtifacts $DDMProduct.ArtifactManifestFile) ([string]$Release.ArtifactManifestSha256)
         $Rollback=Get-DDMRollbackAuthorization $CentralRoot $ReleaseId
         $Desired=New-Object PSObject -Property @{ ReleaseId=$ReleaseId; ProductVersion=$Current; AgentVersion=$AgentVersion; RuntimeRoot=$LocalRuntime; ArtifactsRoot=$LocalArtifacts; ClientRuntimePath=$LocalConfig; ClientRuntimeSha256=$ConfigHash; ClientSourceSha256=[string]$Release.ClientSourceSha256; MotorManifestSha256=[string]$Release.MotorManifestSha256; ArtifactManifestSha256=[string]$Release.ArtifactManifestSha256; CentralRoot=$CentralRoot; AllowDowngrade=[bool]$Rollback.Allowed; RollbackAuthorizationExpiresAtUtc=[string]$Rollback.ExpiresAtUtc; SyncedAt=(Get-Date).ToUniversalTime().ToString('o') }
         Export-DDMClixmlAtomic $Desired (Join-Path $StateRoot 'desired-state.clixml') 5
