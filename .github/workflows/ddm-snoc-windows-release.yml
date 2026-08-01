@@ -1,0 +1,39 @@
+name: Release DDM SNOC Windows
+
+on:
+  push:
+    tags:
+      - 'ddm-snoc-windows-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build immutable asset
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          . (Join-Path $Product 'config\DDM-Product.ps1')
+          $ExpectedTag='ddm-snoc-windows-v' + $DDMProduct.ProductVersion
+          if ($env:GITHUB_REF_NAME -ne $ExpectedTag) { throw "Tag $env:GITHUB_REF_NAME nao corresponde a $ExpectedTag" }
+          $Dist=Join-Path $env:GITHUB_WORKSPACE 'dist'
+          $Folder=Join-Path $Dist ('DDM-SNOC-WINDOWS-' + $DDMProduct.ProductVersion)
+          New-Item $Dist -ItemType Directory -Force | Out-Null
+          Copy-Item -LiteralPath $Product -Destination $Folder -Recurse -Force
+          $Zip=Join-Path $Dist ('DDM-SNOC-WINDOWS-' + $DDMProduct.ProductVersion + '.zip')
+          Compress-Archive -Path $Folder -DestinationPath $Zip -CompressionLevel Optimal
+          $Hash=(Get-FileHash $Zip -Algorithm SHA256).Hash
+          Set-Content -LiteralPath ($Zip + '.sha256') -Value ($Hash + ' *' + (Split-Path -Leaf $Zip)) -Encoding ASCII
+      - name: Publish GitHub Release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $Version=(Get-Content 'windows\zabbix-agent-deployment\config\DDM-Product.ps1' -Raw | Select-String "ProductVersion\s*=\s*'([^']+)'" -AllMatches).Matches[0].Groups[1].Value
+          $Zip="dist\DDM-SNOC-WINDOWS-$Version.zip"
+          gh release create $env:GITHUB_REF_NAME $Zip ($Zip + '.sha256') --verify-tag --generate-notes --title "DDM SNOC Windows $Version"
