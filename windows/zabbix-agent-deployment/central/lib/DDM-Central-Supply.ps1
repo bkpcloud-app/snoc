@@ -9,16 +9,48 @@ function Get-LatestZabbixVersion([string]$CdnRoot) {
 }
 
 function Get-MotorFromLatestRelease($Product,[string]$Destination) {
-    Write-CentralLog 'Consultando release mais recente do motor no GitHub.'
+    Write-CentralLog 'Consultando releases do DDM SNOC Windows no GitHub.'
     $Headers=@{'User-Agent'='DDM-SNOC-Windows';'Accept'='application/vnd.github+json'}
-    $Release=Invoke-RestMethod -Uri $Product.RepositoryReleaseApiUrl -Headers $Headers
-    if ([bool]$Release.draft -or [bool]$Release.prerelease) { throw 'A release mais recente esta marcada como draft/prerelease.' }
-    $Asset=@($Release.assets | Where-Object { $_.name -match $Product.RepositoryAssetPattern } | Select-Object -First 1)
-    if ($Asset.Count -eq 0) { throw 'Asset oficial do DDM SNOC Windows nao encontrado na release.' }
-    $Archive=Join-Path $RunRoot $Asset[0].name
-    Invoke-WebRequest -Uri $Asset[0].browser_download_url -OutFile $Archive -UseBasicParsing -Headers $Headers
-    if (-not $Asset[0].digest -or [string]$Asset[0].digest -notmatch '^sha256:(?<h>[0-9a-fA-F]{64})$') { throw 'Release sem digest SHA-256 publicado pelo GitHub.' }
-    if ((Get-DDMSha256 $Archive) -ne $Matches['h'].ToUpperInvariant()) { throw 'Digest do asset GitHub divergente.' }
+    $ApiUrl=[string]$Product.RepositoryReleaseApiUrl
+    if ([string]::IsNullOrWhiteSpace($ApiUrl)) { throw 'RepositoryReleaseApiUrl nao configurada.' }
+    if ($ApiUrl -match '/releases/latest(?:\?.*)?$') { $ApiUrl=$ApiUrl -replace '/releases/latest(?:\?.*)?$','/releases?per_page=30' }
+    elseif ($ApiUrl -match '/releases$') { $ApiUrl += '?per_page=30' }
+
+    $Response=Invoke-RestMethod -Uri $ApiUrl -Headers $Headers
+    $Releases=@($Response | Where-Object { -not [bool]$_.draft -and -not [bool]$_.prerelease -and [string]$_.tag_name -like 'ddm-snoc-windows-v*' } | Sort-Object {[datetime]$_.published_at} -Descending)
+    if ($Releases.Count -eq 0) { throw 'Nenhuma release publicada do DDM SNOC Windows foi encontrada.' }
+
+    $MotorPattern='^DDM-SNOC-WINDOWS-MOTOR-[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\.zip$'
+    $SelectedRelease=$null
+    $SelectedAsset=$null
+    foreach ($Release in $Releases) {
+        $Candidates=@($Release.assets | Where-Object { [string]$_.name -match $MotorPattern })
+        if ($Candidates.Count -gt 1) { throw "Release $($Release.tag_name) possui mais de um asset de motor valido." }
+        if ($Candidates.Count -eq 1) { $SelectedRelease=$Release; $SelectedAsset=$Candidates[0]; break }
+    }
+    if ($null -eq $SelectedAsset) { throw 'Nenhuma release do produto contem o asset oficial do motor.' }
+    Write-CentralLog "Release selecionada: $($SelectedRelease.tag_name); asset=$($SelectedAsset.name)" 'OK'
+
+    $Archive=Join-Path $RunRoot ([string]$SelectedAsset.name)
+    Invoke-WebRequest -Uri $SelectedAsset.browser_download_url -OutFile $Archive -UseBasicParsing -Headers $Headers
+
+    $ExpectedHash=''
+    $Digest=[regex]::Match([string]$SelectedAsset.digest,'^sha256:(?<h>[0-9a-fA-F]{64})$')
+    if ($Digest.Success) {
+        $ExpectedHash=$Digest.Groups['h'].Value.ToUpperInvariant()
+    } else {
+        $HashAssetName=([string]$SelectedAsset.name) + '.sha256'
+        $HashAsset=@($SelectedRelease.assets | Where-Object { [string]$_.name -eq $HashAssetName } | Select-Object -First 1)
+        if ($HashAsset.Count -ne 1) { throw "Release sem digest e sem asset $HashAssetName." }
+        $HashFile=Join-Path $RunRoot $HashAssetName
+        Invoke-WebRequest -Uri $HashAsset[0].browser_download_url -OutFile $HashFile -UseBasicParsing -Headers $Headers
+        $HashText=[System.IO.File]::ReadAllText($HashFile)
+        $HashMatch=[regex]::Match($HashText,'(?im)^\s*(?<h>[0-9a-fA-F]{64})(?:\s+\*?.+)?\s*$')
+        if (-not $HashMatch.Success) { throw "Asset SHA-256 invalido: $HashAssetName" }
+        $ExpectedHash=$HashMatch.Groups['h'].Value.ToUpperInvariant()
+    }
+    if ((Get-DDMSha256 $Archive) -ne $ExpectedHash) { throw 'Digest do asset GitHub divergente.' }
+
     Expand-Archive -LiteralPath $Archive -DestinationPath $Destination -Force
     $Candidates=@(Get-ChildItem -LiteralPath $Destination -Directory -Recurse | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'config\DDM-Product.ps1') })
     if ($Candidates.Count -ne 1) { throw "Estrutura do asset ambigua. Candidatos=$($Candidates.Count)" }
