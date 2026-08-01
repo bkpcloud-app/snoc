@@ -3,6 +3,14 @@
   "Product": "DDM Zabbix Windows",
   "Clients": [
     {
+      "Id": "AGL",
+      "DisplayName": "Mizu / AGL",
+      "Aliases": ["MIZU", "AGL"],
+      "ProfileFile": "agl.profile.ps1",
+      "IdentityFile": "agl.identity.ps1",
+      "ProfileVisibility": "private"
+    },
+    {
       "Id": "BRASANITAS",
       "DisplayName": "Brasanitas",
       "Aliases": ["BRASANITAS", "BRA"],
@@ -24,14 +32,6 @@
       "Aliases": ["PLASCAR", "PLA"],
       "ProfileFile": "plascar.profile.ps1",
       "IdentityFile": "plascar.identity.ps1",
-      "ProfileVisibility": "private"
-    },
-    {
-      "Id": "AGL",
-      "DisplayName": "Mizu / AGL",
-      "Aliases": ["MIZU", "AGL"],
-      "ProfileFile": "agl.profile.ps1",
-      "IdentityFile": "agl.identity.ps1",
       "ProfileVisibility": "private"
     }
   ]
