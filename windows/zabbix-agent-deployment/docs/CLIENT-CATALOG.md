@@ -17,7 +17,11 @@ Dados internos de clientes não devem ser publicados no repositório público.
 | Entrada aceita | Cliente resolvido |
 |---|---|
 | `Brasanitas` ou `BRA` | `BRASANITAS` |
+| `Britta` ou `BRI` | `BRITTA` |
+| `Plascar` ou `PLA` | `PLASCAR` |
 | `Mizu` ou `AGL` | `AGL` |
+
+Britta e Plascar já possuem trabalho anterior e não devem ser recriadas como clientes novos. Seus parâmetros existentes devem ser migrados para os perfis privados do produto universal.
 
 O catálogo fica em `catalog/clients.public.json`.
 
@@ -41,7 +45,7 @@ Exemplo usando uma pasta protegida:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-DDM-Zabbix.ps1 `
-  -Client BRASANITAS `
+  -Client PLASCAR `
   -Action Diagnose `
   -ProfileRoot 'D:\DDM-CLIENT-PROFILES'
 ```
@@ -59,7 +63,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-DDM-Zabbix.ps1 `
 
 O token não deve ser gravado em script, perfil ou pacote.
 
-## Fluxo Brasanitas sem acesso ao GitHub
+## Fluxo offline
 
 Em uma máquina administrativa com acesso ao GitHub e aos perfis privados:
 
@@ -75,7 +79,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-DDM-Zabbix.ps1 `
 O resultado contém:
 
 - motor do produto;
-- perfil e identidade somente da Brasanitas;
+- perfil e identidade somente do cliente escolhido;
 - Agent 2 7.0.28;
 - pacote de plugins do Agent 2 7.0.28;
 - Agent 1 7.0.28 para Windows Server 2008/2008 R2;
@@ -84,7 +88,7 @@ O resultado contém:
 - `02-INSTALAR.cmd`;
 - manifesto completo.
 
-O ZIP pode ser copiado para o AD/NETLOGON da Brasanitas. Os servidores de destino não precisam acessar o GitHub.
+O ZIP pode ser copiado para o AD/NETLOGON do cliente. Os servidores de destino não precisam acessar o GitHub.
 
 ## Seleção do agente
 
@@ -118,7 +122,7 @@ O perfil define `$DDMClientProfile`. A identidade define a função `Get-DDMClie
 - `Class`;
 - `Modules`.
 
-A separação permite que a Brasanitas use uma regra simples e que a Mizu/AGL mantenha sua lógica completa de redes, VLANs, OUs, datacenters, fábricas e área industrial sem duplicar o instalador.
+A separação permite que Brasanitas, Britta e Plascar preservem suas regras próprias e que Mizu/AGL mantenha sua lógica completa de redes, VLANs, OUs, datacenters, fábricas e área industrial sem duplicar o instalador.
 
 ## Segurança
 
