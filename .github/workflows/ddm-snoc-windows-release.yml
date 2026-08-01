@@ -24,7 +24,10 @@ jobs:
           $Dist=Join-Path $env:GITHUB_WORKSPACE 'dist'
           $Folder=Join-Path $Dist ('DDM-SNOC-WINDOWS-' + $DDMProduct.ProductVersion)
           New-Item $Dist -ItemType Directory -Force | Out-Null
-          Copy-Item -LiteralPath $Product -Destination $Folder -Recurse -Force
+          New-Item $Folder -ItemType Directory -Force | Out-Null
+          foreach($Name in @('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','README.md','CHANGELOG.md')){ $P=Join-Path $Product $Name; if(Test-Path $P){Copy-Item $P (Join-Path $Folder $Name) -Force} }
+          foreach($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')){ $P=Join-Path $Product $Name; if(Test-Path $P){Copy-Item $P (Join-Path $Folder $Name) -Recurse -Force} }
+          if(-not(Test-Path (Join-Path $Folder 'modules'))){$Legacy=Join-Path $Product 'base-package\modules'; if(Test-Path $Legacy){Copy-Item $Legacy (Join-Path $Folder 'modules') -Recurse -Force}else{New-Item (Join-Path $Folder 'modules') -ItemType Directory -Force|Out-Null}}
           $Zip=Join-Path $Dist ('DDM-SNOC-WINDOWS-' + $DDMProduct.ProductVersion + '.zip')
           Compress-Archive -Path $Folder -DestinationPath $Zip -CompressionLevel Optimal
           $Hash=(Get-FileHash $Zip -Algorithm SHA256).Hash
