@@ -72,7 +72,7 @@ jobs:
           foreach ($File in $Files) {
             $Text = Get-Content -LiteralPath $File -Raw
             foreach ($Forbidden in @('DDM_GITHUB_TOKEN','PrivateProfileRawBase','clients.public.json')) {
-              if ($Text -match [regex]::Escape($Forbidden)) { throw "Arquitetura antiga encontrada em $File: $Forbidden" }
+              if ($Text -match [regex]::Escape($Forbidden)) { throw "Arquitetura antiga encontrada em ${File}: $Forbidden" }
             }
           }
 
