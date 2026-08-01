@@ -1,0 +1,117 @@
+name: Validate DDM SNOC Windows
+
+on:
+  pull_request:
+    paths:
+      - 'windows/zabbix-agent-deployment/**'
+      - '.github/workflows/ddm-snoc-windows-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate PowerShell syntax
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Root = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $Files = @(
+            (Join-Path $Root 'Start-DDM-SNOC.ps1'),
+            (Join-Path $Root 'CLIENTE.example.ps1'),
+            (Join-Path $Root 'config\DDM-Product.ps1'),
+            (Join-Path $Root 'engine\Install-DDM-Zabbix-Windows.ps1'),
+            (Join-Path $Root 'central\Update-DDM-SNOC-Central.ps1'),
+            (Join-Path $Root 'endpoint\Invoke-DDM-SNOC-Daily.ps1'),
+            (Join-Path $Root 'tools\Prepare-DDM-OfflinePackage.ps1')
+          )
+
+          foreach ($File in $Files) {
+            if (-not (Test-Path -LiteralPath $File)) { throw "Arquivo ausente: $File" }
+            $Tokens = $null
+            $Errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($File,[ref]$Tokens,[ref]$Errors)
+            if ($Errors.Count -gt 0) {
+              $Errors | ForEach-Object { Write-Error "$File :: $($_.Message) :: $($_.Extent.Text)" }
+              throw "Falha de sintaxe: $File"
+            }
+            Write-Host "OK: $File"
+          }
+
+      - name: Validate product and client contracts
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Root = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          . (Join-Path $Root 'config\DDM-Product.ps1')
+          if ($DDMProduct.ProductName -ne 'DDM SNOC Windows') { throw 'ProductName invalido.' }
+          if ($DDMProduct.ProductCode -ne 'DDM-SNOC-WINDOWS') { throw 'ProductCode invalido.' }
+          if ($DDMProduct.ProductVersion -ne '2.0.0-preview.2') { throw 'ProductVersion invalido.' }
+          if ($DDMProduct.StateDirectory -notmatch 'SNOC-Windows') { throw 'StateDirectory antigo.' }
+          if ($DDMProduct.ContainsKey('PublicCatalogRawUrl')) { throw 'Catalogo publico antigo ainda configurado.' }
+
+          . (Join-Path $Root 'CLIENTE.example.ps1')
+          if ($null -eq $DDMClientProfile) { throw 'Modelo nao define DDMClientProfile.' }
+          if (-not (Get-Command Get-DDMClientIdentity -ErrorAction SilentlyContinue)) { throw 'Modelo nao define Get-DDMClientIdentity.' }
+          if ([string]::IsNullOrWhiteSpace([string]$DDMClientProfile.ConfigVersion)) { throw 'ConfigVersion ausente.' }
+
+      - name: Check removed private-profile architecture
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Root = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $Files = @(
+            (Join-Path $Root 'Start-DDM-SNOC.ps1'),
+            (Join-Path $Root 'README.md'),
+            (Join-Path $Root 'docs\ARQUITETURA.md'),
+            (Join-Path $Root 'docs\OPERACAO-CENTRAL.md')
+          )
+          foreach ($File in $Files) {
+            $Text = Get-Content -LiteralPath $File -Raw
+            foreach ($Forbidden in @('DDM_GITHUB_TOKEN','PrivateProfileRawBase','clients.public.json')) {
+              if ($Text -match [regex]::Escape($Forbidden)) { throw "Arquitetura antiga encontrada em $File: $Forbidden" }
+            }
+          }
+
+      - name: Run safe direct diagnosis
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Root = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          & (Join-Path $Root 'Start-DDM-SNOC.ps1') `
+            -Action Diagnose `
+            -ClientConfigPath (Join-Path $Root 'CLIENTE.example.ps1')
+
+      - name: Simulate central folder and endpoint diagnosis
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Root = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          . (Join-Path $Root 'config\DDM-Product.ps1')
+          $Central = Join-Path $env:TEMP 'DDM-SNOC-CI-CENTRAL'
+          Remove-Item -LiteralPath $Central -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -Path $Central -ItemType Directory -Force | Out-Null
+          Copy-Item -LiteralPath (Join-Path $Root 'CLIENTE.example.ps1') -Destination (Join-Path $Central 'CLIENTE.ps1')
+          Set-Content -LiteralPath (Join-Path $Central 'CURRENT.txt') -Value $DDMProduct.ProductVersion -Encoding ASCII
+
+          $Motor = Join-Path $Central ('MOTOR\' + $DDMProduct.ProductVersion)
+          New-Item -Path $Motor -ItemType Directory -Force | Out-Null
+          Get-ChildItem -LiteralPath $Root -Force | Copy-Item -Destination $Motor -Recurse -Force
+
+          $Artifacts = Join-Path $Central ('ARTIFACTS\' + $DDMProduct.AgentVersion)
+          New-Item -Path $Artifacts -ItemType Directory -Force | Out-Null
+          $HashLines = @()
+          foreach ($Name in @($DDMProduct.Agent2File,$DDMProduct.Agent2PluginsFile,$DDMProduct.Agent1File)) {
+            $Path = Join-Path $Artifacts $Name
+            Set-Content -LiteralPath $Path -Value 'CI-DUMMY' -Encoding ASCII
+            $HashLines += ('{0} *{1}' -f (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash,$Name)
+          }
+          Set-Content -LiteralPath (Join-Path $Artifacts 'SHA256SUMS.txt') -Value $HashLines -Encoding ASCII
+
+          & (Join-Path $Motor 'endpoint\Invoke-DDM-SNOC-Daily.ps1') `
+            -CentralRoot $Central `
+            -Mode Diagnose `
+            -MaxJitterSeconds 0
