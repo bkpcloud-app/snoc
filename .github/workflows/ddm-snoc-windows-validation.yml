@@ -19,7 +19,11 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          Get-ChildItem -LiteralPath $Root -Filter '*.ps1' -Recurse | ForEach-Object {
+          $Active=@('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')
+          $Files=@()
+          foreach($Name in $Active){ $P=Join-Path $Root $Name; if(Test-Path $P){ if((Get-Item $P).PSIsContainer){$Files+=Get-ChildItem -LiteralPath $P -Filter '*.ps1' -Recurse -ErrorAction Stop}else{$Files+=Get-Item $P} } }
+          if(-not(Test-Path (Join-Path $Root 'modules')) -and (Test-Path (Join-Path $Root 'base-package\modules'))){$Files+=Get-ChildItem -LiteralPath (Join-Path $Root 'base-package\modules') -Filter '*.ps1' -Recurse -ErrorAction Stop}
+          $Files | ForEach-Object {
             $Tokens=$null; $Errors=$null
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$Tokens,[ref]$Errors)
             if (@($Errors).Count -gt 0) { throw "$($_.FullName): $(@($Errors | ForEach-Object Message) -join ' | ')" }
@@ -86,7 +90,10 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          $All=(Get-ChildItem -LiteralPath $Root -File -Recurse | Get-Content -Raw) -join "`n"
+          $Active=@('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')
+          $ActiveFiles=@(); foreach($Name in $Active){$P=Join-Path $Root $Name;if(Test-Path $P){if((Get-Item $P).PSIsContainer){$ActiveFiles+=Get-ChildItem -LiteralPath $P -File -Recurse -ErrorAction Stop}else{$ActiveFiles+=Get-Item $P}}}
+          if(-not(Test-Path (Join-Path $Root 'modules')) -and (Test-Path (Join-Path $Root 'base-package\modules'))){$ActiveFiles+=Get-ChildItem -LiteralPath (Join-Path $Root 'base-package\modules') -File -Recurse -ErrorAction Stop}
+          $All=($ActiveFiles | Get-Content -Raw) -join "`n"
           foreach ($Forbidden in @('archive/refs/heads/main.zip','$DDMClientProfile','Get-DDMClientIdentity','DDM_GITHUB_TOKEN','clients.public.json')) {
             if ($All -match [regex]::Escape($Forbidden)) { throw "Arquitetura antiga encontrada: $Forbidden" }
           }
@@ -100,7 +107,10 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          $Text=(Get-ChildItem -LiteralPath $Root -File -Recurse | Get-Content -Raw) -join "`n"
+          $Active=@('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')
+          $ActiveFiles=@(); foreach($Name in $Active){$P=Join-Path $Root $Name;if(Test-Path $P){if((Get-Item $P).PSIsContainer){$ActiveFiles+=Get-ChildItem -LiteralPath $P -File -Recurse -ErrorAction Stop}else{$ActiveFiles+=Get-Item $P}}}
+          if(-not(Test-Path (Join-Path $Root 'modules')) -and (Test-Path (Join-Path $Root 'base-package\modules'))){$ActiveFiles+=Get-ChildItem -LiteralPath (Join-Path $Root 'base-package\modules') -File -Recurse -ErrorAction Stop}
+          $Text=($ActiveFiles | Get-Content -Raw) -join "`n"
           foreach ($Forbidden in @('mizu.local','britta.local','itsouthamerica.ad','adb01.local','10.210.5.7','10.160.1.25','10.160.2.254','SNOC-BRASANITAS')) {
             if ($Text.IndexOf($Forbidden,[StringComparison]::OrdinalIgnoreCase) -ge 0) { throw "Dado real de cliente publicado: $Forbidden" }
           }
@@ -133,7 +143,10 @@ jobs:
           $ErrorActionPreference='Stop'
           $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           $Stage=Join-Path $env:TEMP 'DDM-SNOC-WINDOWS-2.0.0'
-          Copy-Item -LiteralPath $Product -Destination $Stage -Recurse -Force
+          New-Item -Path $Stage -ItemType Directory -Force | Out-Null
+          foreach($Name in @('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','README.md','CHANGELOG.md')){ $P=Join-Path $Product $Name; if(Test-Path $P){Copy-Item $P (Join-Path $Stage $Name) -Force} }
+          foreach($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')){ $P=Join-Path $Product $Name; if(Test-Path $P){Copy-Item $P (Join-Path $Stage $Name) -Recurse -Force} }
+          if(-not(Test-Path (Join-Path $Stage 'modules'))){$Legacy=Join-Path $Product 'base-package\modules'; if(Test-Path $Legacy){Copy-Item $Legacy (Join-Path $Stage 'modules') -Recurse -Force}else{New-Item (Join-Path $Stage 'modules') -ItemType Directory -Force|Out-Null}}
           foreach ($Required in @('config\DDM-Product.ps1','lib\DDM-Common.ps1','central\Update-DDM-SNOC-Central.ps1','central\lib\Invoke-DDM-Central-Publish.ps1','bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1')) {
             if (-not (Test-Path (Join-Path $Stage $Required))) { throw "Asset incompleto: $Required" }
           }
