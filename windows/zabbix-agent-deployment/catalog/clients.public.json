@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "Product": "DDM Zabbix Windows",
+  "Product": "DDM SNOC Windows",
   "Clients": [
     {
       "Id": "AGL",
