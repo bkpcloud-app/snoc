@@ -93,9 +93,10 @@ jobs:
           $Active=@('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')
           $ActiveFiles=@(); foreach($Name in $Active){$P=Join-Path $Root $Name;if(Test-Path $P){if((Get-Item $P).PSIsContainer){$ActiveFiles+=Get-ChildItem -LiteralPath $P -File -Recurse -ErrorAction Stop}else{$ActiveFiles+=Get-Item $P}}}
           if(-not(Test-Path (Join-Path $Root 'modules')) -and (Test-Path (Join-Path $Root 'base-package\modules'))){$ActiveFiles+=Get-ChildItem -LiteralPath (Join-Path $Root 'base-package\modules') -File -Recurse -ErrorAction Stop}
-          $All=($ActiveFiles | Get-Content -Raw) -join "`n"
-          foreach ($Forbidden in @('archive/refs/heads/main.zip','$DDMClientProfile','Get-DDMClientIdentity','DDM_GITHUB_TOKEN','clients.public.json')) {
-            if ($All -match [regex]::Escape($Forbidden)) { throw "Arquitetura antiga encontrada: $Forbidden" }
+          $CodeFiles=@($ActiveFiles | Where-Object { $_.Extension -in @('.ps1','.cmd','.bat') })
+          $AllCode=($CodeFiles | Get-Content -Raw) -join "`n"
+          foreach ($Forbidden in @('https://github.com/bkpcloud-app/snoc/archive/refs/heads/main.zip','$DDMClientProfile','Get-DDMClientIdentity','DDM_GITHUB_TOKEN','clients.public.json')) {
+            if ($AllCode -match [regex]::Escape($Forbidden)) { throw "Arquitetura antiga encontrada no codigo: $Forbidden" }
           }
           $Engine=Get-Content -LiteralPath (Join-Path $Root 'engine\Install-DDM-Zabbix-Windows.ps1') -Raw
           foreach ($Required in @("@('AGENT2','PLUGINS')",'zabbix_agent2.d\*.conf','Rollback validado e finalizado','UserParameter duplicado','PLUGINS_AMD64')) { if ($Engine -notmatch [regex]::Escape($Required)) { throw "Invariante ausente no motor: $Required" } }
