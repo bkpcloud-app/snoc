@@ -79,7 +79,12 @@ try {
     if (-not (Test-Path $Desired.ClientRuntimePath)) { throw 'CLIENTE.runtime.clixml ausente.' }
     if ((Get-DDMSha256 $Desired.ClientRuntimePath) -ne [string]$Desired.ClientRuntimeSha256) { throw 'CLIENTE.runtime.clixml com hash divergente.' }
     $AllowDowngrade=$Force
-    if ($Desired.PSObject.Properties['AllowDowngrade'] -and [bool]$Desired.AllowDowngrade) { $AllowDowngrade=$true }
+    if (-not $AllowDowngrade -and $Desired.PSObject.Properties['AllowDowngrade'] -and [bool]$Desired.AllowDowngrade) {
+        if ($Desired.PSObject.Properties['RollbackAuthorizationExpiresAtUtc'] -and -not (Test-DDMBlank $Desired.RollbackAuthorizationExpiresAtUtc)) {
+            try { if ([datetime]::Parse([string]$Desired.RollbackAuthorizationExpiresAtUtc).ToUniversalTime() -gt (Get-Date).ToUniversalTime()) { $AllowDowngrade=$true } else { Log 'Autorizacao local de rollback expirada.' 'WARN' } }
+            catch { Log 'Data da autorizacao local de rollback invalida.' 'WARN' }
+        }
+    }
     $Client=Import-DDMClixmlSafe $Desired.ClientRuntimePath
     $System=Get-DDMSystemInfo
     $Target=Get-DDMTargetAgent $System $DDMProduct
