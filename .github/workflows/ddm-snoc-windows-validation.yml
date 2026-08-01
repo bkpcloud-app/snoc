@@ -95,9 +95,11 @@ jobs:
           if(-not(Test-Path (Join-Path $Root 'modules')) -and (Test-Path (Join-Path $Root 'base-package\modules'))){$ActiveFiles+=Get-ChildItem -LiteralPath (Join-Path $Root 'base-package\modules') -File -Recurse -ErrorAction Stop}
           $CodeFiles=@($ActiveFiles | Where-Object { $_.Extension -in @('.ps1','.cmd','.bat') })
           $AllCode=($CodeFiles | Get-Content -Raw) -join "`n"
-          foreach ($Forbidden in @('https://github.com/bkpcloud-app/snoc/archive/refs/heads/main.zip','$DDMClientProfile','Get-DDMClientIdentity','DDM_GITHUB_TOKEN','clients.public.json')) {
+          foreach ($Forbidden in @('$DDMClientProfile','Get-DDMClientIdentity','DDM_GITHUB_TOKEN','clients.public.json')) {
             if ($AllCode -match [regex]::Escape($Forbidden)) { throw "Arquitetura antiga encontrada no codigo: $Forbidden" }
           }
+          $ProductConfig=Get-Content -LiteralPath (Join-Path $Root 'config\DDM-Product.ps1') -Raw
+          if ($ProductConfig -match 'RepositoryArchiveUrl' -or $ProductConfig -notmatch 'RepositoryReleaseApiUrl') { throw 'Origem do motor nao usa GitHub Release.' }
           $Engine=Get-Content -LiteralPath (Join-Path $Root 'engine\Install-DDM-Zabbix-Windows.ps1') -Raw
           foreach ($Required in @("@('AGENT2','PLUGINS')",'zabbix_agent2.d\*.conf','Rollback validado e finalizado','UserParameter duplicado','PLUGINS_AMD64')) { if ($Engine -notmatch [regex]::Escape($Required)) { throw "Invariante ausente no motor: $Required" } }
           $Bootstrap=Get-Content -LiteralPath (Join-Path $Root 'bootstrap\Install-DDM-SNOC-Bootstrap.ps1') -Raw
