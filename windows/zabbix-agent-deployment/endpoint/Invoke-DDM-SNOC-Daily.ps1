@@ -1,219 +1,107 @@
 #requires -Version 2.0
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory=$true)]
-    [string]$CentralRoot,
-
-    [ValidateSet('Auto','Diagnose','Apply','Repair')]
-    [string]$Mode = 'Auto',
-
-    [int]$MaxJitterSeconds = 0,
+    [Parameter(Mandatory=$true)][string]$DesiredStatePath,
+    [ValidateSet('Auto','Diagnose','Apply','Repair')][string]$Mode='Auto',
     [switch]$Force
 )
+$ErrorActionPreference='Stop'
+$Desired=Import-Clixml -LiteralPath $DesiredStatePath
+$RuntimeRoot=[string]$Desired.RuntimeRoot
+. (Join-Path $RuntimeRoot 'config\DDM-Product.ps1')
+. (Join-Path $RuntimeRoot 'lib\DDM-Common.ps1')
+$StateRoot=$DDMProduct.StateDirectory
+$LogRoot=Join-Path $StateRoot 'DailyLogs'
+New-Item $LogRoot -ItemType Directory -Force | Out-Null
+$LogFile=Join-Path $LogRoot ('DAILY-' + (Get-Date -Format 'yyyyMMdd') + '.log')
+function Log([string]$M,[string]$L='INFO') { $X='{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),$L,$M; Write-Host $X; Add-Content $LogFile $X -Encoding UTF8 }
 
-$ErrorActionPreference = 'Stop'
-$Mutex = New-Object System.Threading.Mutex($false,'Global\DDM_SNOC_WINDOWS_ENDPOINT')
-$Locked = $false
-
-function Get-Sha256([string]$Path) {
-    $Sha = [System.Security.Cryptography.SHA256]::Create()
-    $Stream = [System.IO.File]::OpenRead($Path)
-    try {
-        return ([BitConverter]::ToString($Sha.ComputeHash($Stream))).Replace('-','').ToUpperInvariant()
-    }
-    finally {
-        $Stream.Close()
-        $Sha.Dispose()
-    }
+function Get-InstalledVersion([string]$Binary) {
+    if (-not (Test-Path $Binary)) { return '' }
+    $V=[string](Get-Item $Binary).VersionInfo.ProductVersion
+    if ($V -match '(\d+\.\d+\.\d+)') { return $Matches[1] }
+    return $V
 }
 
-function Read-TextFile([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path)) { return '' }
-    return ([string](Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue | Select-Object -First 1)).Trim()
+function Get-PluginVersion {
+    $Paths=@('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*')
+    $P=@(Get-ItemProperty $Paths -ErrorAction SilentlyContinue | Where-Object { [string]$_.DisplayName -like 'Zabbix Agent2 Plugins*' -or [string]$_.DisplayName -like 'Zabbix Agent 2 Plugins*' } | Select-Object -First 1)
+    if ($P.Count -eq 0) { return '' }
+    if ([string]$P[0].DisplayVersion -match '(\d+\.\d+\.\d+)') { return $Matches[1] }
+    return [string]$P[0].DisplayVersion
 }
 
-function Test-PortListening([int]$Port) {
-    return @(& netstat.exe -ano | Select-String (':{0}\s+.*LISTENING' -f $Port)).Count -gt 0
+function Get-ServicePath([string]$Name) {
+    try { $S=Get-WmiObject Win32_Service -Filter ("Name='" + $Name.Replace("'","''") + "'"); return [string]$S.PathName } catch { return '' }
 }
 
-function Get-TargetService {
-    $Os = Get-WmiObject Win32_OperatingSystem
-    $Version = New-Object System.Version([string]$Os.Version)
-    $IsServer = ([int]$Os.ProductType -ne 1)
-    if ($IsServer -and $Version.Major -eq 6 -and $Version.Minor -le 1) {
-        return New-Object PSObject -Property @{ Family='AGENT1'; Name='Zabbix Agent'; Opposite='Zabbix Agent 2' }
-    }
-    return New-Object PSObject -Property @{ Family='AGENT2'; Name='Zabbix Agent 2'; Opposite='Zabbix Agent' }
-}
-
-function Copy-DirectoryAtomic([string]$Source,[string]$Destination) {
-    $Parent = Split-Path -Parent $Destination
-    $Staging = $Destination + '.staging-' + [guid]::NewGuid().ToString('N')
-    if (-not (Test-Path -LiteralPath $Parent)) { New-Item -Path $Parent -ItemType Directory -Force | Out-Null }
-    Remove-Item -LiteralPath $Staging -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item -Path $Staging -ItemType Directory -Force | Out-Null
-    Get-ChildItem -LiteralPath $Source -Force | Copy-Item -Destination $Staging -Recurse -Force
-    if (Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Recurse -Force }
-    Move-Item -LiteralPath $Staging -Destination $Destination
-}
-
-function Copy-FileVerified([string]$Source,[string]$Destination,[string]$ExpectedHash) {
-    $Parent = Split-Path -Parent $Destination
-    if (-not (Test-Path -LiteralPath $Parent)) { New-Item -Path $Parent -ItemType Directory -Force | Out-Null }
-    $NeedsCopy = $Force -or -not (Test-Path -LiteralPath $Destination)
-    if (-not $NeedsCopy -and -not ([string]::IsNullOrEmpty($ExpectedHash))) {
-        $NeedsCopy = (Get-Sha256 $Destination) -ne $ExpectedHash.ToUpperInvariant()
-    }
-    if ($NeedsCopy) {
-        $Temporary = $Destination + '.copy'
-        Copy-Item -LiteralPath $Source -Destination $Temporary -Force
-        if (-not ([string]::IsNullOrEmpty($ExpectedHash)) -and (Get-Sha256 $Temporary) -ne $ExpectedHash.ToUpperInvariant()) {
-            Remove-Item -LiteralPath $Temporary -Force -ErrorAction SilentlyContinue
-            throw "Falha de integridade ao copiar: $Source"
+function Test-DDMCompliance($Target,$Identity,$Client) {
+    $Reasons=@()
+    $Service=Get-Service -Name $Target.Service -ErrorAction SilentlyContinue
+    $Opposite=Get-Service -Name $Target.OppositeService -ErrorAction SilentlyContinue
+    $AgentRoot=if ($Target.Family -eq 'AGENT2') {$DDMProduct.Agent2Directory} else {$DDMProduct.Agent1Directory}
+    $Binary=Join-Path $AgentRoot $(if ($Target.Family -eq 'AGENT2') {'zabbix_agent2.exe'} else {'zabbix_agentd.exe'})
+    $Config=Join-Path $AgentRoot $(if ($Target.Family -eq 'AGENT2') {'zabbix_agent2.conf'} else {'zabbix_agentd.conf'})
+    $ActualVersion=Get-InstalledVersion $Binary
+    if ($null -eq $Service) {$Reasons+='servico_ausente'} elseif ($Service.Status -ne 'Running') {$Reasons+='servico_parado'}
+    if ($null -ne $Service) { $ServicePath=Get-ServicePath $Target.Service; $NormalizedServicePath=$ServicePath.Trim(); if ($NormalizedServicePath.StartsWith('"')) { $NormalizedServicePath=$NormalizedServicePath.Substring(1); $EndQuote=$NormalizedServicePath.IndexOf('"'); if ($EndQuote -ge 0) { $NormalizedServicePath=$NormalizedServicePath.Substring(0,$EndQuote) } } else { $Space=$NormalizedServicePath.ToLowerInvariant().IndexOf('.exe '); if ($Space -ge 0) { $NormalizedServicePath=$NormalizedServicePath.Substring(0,$Space+4) } }; if ($NormalizedServicePath -ne $Binary) {$Reasons+='caminho_servico_divergente'} }
+    if ($null -ne $Opposite -and $Opposite.Status -eq 'Running') {$Reasons+='servico_oposto_ativo'}
+    if ($ActualVersion -ne [string]$Desired.AgentVersion) {$Reasons+=('versao_agente=' + $ActualVersion)}
+    $ExpectedProcess=if($Target.Family -eq 'AGENT2'){'zabbix_agent2'}else{'zabbix_agentd'}
+    if (-not (Test-DDMPortOwnedByProcess ([int]$DDMProduct.ListenPort) @($ExpectedProcess))) {$Reasons+='porta_nao_pertence_ao_agente_alvo'}
+    if (-not (Test-Path $Config)) {$Reasons+='config_ausente'}
+    $LastGoodPath=Join-Path $StateRoot 'last-good-state.clixml'
+    if (-not (Test-Path $LastGoodPath)) {$Reasons+='estado_ausente'} else {
+        $Good=Import-DDMClixmlSafe $LastGoodPath
+        if ([string]$Good.ReleaseId -ne [string]$Desired.ReleaseId) {$Reasons+='release_divergente'}
+        if ([string]$Good.ProductVersion -ne [string]$Desired.ProductVersion) {$Reasons+='motor_divergente'}
+        if ([string]$Good.AgentVersion -ne [string]$Desired.AgentVersion) {$Reasons+='estado_agente_divergente'}
+        if ([string]$Good.ClientRuntimeSha256 -ne [string]$Desired.ClientRuntimeSha256) {$Reasons+='cliente_divergente'}
+        if ([string]$Good.ClientSourceSha256 -ne [string]$Desired.ClientSourceSha256) {$Reasons+='cliente_fonte_divergente'}
+        if ([string]$Good.Hostname -ne [string]$Identity.Hostname) {$Reasons+='hostname_divergente'}
+        if ([string]$Good.Proxy -ne [string]$Identity.Proxy) {$Reasons+='proxy_divergente'}
+        if ([string]$Good.ProxyActive -ne [string]$Identity.ProxyActive) {$Reasons+='proxy_ativo_divergente'}
+        if ([string]$Good.Metadata -ne [string]$Identity.Metadata) {$Reasons+='metadata_divergente'}
+        if (Test-Path $Config) { if ((Get-DDMSha256 $Config) -ne [string]$Good.GeneratedConfigSha256) {$Reasons+='hash_config_divergente'} }
+        if ($Target.Family -eq 'AGENT2' -and [bool]$DDMProduct.InstallAgent2Plugins) {
+            $PluginVersion=Get-PluginVersion
+            if ($PluginVersion -ne [string]$Desired.AgentVersion) {$Reasons+=('plugin_real=' + $PluginVersion)}
+            foreach ($PluginConf in @('mssql.conf','mongodb.conf','postgresql.conf')) { if (-not (Test-Path (Join-Path (Join-Path $DDMProduct.Agent2Directory 'zabbix_agent2.d') $PluginConf))) {$Reasons+=('plugin_conf_ausente=' + $PluginConf)} }
+            if ([string]$Good.PluginVersion -ne [string]$Desired.AgentVersion) {$Reasons+='plugin_estado_divergente'}
         }
-        Move-Item -LiteralPath $Temporary -Destination $Destination -Force
     }
+    $LastStatus=Read-DDMFirstLine (Join-Path $StateRoot 'lastapply.status')
+    if ($LastStatus -like 'ERROR*') {$Reasons+='ultima_aplicacao_com_erro'}
+    return New-Object PSObject -Property @{ Compliant=($Reasons.Count -eq 0); Reasons=$Reasons; ActualVersion=$ActualVersion; Binary=$Binary; Config=$Config }
 }
 
 try {
-    $Locked = $Mutex.WaitOne(0,$false)
-    if (-not $Locked) { exit 0 }
-
-    if ($MaxJitterSeconds -gt 0 -and $Mode -eq 'Auto') {
-        $Seed = 0
-        foreach ($Character in $env:COMPUTERNAME.ToCharArray()) { $Seed += [int][char]$Character }
-        Start-Sleep -Seconds ($Seed % ($MaxJitterSeconds + 1))
+    if (-not (Test-Path $Desired.ClientRuntimePath)) { throw 'CLIENTE.runtime.clixml ausente.' }
+    if ((Get-DDMSha256 $Desired.ClientRuntimePath) -ne [string]$Desired.ClientRuntimeSha256) { throw 'CLIENTE.runtime.clixml com hash divergente.' }
+    $Client=Import-DDMClixmlSafe $Desired.ClientRuntimePath
+    $System=Get-DDMSystemInfo
+    $Target=Get-DDMTargetAgent $System $DDMProduct
+    $Identity=Resolve-DDMClientIdentity $Client $DDMProduct $System
+    $Compliance=Test-DDMCompliance $Target $Identity $Client
+    if (-not (Test-DDMBlank $Compliance.ActualVersion)) {
+        try { $ActualV=New-Object System.Version -ArgumentList $Compliance.ActualVersion; $DesiredV=New-Object System.Version -ArgumentList ([string]$Desired.AgentVersion); if ($ActualV -gt $DesiredV -and -not $Force) { throw "Downgrade bloqueado: agente local $($Compliance.ActualVersion) e central $($Desired.AgentVersion)" } } catch { if ($_.Exception.Message -like 'Downgrade bloqueado*') { throw } }
     }
-
-    $CentralRoot = [System.IO.Path]::GetFullPath($CentralRoot)
-    $CurrentPath = Join-Path $CentralRoot 'CURRENT.txt'
-    $ClientSource = Join-Path $CentralRoot 'CLIENTE.ps1'
-    if (-not (Test-Path -LiteralPath $CurrentPath)) { throw "CURRENT.txt ausente em $CentralRoot" }
-    if (-not (Test-Path -LiteralPath $ClientSource)) { throw "CLIENTE.ps1 ausente em $CentralRoot" }
-
-    $CentralVersion = Read-TextFile $CurrentPath
-    if ([string]::IsNullOrEmpty($CentralVersion)) { throw 'CURRENT.txt esta vazio.' }
-    $SourceRuntime = Join-Path $CentralRoot ('MOTOR\' + $CentralVersion)
-    if (-not (Test-Path -LiteralPath $SourceRuntime)) { throw "Motor central ausente: $SourceRuntime" }
-
-    $ProductConfig = Join-Path $SourceRuntime 'config\DDM-Product.ps1'
-    if (-not (Test-Path -LiteralPath $ProductConfig)) { throw "Configuracao do motor ausente: $ProductConfig" }
-    . $ProductConfig
-
-    $StateRoot = [string]$DDMProduct.StateDirectory
-    $LogRoot = Join-Path $StateRoot 'DailyLogs'
-    if (-not (Test-Path -LiteralPath $LogRoot)) { New-Item -Path $LogRoot -ItemType Directory -Force | Out-Null }
-    $LogFile = Join-Path $LogRoot ('DAILY-' + (Get-Date -Format 'yyyyMMdd') + '.log')
-
-    function Write-DailyLog([string]$Message,[string]$Level) {
-        if ([string]::IsNullOrEmpty($Level)) { $Level = 'INFO' }
-        $Line = '{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),$Level,$Message
-        Write-Host $Line
-        Add-Content -LiteralPath $LogFile -Value $Line -Encoding UTF8
-    }
-
-    $InstalledVersion = Read-TextFile (Join-Path $StateRoot 'product.version')
-    $InstalledConfigHash = Read-TextFile (Join-Path $StateRoot 'client.config.sha256')
-    $LastStatus = Read-TextFile (Join-Path $StateRoot 'lastapply.status')
-    $CentralConfigHash = Get-Sha256 $ClientSource
-    $Target = Get-TargetService
-    $TargetService = Get-Service -Name $Target.Name -ErrorAction SilentlyContinue
-    $OppositeService = Get-Service -Name $Target.Opposite -ErrorAction SilentlyContinue
-
-    $Healthy = $null -ne $TargetService -and $TargetService.Status -eq 'Running' -and (Test-PortListening ([int]$DDMProduct.ListenPort))
-    if ($null -ne $OppositeService -and $OppositeService.Status -eq 'Running') { $Healthy = $false }
-    if ($LastStatus.StartsWith('ERROR')) { $Healthy = $false }
-
-    $Action = $Mode
+    Log "Diagnostico: cliente=$($Client.ClientId); host=$($Identity.Hostname); proxy=$($Identity.Proxy); alvo=$($Target.Family); versao=$($Desired.AgentVersion); compliant=$($Compliance.Compliant); motivos=$($Compliance.Reasons -join ',')"
+    if ($Mode -eq 'Diagnose') { if ($Compliance.Compliant) {exit 0} else {exit 10} }
+    if ($Mode -eq 'Auto' -and $Compliance.Compliant -and -not $Force) { Log 'Sem alteracoes; encerrando.' 'OK'; exit 0 }
+    if ((Get-DDMFreeSpaceMB $StateRoot) -lt [int]$DDMProduct.MinimumFreeSpaceMB) { throw 'Espaco livre insuficiente para aplicar.' }
+    $Action=$Mode
     if ($Mode -eq 'Auto') {
-        if ($InstalledVersion -ne $CentralVersion -or $InstalledConfigHash -ne $CentralConfigHash -or $null -eq $TargetService) {
-            $Action = 'Apply'
-        }
-        elseif (-not $Healthy) {
-            $Action = 'Repair'
-        }
-        else {
-            Write-DailyLog "Sem alteracoes. Motor=$CentralVersion; agente=$($Target.Family); status=saudavel." 'OK'
-            exit 0
-        }
+        if ($Compliance.Reasons -contains 'servico_ausente' -or $Compliance.Reasons -contains 'release_divergente' -or $Compliance.Reasons -contains 'motor_divergente' -or $Compliance.Reasons -contains 'cliente_divergente' -or $Compliance.Reasons -contains 'cliente_fonte_divergente' -or @($Compliance.Reasons | Where-Object { $_ -like 'versao_agente=*' }).Count -gt 0) {$Action='Apply'} else {$Action='Repair'}
     }
-
-    Write-DailyLog "Acao=$Action; central=$CentralVersion; instalado=$InstalledVersion; agente=$($Target.Family)." 'INFO'
-
-    $LocalRuntime = Join-Path ([string]$DDMProduct.RuntimeDirectory) $CentralVersion
-    if ($Force -or -not (Test-Path -LiteralPath $LocalRuntime)) {
-        Write-DailyLog "Copiando motor central para cache local: $LocalRuntime" 'INFO'
-        Copy-DirectoryAtomic $SourceRuntime $LocalRuntime
-    }
-
-    $LocalConfigRoot = Join-Path $StateRoot 'Config'
-    $LocalClientConfig = Join-Path $LocalConfigRoot 'CLIENTE.ps1'
-    if (-not (Test-Path -LiteralPath $LocalConfigRoot)) { New-Item -Path $LocalConfigRoot -ItemType Directory -Force | Out-Null }
-    Copy-FileVerified $ClientSource $LocalClientConfig $CentralConfigHash
-
-    $CentralArtifacts = Join-Path $CentralRoot ('ARTIFACTS\' + $DDMProduct.AgentVersion)
-    $LocalArtifacts = Join-Path $StateRoot ('Artifacts\' + $DDMProduct.AgentVersion)
-    if (-not (Test-Path -LiteralPath $CentralArtifacts)) { throw "Artefatos centrais ausentes: $CentralArtifacts" }
-    if (-not (Test-Path -LiteralPath $LocalArtifacts)) { New-Item -Path $LocalArtifacts -ItemType Directory -Force | Out-Null }
-
-    $ManifestPath = Join-Path $CentralArtifacts 'SHA256SUMS.txt'
-    $Hashes = @{}
-    if (Test-Path -LiteralPath $ManifestPath) {
-        foreach ($Line in Get-Content -LiteralPath $ManifestPath) {
-            if ($Line -match '^([0-9A-Fa-f]{64})\s+\*?(.+)$') { $Hashes[$Matches[2].Trim()] = $Matches[1].ToUpperInvariant() }
-        }
-    }
-
-    foreach ($FileName in @($DDMProduct.Agent2File,$DDMProduct.Agent2PluginsFile,$DDMProduct.Agent1File)) {
-        $Source = Join-Path $CentralArtifacts $FileName
-        if (-not (Test-Path -LiteralPath $Source)) { throw "Artefato central ausente: $Source" }
-        $Expected = if ($Hashes.ContainsKey($FileName)) { [string]$Hashes[$FileName] } else { Get-Sha256 $Source }
-        Copy-FileVerified $Source (Join-Path $LocalArtifacts $FileName) $Expected
-    }
-    if (Test-Path -LiteralPath $ManifestPath) { Copy-Item -LiteralPath $ManifestPath -Destination $LocalArtifacts -Force }
-
-    $Engine = Join-Path $LocalRuntime 'engine\Install-DDM-Zabbix-Windows.ps1'
-    if (-not (Test-Path -LiteralPath $Engine)) { throw "Motor tecnico local ausente: $Engine" }
-    $EngineMode = if ($Action -eq 'Diagnose') { 'Diagnose' } elseif ($Action -eq 'Repair') { 'Repair' } else { 'Apply' }
-
-    $Arguments = @(
-        '-NoLogo',
-        '-NoProfile',
-        '-ExecutionPolicy','Bypass',
-        '-File',('"{0}"' -f $Engine),
-        '-Mode',$EngineMode,
-        '-ProfilePath',('"{0}"' -f $LocalClientConfig),
-        '-IdentityPath',('"{0}"' -f $LocalClientConfig),
-        '-ArtifactsRoot',('"{0}"' -f $LocalArtifacts)
-    )
-    if ($Force) { $Arguments += '-Force' }
-
-    $Process = Start-Process -FilePath 'powershell.exe' -ArgumentList ($Arguments -join ' ') -Wait -PassThru
-    if ($Process.ExitCode -ne 0) { throw "Motor retornou codigo $($Process.ExitCode)." }
-
-    if ($EngineMode -ne 'Diagnose') {
-        Set-Content -LiteralPath (Join-Path $StateRoot 'client.config.sha256') -Value $CentralConfigHash -Encoding ASCII
-        . $LocalClientConfig
-        Set-Content -LiteralPath (Join-Path $StateRoot 'client.config.version') -Value ([string]$DDMClientProfile.ConfigVersion) -Encoding ASCII
-        Set-Content -LiteralPath (Join-Path $StateRoot 'central.root') -Value $CentralRoot -Encoding UTF8
-    }
-
-    Write-DailyLog "Execucao concluida: $EngineMode" 'OK'
-    exit 0
+    $Engine=Join-Path $RuntimeRoot 'engine\Install-DDM-Zabbix-Windows.ps1'
+    $Args=@('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"'+$Engine+'"'),'-Mode',$Action,'-ClientRuntimePath',('"'+$Desired.ClientRuntimePath+'"'),'-ArtifactsRoot',('"'+$Desired.ArtifactsRoot+'"'),'-DesiredProductVersion',([string]$Desired.ProductVersion),'-DesiredAgentVersion',([string]$Desired.AgentVersion),'-DesiredReleaseId',([string]$Desired.ReleaseId),'-ClientSourceSha256',([string]$Desired.ClientSourceSha256),'-ClientRuntimeSha256',([string]$Desired.ClientRuntimeSha256))
+    if ($Force) {$Args+='-Force'}
+    $P=Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList ($Args -join ' ') -Wait -PassThru
+    if (@(0,3010) -notcontains $P.ExitCode) { throw "Motor retornou $($P.ExitCode)" }
+    $Compliance=Test-DDMCompliance $Target $Identity $Client
+    if (-not $Compliance.Compliant) { throw "Pos-validacao falhou: $($Compliance.Reasons -join ', ')" }
+    Log "Aplicacao concluida. Acao=$Action; reboot=$($P.ExitCode -eq 3010)" 'OK'
+    exit $P.ExitCode
 }
-catch {
-    try {
-        if ($LogFile) {
-            $Line = '{0} [ERROR] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),$_.Exception.Message
-            Write-Host $Line
-            Add-Content -LiteralPath $LogFile -Value $Line -Encoding UTF8
-        }
-        else { Write-Host $_.Exception.Message }
-    }
-    catch { }
-    exit 1
-}
-finally {
-    if ($Locked) { try { $Mutex.ReleaseMutex() } catch { } }
-    $Mutex.Close()
-}
+catch { Log $_.Exception.Message 'ERROR'; exit 1 }
