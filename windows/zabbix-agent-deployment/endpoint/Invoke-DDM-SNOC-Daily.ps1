@@ -78,15 +78,17 @@ function Test-DDMCompliance($Target,$Identity,$Client) {
 try {
     if (-not (Test-Path $Desired.ClientRuntimePath)) { throw 'CLIENTE.runtime.clixml ausente.' }
     if ((Get-DDMSha256 $Desired.ClientRuntimePath) -ne [string]$Desired.ClientRuntimeSha256) { throw 'CLIENTE.runtime.clixml com hash divergente.' }
+    $AllowDowngrade=$Force
+    if ($Desired.PSObject.Properties['AllowDowngrade'] -and [bool]$Desired.AllowDowngrade) { $AllowDowngrade=$true }
     $Client=Import-DDMClixmlSafe $Desired.ClientRuntimePath
     $System=Get-DDMSystemInfo
     $Target=Get-DDMTargetAgent $System $DDMProduct
     $Identity=Resolve-DDMClientIdentity $Client $DDMProduct $System
     $Compliance=Test-DDMCompliance $Target $Identity $Client
     if (-not (Test-DDMBlank $Compliance.ActualVersion)) {
-        try { $ActualV=New-Object System.Version -ArgumentList $Compliance.ActualVersion; $DesiredV=New-Object System.Version -ArgumentList ([string]$Desired.AgentVersion); if ($ActualV -gt $DesiredV -and -not $Force) { throw "Downgrade bloqueado: agente local $($Compliance.ActualVersion) e central $($Desired.AgentVersion)" } } catch { if ($_.Exception.Message -like 'Downgrade bloqueado*') { throw } }
+        try { $ActualV=New-Object System.Version -ArgumentList $Compliance.ActualVersion; $DesiredV=New-Object System.Version -ArgumentList ([string]$Desired.AgentVersion); if ($ActualV -gt $DesiredV -and -not $AllowDowngrade) { throw "Downgrade bloqueado: agente local $($Compliance.ActualVersion) e central $($Desired.AgentVersion)" } } catch { if ($_.Exception.Message -like 'Downgrade bloqueado*') { throw } }
     }
-    Log "Diagnostico: cliente=$($Client.ClientId); host=$($Identity.Hostname); proxy=$($Identity.Proxy); alvo=$($Target.Family); versao=$($Desired.AgentVersion); compliant=$($Compliance.Compliant); motivos=$($Compliance.Reasons -join ',')"
+    Log "Diagnostico: cliente=$($Client.ClientId); host=$($Identity.Hostname); proxy=$($Identity.Proxy); alvo=$($Target.Family); versao=$($Desired.AgentVersion); compliant=$($Compliance.Compliant); rollback_autorizado=$AllowDowngrade; motivos=$($Compliance.Reasons -join ',')"
     if ($Mode -eq 'Diagnose') { if ($Compliance.Compliant) {exit 0} else {exit 10} }
     if ($Mode -eq 'Auto' -and $Compliance.Compliant -and -not $Force) { Log 'Sem alteracoes; encerrando.' 'OK'; exit 0 }
     if ((Get-DDMFreeSpaceMB $StateRoot) -lt [int]$DDMProduct.MinimumFreeSpaceMB) { throw 'Espaco livre insuficiente para aplicar.' }
@@ -96,7 +98,7 @@ try {
     }
     $Engine=Join-Path $RuntimeRoot 'engine\Install-DDM-Zabbix-Windows.ps1'
     $Args=@('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"'+$Engine+'"'),'-Mode',$Action,'-ClientRuntimePath',('"'+$Desired.ClientRuntimePath+'"'),'-ArtifactsRoot',('"'+$Desired.ArtifactsRoot+'"'),'-DesiredProductVersion',([string]$Desired.ProductVersion),'-DesiredAgentVersion',([string]$Desired.AgentVersion),'-DesiredReleaseId',([string]$Desired.ReleaseId),'-ClientSourceSha256',([string]$Desired.ClientSourceSha256),'-ClientRuntimeSha256',([string]$Desired.ClientRuntimeSha256))
-    if ($Force) {$Args+='-Force'}
+    if ($Force -or $AllowDowngrade) {$Args+='-Force'}
     $P=Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList ($Args -join ' ') -Wait -PassThru
     if (@(0,3010) -notcontains $P.ExitCode) { throw "Motor retornou $($P.ExitCode)" }
     $Compliance=Test-DDMCompliance $Target $Identity $Client
