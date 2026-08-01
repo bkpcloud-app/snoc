@@ -176,13 +176,20 @@ try {
     if (-not (Test-Path -LiteralPath $Engine)) { throw "Motor tecnico local ausente: $Engine" }
     $EngineMode = if ($Action -eq 'Diagnose') { 'Diagnose' } elseif ($Action -eq 'Repair') { 'Repair' } else { 'Apply' }
 
-    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Engine `
-        -Mode $EngineMode `
-        -ProfilePath $LocalClientConfig `
-        -IdentityPath $LocalClientConfig `
-        -ArtifactsRoot $LocalArtifacts `
-        -Force:$Force
-    if ($LASTEXITCODE -ne 0) { throw "Motor retornou codigo $LASTEXITCODE." }
+    $Arguments = @(
+        '-NoLogo',
+        '-NoProfile',
+        '-ExecutionPolicy','Bypass',
+        '-File',('"{0}"' -f $Engine),
+        '-Mode',$EngineMode,
+        '-ProfilePath',('"{0}"' -f $LocalClientConfig),
+        '-IdentityPath',('"{0}"' -f $LocalClientConfig),
+        '-ArtifactsRoot',('"{0}"' -f $LocalArtifacts)
+    )
+    if ($Force) { $Arguments += '-Force' }
+
+    $Process = Start-Process -FilePath 'powershell.exe' -ArgumentList ($Arguments -join ' ') -Wait -PassThru
+    if ($Process.ExitCode -ne 0) { throw "Motor retornou codigo $($Process.ExitCode)." }
 
     if ($EngineMode -ne 'Diagnose') {
         Set-Content -LiteralPath (Join-Path $StateRoot 'client.config.sha256') -Value $CentralConfigHash -Encoding ASCII
