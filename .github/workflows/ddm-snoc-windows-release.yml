@@ -41,14 +41,23 @@ jobs:
           foreach($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')){Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Recurse -Force}
 
           Copy-Item (Join-Path $Product 'templates\central\ATUALIZAR-AD.cmd') (Join-Path $Seed 'ATUALIZAR-AD.cmd') -Force
+          Copy-Item (Join-Path $Product 'templates\central\VOLTAR-RELEASE.cmd') (Join-Path $Seed 'VOLTAR-RELEASE.cmd') -Force
           Copy-Item (Join-Path $Product 'CLIENTE.example.ps1') (Join-Path $Seed 'CLIENTE.example.ps1') -Force
           Copy-Item (Join-Path $Product 'docs\UPDATE-AD.md') (Join-Path $Seed 'LEIA-ME-UPDATE-AD.md') -Force
           $Updater=Join-Path $Seed 'CENTRAL-UPDATER'
           foreach($Rel in @('central\Update-DDM-SNOC-Central.ps1','central\lib\DDM-Central-Client.ps1','central\lib\DDM-Central-Supply.ps1','central\lib\Invoke-DDM-Central-Publish.ps1','config\DDM-Product.ps1','lib\DDM-Common.ps1')){
             $Source=Join-Path $Product $Rel; $Destination=Join-Path $Updater $Rel; New-Item (Split-Path -Parent $Destination) -ItemType Directory -Force | Out-Null; Copy-Item $Source $Destination -Force
           }
+          $CentralTools=Join-Path $Seed 'CENTRAL-TOOLS'
+          $RollbackDestination=Join-Path $CentralTools 'tools\Set-DDM-CentralRelease.ps1'
+          New-Item (Split-Path -Parent $RollbackDestination) -ItemType Directory -Force | Out-Null
+          Copy-Item (Join-Path $Product 'tools\Set-DDM-CentralRelease.ps1') $RollbackDestination -Force
+
           foreach($Root in @($Motor,$Seed)){
             if(Get-ChildItem $Root -Recurse -Force | Where-Object {$_.FullName -match '\\base-package\\|\\\.parts\\|New-BKPCloud-Zabbix-Client'}){throw "Conteudo legado no asset: $Root"}
+          }
+          foreach($Required in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd','CENTRAL-UPDATER\central\Update-DDM-SNOC-Central.ps1','CENTRAL-TOOLS\tools\Set-DDM-CentralRelease.ps1')){
+            if(-not(Test-Path (Join-Path $Seed $Required))){throw "AD-SEED incompleto: $Required"}
           }
           $MotorZip=Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-' + $DDMProduct.ProductVersion + '.zip')
           $SeedZip=Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-' + $DDMProduct.ProductVersion + '.zip')
