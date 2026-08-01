@@ -1,658 +1,361 @@
 #requires -Version 2.0
 [CmdletBinding()]
 param(
-    [ValidateSet('Diagnose','Apply','Repair')]
-    [string]$Mode = 'Diagnose',
-
-    [Parameter(Mandatory=$true)]
-    [string]$ProfilePath,
-
-    [Parameter(Mandatory=$true)]
-    [string]$IdentityPath,
-
-    [string]$ArtifactsRoot,
-    [switch]$AllowInternetDownload,
+    [ValidateSet('Diagnose','Apply','Repair')][string]$Mode='Diagnose',
+    [Parameter(Mandatory=$true)][string]$ClientRuntimePath,
+    [Parameter(Mandatory=$true)][string]$ArtifactsRoot,
+    [Parameter(Mandatory=$true)][string]$DesiredProductVersion,
+    [Parameter(Mandatory=$true)][string]$DesiredAgentVersion,
+    [Parameter(Mandatory=$true)][string]$DesiredReleaseId,
+    [Parameter(Mandatory=$true)][string]$ClientSourceSha256,
+    [Parameter(Mandatory=$true)][string]$ClientRuntimeSha256,
     [switch]$Force
 )
-
-$ErrorActionPreference = 'Stop'
-$EngineRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$ProductRoot = Split-Path -Parent $EngineRoot
+$ErrorActionPreference='Stop'
+$EngineRoot=Split-Path -Parent $MyInvocation.MyCommand.Definition
+$ProductRoot=Split-Path -Parent $EngineRoot
 . (Join-Path $ProductRoot 'config\DDM-Product.ps1')
+. (Join-Path $ProductRoot 'lib\DDM-Common.ps1')
+$StateRoot=$DDMProduct.StateDirectory
+$LogRoot=Join-Path $StateRoot 'Logs'
+$BackupRoot=Join-Path $StateRoot 'MigrationBackups'
+New-Item $LogRoot -ItemType Directory -Force | Out-Null
+New-Item $BackupRoot -ItemType Directory -Force | Out-Null
+$RunId=Get-Date -Format 'yyyyMMdd-HHmmss'
+$LogFile=Join-Path $LogRoot ("ENGINE-{0}-{1}.log" -f $env:COMPUTERNAME,$RunId)
+$Mutex=New-Object System.Threading.Mutex($false,'Global\DDM_SNOC_WINDOWS_ENGINE')
+$Locked=$false
+$TargetValidated=$false
+$RebootRequired=$false
+function Log([string]$M,[string]$L='INFO') { $X='{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),$L,$M; Write-Host $X; Add-Content $LogFile $X -Encoding UTF8 }
 
-if (-not (Test-Path -LiteralPath $ProfilePath)) { throw "Perfil nao encontrado: $ProfilePath" }
-if (-not (Test-Path -LiteralPath $IdentityPath)) { throw "Identidade nao encontrada: $IdentityPath" }
-. $ProfilePath
-. $IdentityPath
-
-if ($null -eq $DDMClientProfile) { throw 'O perfil deve definir $DDMClientProfile.' }
-if (-not (Get-Command Get-DDMClientIdentity -ErrorAction SilentlyContinue)) {
-    throw 'O arquivo de identidade deve definir Get-DDMClientIdentity.'
+function Test-Admin {
+    $Id=[Security.Principal.WindowsIdentity]::GetCurrent(); $P=New-Object Security.Principal.WindowsPrincipal($Id)
+    return $P.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-$StateRoot = [string]$DDMProduct.StateDirectory
-$LogRoot = Join-Path $StateRoot 'Logs'
-$BackupRoot = Join-Path $StateRoot 'MigrationBackups'
-$RunId = Get-Date -Format 'yyyyMMdd-HHmmss'
-$LogFile = Join-Path $LogRoot ("DDM-Zabbix-{0}-{1}.log" -f $env:COMPUTERNAME,$RunId)
-$TargetValidated = $false
-
-function Test-Blank {
-    param($Value)
-    if ($null -eq $Value) { return $true }
-    return ([string]$Value).Trim().Length -eq 0
-}
-
-function Initialize-DDMDirectories {
-    foreach ($Directory in @($StateRoot,$LogRoot,$BackupRoot)) {
-        if (-not (Test-Path -LiteralPath $Directory)) {
-            New-Item -Path $Directory -ItemType Directory -Force | Out-Null
-        }
+function Get-ZabbixProducts {
+    $Items=@()
+    $Paths=@('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*')
+    foreach ($P in @(Get-ItemProperty $Paths -ErrorAction SilentlyContinue)) {
+        $N=[string]$P.DisplayName
+        $Family='OTHER'
+        if ($N -eq 'Zabbix Agent' -or $N -like 'Zabbix Agent (*') {$Family='AGENT1'}
+        elseif ($N -eq 'Zabbix Agent 2' -or $N -like 'Zabbix Agent 2 (*') {$Family='AGENT2'}
+        elseif ($N -like 'Zabbix Agent2 Plugins*' -or $N -like 'Zabbix Agent 2 Plugins*') {$Family='PLUGINS'}
+        if ($Family -ne 'OTHER') { $Code=[string]$P.PSChildName; if ($Code -notmatch '^\{[0-9A-Fa-f-]{36}\}$') { throw "Produto Zabbix sem ProductCode MSI valido: $N ($Code)" }; $Items += New-Object PSObject -Property @{DisplayName=$N;DisplayVersion=[string]$P.DisplayVersion;ProductCode=$Code;Family=$Family;InstallLocation=[string]$P.InstallLocation;UninstallString=[string]$P.UninstallString} }
     }
+    return @($Items | Sort-Object ProductCode -Unique)
 }
 
-try {
-    Initialize-DDMDirectories
-}
-catch {
-    $StateRoot = Join-Path $env:TEMP 'DDM-Zabbix'
-    $LogRoot = Join-Path $StateRoot 'Logs'
-    $BackupRoot = Join-Path $StateRoot 'MigrationBackups'
-    $LogFile = Join-Path $LogRoot ("DDM-Zabbix-{0}-{1}.log" -f $env:COMPUTERNAME,$RunId)
-    Initialize-DDMDirectories
+function Get-LocalPackage([string]$ProductCode) {
+    try { $I=New-Object -ComObject WindowsInstaller.Installer; return [string]$I.ProductInfo($ProductCode,'LocalPackage') } catch { return '' }
 }
 
-function Write-DDMLog {
-    param([string]$Message,[string]$Level)
-    if (Test-Blank $Level) { $Level = 'INFO' }
-    $Line = '{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),$Level,$Message
-    Write-Host $Line
-    Add-Content -LiteralPath $LogFile -Value $Line -Encoding UTF8
-}
-
-function Test-IsAdministrator {
-    $CurrentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $Principal = New-Object Security.Principal.WindowsPrincipal($CurrentIdentity)
-    return $Principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
-
-function Get-DDMSystemInfo {
-    $Os = Get-WmiObject Win32_OperatingSystem
-    $ComputerSystem = Get-WmiObject Win32_ComputerSystem
-    $Version = New-Object System.Version([string]$Os.Version)
-    $IsServer = ([int]$Os.ProductType -ne 1)
-    $ArchitectureText = ([string]$env:PROCESSOR_ARCHITEW6432 + ' ' + [string]$env:PROCESSOR_ARCHITECTURE).ToUpperInvariant()
-    $Is64Bit = ($ArchitectureText -match 'AMD64|IA64|ARM64')
-
-    return New-Object PSObject -Property @{
-        Caption=[string]$Os.Caption
-        Version=$Version
-        ProductType=[int]$Os.ProductType
-        IsServer=$IsServer
-        Is64Bit=$Is64Bit
-        OsTag=$(if ($IsServer) { 'WIN_SERVER' } else { 'WIN_CLIENT' })
-        Class=$(if ($IsServer) { 'SERVER' } else { 'WORKSTATION' })
-        Domain=[string]$ComputerSystem.Domain
-        PartOfDomain=[bool]$ComputerSystem.PartOfDomain
+function Invoke-Msi([string]$Operation,[string]$PackageOrCode,[string[]]$Properties,[string]$Name) {
+    $Log=Join-Path $LogRoot ("MSI-{0}-{1}-{2}.log" -f $Operation,($Name -replace '[^A-Za-z0-9]','_'),$RunId)
+    if ($Operation -eq 'INSTALL') { $Args=@('/i',('"'+$PackageOrCode+'"'),'/qn','/norestart') + @($Properties) }
+    else { $Args=@('/x',$PackageOrCode,'/qn','/norestart') }
+    $Args += @('/L*v',('"'+$Log+'"'))
+    $ExitCode=-1
+    for ($Attempt=1;$Attempt -le 4;$Attempt++) {
+        $P=Start-Process -FilePath 'msiexec.exe' -ArgumentList ($Args -join ' ') -Wait -PassThru
+        $ExitCode=$P.ExitCode
+        if ($ExitCode -ne 1618) { break }
+        Log "Windows Installer ocupado; tentativa $Attempt/4." 'WARN'
+        Start-Sleep -Seconds 30
     }
+    $Allowed=if($Operation -eq 'REMOVE'){@(0,1605,1641,3010)}else{@(0,1641,3010)}
+    if ($Allowed -notcontains $ExitCode) { throw "MSI $Operation falhou para $Name. ExitCode=$ExitCode. Log=$Log" }
+    if (@(1641,3010) -contains $ExitCode) { $script:RebootRequired=$true }
+    Log "MSI $Operation concluido: $Name; ExitCode=$ExitCode" 'OK'
 }
 
-function Test-DDMProfileScope {
-    param($SystemInfo)
-
-    if ([bool]$DDMClientProfile.ServersOnly -and -not $SystemInfo.IsServer) {
-        throw "O perfil $($DDMClientProfile.ClientId) permite somente Windows Server."
-    }
-
-    $Domains = @($DDMClientProfile.AcceptedDomains)
-    if ($Domains.Count -gt 0) {
-        if (-not $SystemInfo.PartOfDomain) {
-            throw "A maquina nao pertence a um dominio aceito pelo perfil $($DDMClientProfile.ClientId)."
-        }
-
-        $Matched = $false
-        foreach ($Domain in $Domains) {
-            if (([string]$Domain).Trim().ToLowerInvariant() -eq $SystemInfo.Domain.Trim().ToLowerInvariant()) {
-                $Matched = $true
-                break
-            }
-        }
-        if (-not $Matched) {
-            throw "Dominio nao permitido. Detectado: $($SystemInfo.Domain). Aceitos: $($Domains -join ', ')."
-        }
-    }
+function Get-Artifact([string]$Role) {
+    $Manifest=Import-DDMClixmlSafe (Join-Path $ArtifactsRoot $DDMProduct.ArtifactManifestFile)
+    $Items=@($Manifest | Where-Object { [string]$_.Role -eq $Role -and [string]$_.Version -eq $DesiredAgentVersion })
+    if ($Items.Count -ne 1) { throw "Artefato nao resolvido para $Role/$DesiredAgentVersion" }
+    $Path=Join-Path $ArtifactsRoot ([string]$Items[0].Name)
+    if (-not (Test-Path $Path) -or (Get-DDMSha256 $Path) -ne [string]$Items[0].Sha256) { throw "Artefato invalido: $Path" }
+    $Sig=Get-AuthenticodeSignature $Path
+    if ($Sig.Status -ne 'Valid' -or $null -eq $Sig.SignerCertificate -or [string]$Sig.SignerCertificate.Subject -notmatch '(?i)CN=Zabbix SIA(,|$)') { throw "Assinatura Zabbix invalida: $Path" }
+    $Chain=New-Object System.Security.Cryptography.X509Certificates.X509Chain
+    $Chain.ChainPolicy.RevocationMode=[System.Security.Cryptography.X509Certificates.X509RevocationMode]::Online
+    $Chain.ChainPolicy.RevocationFlag=[System.Security.Cryptography.X509Certificates.X509RevocationFlag]::ExcludeRoot
+    if (-not $Chain.Build($Sig.SignerCertificate)) { throw "Cadeia Authenticode invalida: $Path" }
+    return $Path
 }
 
-function Get-DDMTargetAgent {
-    param($SystemInfo)
-
-    if (-not $SystemInfo.Is64Bit) { throw 'Este produto exige Windows 64 bits.' }
-
-    if ($SystemInfo.IsServer -and $SystemInfo.Version.Major -eq 6 -and $SystemInfo.Version.Minor -le 1) {
-        return 'AGENT1'
-    }
-
-    $IsServer2012 = $SystemInfo.IsServer -and $SystemInfo.Version.Major -eq 6 -and $SystemInfo.Version.Minor -ge 2
-    $IsModernServer = $SystemInfo.IsServer -and $SystemInfo.Version.Major -ge 10
-    $IsModernClient = (-not $SystemInfo.IsServer) -and $SystemInfo.Version.Major -ge 10
-
-    if ($IsServer2012 -or $IsModernServer -or $IsModernClient) {
-        if ($IsServer2012 -and -not [bool]$DDMProduct.AllowAgent2OnServer2012) {
-            throw 'Windows Server 2012/2012 R2 bloqueado pela configuracao do produto.'
-        }
-        return 'AGENT2'
-    }
-
-    throw "Sistema nao suportado: $($SystemInfo.Caption) $($SystemInfo.Version)."
-}
-
-function Get-InstalledZabbixProducts {
-    $Paths = @(
-        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
-        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
-    )
-    return @(
-        Get-ItemProperty -Path $Paths -ErrorAction SilentlyContinue |
-            Where-Object { -not (Test-Blank $_.DisplayName) -and ([string]$_.DisplayName -like 'Zabbix Agent*') } |
-            Sort-Object DisplayName,DisplayVersion -Unique
-    )
-}
-
-function Get-ServiceStartMode {
-    param([string]$Name)
+function Get-ServiceSnapshot([string]$Name) {
+    $S=Get-Service $Name -ErrorAction SilentlyContinue
+    $Mode='NOT_INSTALLED'; $PathName=''; $DisplayName=''; $StartName='LocalSystem'
     try {
-        $SafeName = $Name.Replace("'","''")
-        $Service = Get-WmiObject Win32_Service -Filter "Name='$SafeName'"
-        if ($null -eq $Service) { return 'NOT_INSTALLED' }
-        return [string]$Service.StartMode
-    }
-    catch { return 'UNKNOWN' }
+        $W=Get-WmiObject Win32_Service -Filter ("Name='" + $Name.Replace("'","''") + "'")
+        if ($W) { $Mode=[string]$W.StartMode; $PathName=[string]$W.PathName; $DisplayName=[string]$W.DisplayName; $StartName=[string]$W.StartName }
+    } catch {}
+    return New-Object PSObject -Property @{Name=$Name;Exists=($null -ne $S);Status=$(if($S){[string]$S.Status}else{'NOT_INSTALLED'});StartMode=$Mode;PathName=$PathName;DisplayName=$DisplayName;StartName=$StartName}
 }
 
-function Stop-DDMZabbix {
-    Stop-Service -Name 'Zabbix Agent' -Force -ErrorAction SilentlyContinue
-    Stop-Service -Name 'Zabbix Agent 2' -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
-    Get-Process zabbix_agentd,zabbix_agent2 -ErrorAction SilentlyContinue |
-        Stop-Process -Force -ErrorAction SilentlyContinue
+function Backup-State($Products,$Target) {
+    $Root=Join-Path $BackupRoot $RunId
+    New-Item $Root -ItemType Directory -Force | Out-Null
+    $Dirs=@($DDMProduct.Agent1Directory,$DDMProduct.Agent2Directory)
+    foreach ($D in $Dirs) { if (Test-Path $D) { Copy-Item $D (Join-Path $Root (Split-Path -Leaf $D)) -Recurse -Force } }
+    $ProductBackups=@()
+    foreach ($P in @($Products)) {
+        $Local=Get-LocalPackage $P.ProductCode
+        $Copy=''
+        if (-not (Test-DDMBlank $Local) -and (Test-Path $Local)) { $Copy=Join-Path $Root (([string]$P.Family) + '-' + ([string]$P.DisplayVersion) + '.msi'); Copy-Item $Local $Copy -Force }
+        elseif (@('AGENT1','AGENT2','PLUGINS') -contains $P.Family) { throw "Rollback MSI indisponivel para $($P.DisplayName) $($P.DisplayVersion). Repare o cache do Windows Installer antes da migracao." }
+        $ProductBackups += New-Object PSObject -Property @{DisplayName=$P.DisplayName;DisplayVersion=$P.DisplayVersion;ProductCode=$P.ProductCode;Family=$P.Family;LocalPackage=$Copy;InstallLocation=$P.InstallLocation}
+    }
+    $Agent1Snapshot=Get-ServiceSnapshot 'Zabbix Agent'; $Agent2Snapshot=Get-ServiceSnapshot 'Zabbix Agent 2'
+    foreach ($ServiceSnapshot in @($Agent1Snapshot,$Agent2Snapshot)) { if ($ServiceSnapshot.Exists -and -not (Test-DDMBlank $ServiceSnapshot.StartName) -and [string]$ServiceSnapshot.StartName -notmatch '^(?i)(LocalSystem|NT AUTHORITY\\SYSTEM)$') { throw "Servico $($ServiceSnapshot.Name) usa conta personalizada ($($ServiceSnapshot.StartName)); rollback automatico de credencial nao e seguro." } }
+    $Snapshot=New-Object PSObject -Property @{Products=$ProductBackups;Agent1Service=$Agent1Snapshot;Agent2Service=$Agent2Snapshot;CreatedAt=(Get-Date).ToUniversalTime().ToString('o')}
+    Export-DDMClixmlAtomic $Snapshot (Join-Path $Root 'snapshot.clixml') 8
+    Log "Backup criado: $Root"
+    return $Root
 }
 
-function Get-Sha256 {
-    param([string]$Path)
-    $Sha = [System.Security.Cryptography.SHA256]::Create()
-    $Stream = [System.IO.File]::OpenRead($Path)
-    try {
-        return ([BitConverter]::ToString($Sha.ComputeHash($Stream))).Replace('-','').ToUpperInvariant()
-    }
-    finally {
-        $Stream.Close()
-        $Sha.Dispose()
-    }
-}
-
-function Get-HashFromManifest {
-    param([string]$Root,[string]$FileName)
-    $Manifest = Join-Path $Root 'SHA256SUMS.txt'
-    if (-not (Test-Path -LiteralPath $Manifest)) { return $null }
-
-    foreach ($Line in Get-Content -LiteralPath $Manifest) {
-        if ($Line -match '^([0-9A-Fa-f]{64})\s+\*?(.+)$') {
-            if ($Matches[2].Trim() -ieq $FileName) { return $Matches[1].ToUpperInvariant() }
-        }
-    }
-    return $null
-}
-
-function Test-DDMAuthenticode {
-    param([string]$Path)
-    $Signature = Get-AuthenticodeSignature -FilePath $Path
-    if ($Signature.Status -ne 'Valid') {
-        throw "Assinatura digital invalida em $Path. Status: $($Signature.Status)."
-    }
-    $Subject = [string]$Signature.SignerCertificate.Subject
-    if ($Subject -notmatch '(?i)Zabbix') { throw "Assinante inesperado em ${Path}: $Subject" }
-}
-
-function Resolve-DDMArtifact {
-    param([string]$FileName,[string]$Url,[string]$ExpectedSha256)
-
-    $Roots = @()
-    if (-not (Test-Blank $ArtifactsRoot)) { $Roots += $ArtifactsRoot }
-    $Roots += (Join-Path $ProductRoot 'artifacts')
-
-    foreach ($Root in $Roots) {
-        $Candidate = Join-Path $Root $FileName
-        if (Test-Path -LiteralPath $Candidate) {
-            $ManifestHash = Get-HashFromManifest -Root $Root -FileName $FileName
-            $RequiredHash = if (-not (Test-Blank $ExpectedSha256)) { $ExpectedSha256 } else { $ManifestHash }
-            if (-not (Test-Blank $RequiredHash)) {
-                $ActualHash = Get-Sha256 $Candidate
-                if ($ActualHash -ne ([string]$RequiredHash).ToUpperInvariant()) {
-                    throw "SHA-256 invalido para $Candidate."
-                }
-            }
-            Test-DDMAuthenticode $Candidate
-            return (Resolve-Path -LiteralPath $Candidate).Path
-        }
-    }
-
-    if (-not $AllowInternetDownload) {
-        throw "Artefato ausente: $FileName. Use o pacote offline completo ou -AllowInternetDownload."
-    }
-
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $CacheRoot = Join-Path $StateRoot 'Artifacts'
-    if (-not (Test-Path -LiteralPath $CacheRoot)) { New-Item -Path $CacheRoot -ItemType Directory -Force | Out-Null }
-    $Destination = Join-Path $CacheRoot $FileName
-    Write-DDMLog "Baixando artefato oficial: $FileName"
-    Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
-
-    if (-not (Test-Blank $ExpectedSha256)) {
-        if ((Get-Sha256 $Destination) -ne ([string]$ExpectedSha256).ToUpperInvariant()) {
-            Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
-            throw "SHA-256 invalido apos download de $FileName."
-        }
-    }
-    Test-DDMAuthenticode $Destination
-    return $Destination
-}
-
-function Backup-DDMState {
-    $Destination = Join-Path $BackupRoot $RunId
-    New-Item -Path $Destination -ItemType Directory -Force | Out-Null
-
-    foreach ($Source in @([string]$DDMProduct.Agent1Directory,[string]$DDMProduct.Agent2Directory)) {
-        if (Test-Path -LiteralPath $Source) {
-            Copy-Item -LiteralPath $Source -Destination (Join-Path $Destination (Split-Path -Leaf $Source)) -Recurse -Force
-        }
-    }
-    Get-InstalledZabbixProducts | Format-List * | Out-File (Join-Path $Destination 'installed-products.txt') -Encoding UTF8
-    Write-DDMLog "Backup de migracao: $Destination"
-    return $Destination
-}
-
-function Invoke-DDMMsiInstall {
-    param([string]$Package,[string[]]$Properties)
-    $MsiLog = Join-Path $LogRoot ("MSI-Install-{0}-{1}.log" -f (Split-Path -Leaf $Package),$RunId)
-    $Arguments = @('/i',('"{0}"' -f $Package),'/qn','/norestart') + @($Properties) + @('/L*v',('"{0}"' -f $MsiLog))
-    $Process = Start-Process -FilePath 'msiexec.exe' -ArgumentList ($Arguments -join ' ') -Wait -PassThru
-    if (@(0,3010) -notcontains $Process.ExitCode) {
-        throw "MSI falhou. ExitCode=$($Process.ExitCode). Log=$MsiLog"
-    }
-    Write-DDMLog "MSI instalado: $(Split-Path -Leaf $Package), ExitCode=$($Process.ExitCode)" 'OK'
-}
-
-function Remove-DDMProduct {
-    param($Product)
-    $ProductCode = [string]$Product.PSChildName
-    if ($ProductCode -notmatch '^\{[0-9A-Fa-f-]+\}$') {
-        throw "Produto sem ProductCode MSI valido: $($Product.DisplayName) $($Product.DisplayVersion)"
-    }
-    $MsiLog = Join-Path $LogRoot ("MSI-Remove-{0}-{1}.log" -f (([string]$Product.DisplayName -replace '[^A-Za-z0-9]','_'),$RunId))
-    $Arguments = @('/x',$ProductCode,'/qn','/norestart','/L*v',('"{0}"' -f $MsiLog))
-    $Process = Start-Process -FilePath 'msiexec.exe' -ArgumentList ($Arguments -join ' ') -Wait -PassThru
-    if (@(0,1605,3010) -notcontains $Process.ExitCode) {
-        throw "Falha ao remover $($Product.DisplayName). ExitCode=$($Process.ExitCode). Log=$MsiLog"
-    }
-    Write-DDMLog "Produto removido: $($Product.DisplayName) $($Product.DisplayVersion)" 'OK'
-}
-
-function Write-Utf8NoBom {
-    param([string]$Path,[string]$Content)
-    $Parent = Split-Path -Parent $Path
-    if (-not (Test-Path -LiteralPath $Parent)) { New-Item -Path $Parent -ItemType Directory -Force | Out-Null }
-    [System.IO.File]::WriteAllText($Path,$Content,(New-Object System.Text.UTF8Encoding($false)))
-}
-
-function Get-DDMLegacyUserParameterLines {
-    $Lines = @()
-    $Files = @()
-    $Agent1Root = [string]$DDMProduct.Agent1Directory
-    $MainConfig = Join-Path $Agent1Root 'zabbix_agentd.conf'
-    if (Test-Path -LiteralPath $MainConfig) { $Files += Get-Item -LiteralPath $MainConfig }
-
-    $IncludeRoot = Join-Path $Agent1Root 'zabbix_agentd.d'
-    if (Test-Path -LiteralPath $IncludeRoot) {
-        $Files += Get-ChildItem -LiteralPath $IncludeRoot -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { -not $_.PSIsContainer -and $_.Extension -ieq '.conf' }
-    }
-
-    foreach ($File in $Files) {
-        foreach ($Line in Get-Content -LiteralPath $File.FullName -ErrorAction SilentlyContinue) {
-            $Trimmed = ([string]$Line).Trim()
-            if ($Trimmed -match '^(?i)(UserParameter|AllowKey|DenyKey)=') {
-                $Migrated = $Trimmed.Replace('C:\Program Files\Zabbix Agent\','C:\Program Files\Zabbix Agent 2\')
-                if ($Lines -notcontains $Migrated) { $Lines += $Migrated }
-            }
-        }
-    }
-    return @($Lines)
-}
-
-function Copy-DDMLegacyScriptsToAgent2 {
-    $Source = Join-Path ([string]$DDMProduct.Agent1Directory) 'scripts'
-    $Destination = Join-Path ([string]$DDMProduct.Agent2Directory) 'scripts'
-    if (Test-Path -LiteralPath $Source) {
-        if (-not (Test-Path -LiteralPath $Destination)) { New-Item -Path $Destination -ItemType Directory -Force | Out-Null }
-        Copy-Item -Path (Join-Path $Source '*') -Destination $Destination -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
-
-function Copy-DDMModules {
-    param([string]$TargetAgent,[string]$InstallDirectory)
-
-    $ModulesRoot = Join-Path $ProductRoot 'modules'
-    if (-not (Test-Path -LiteralPath $ModulesRoot)) {
-        Write-DDMLog 'Pasta modules ausente; somente recursos nativos serao aplicados.' 'WARN'
+function Restore-ServiceSnapshot($Snap) {
+    if (-not [bool]$Snap.Exists) {
+        if (Get-Service $Snap.Name -ErrorAction SilentlyContinue) { Stop-Service $Snap.Name -Force -ErrorAction SilentlyContinue; & sc.exe delete $Snap.Name | Out-Null }
         return
     }
+    if (-not (Get-Service $Snap.Name -ErrorAction SilentlyContinue) -and -not (Test-DDMBlank $Snap.PathName)) {
+        $StartCode=if([string]$Snap.StartMode -eq 'Auto'){'auto'}elseif([string]$Snap.StartMode -eq 'Disabled'){'disabled'}else{'demand'}
+        $CreateArgs=@('create',[string]$Snap.Name,('binPath= ' + [string]$Snap.PathName),('start= ' + $StartCode),('DisplayName= ' + [string]$Snap.DisplayName))
+        & sc.exe @CreateArgs | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Falha ao recriar servico $($Snap.Name). ExitCode=$LASTEXITCODE" }
+    }
+    $Startup=if ([string]$Snap.StartMode -eq 'Auto') {'Automatic'} elseif ([string]$Snap.StartMode -eq 'Disabled') {'Disabled'} else {'Manual'}
+    Set-Service $Snap.Name -StartupType $Startup -ErrorAction Stop
+    if ([string]$Snap.Status -eq 'Running') { Start-Service $Snap.Name -ErrorAction Stop } else { Stop-Service $Snap.Name -Force -ErrorAction SilentlyContinue }
+}
 
-    if ($TargetAgent -eq 'AGENT2') { $IncludeRoot = Join-Path $InstallDirectory 'zabbix_agent2.d\ddm' }
-    else { $IncludeRoot = Join-Path $InstallDirectory 'zabbix_agentd.d\ddm' }
-    $ScriptsRoot = Join-Path $InstallDirectory 'scripts'
-    New-Item -Path $IncludeRoot -ItemType Directory -Force | Out-Null
-    New-Item -Path $ScriptsRoot -ItemType Directory -Force | Out-Null
-
-    foreach ($Module in @($Identity.Modules)) {
-        $Source = Join-Path $ModulesRoot ([string]$Module)
-        if (-not (Test-Path -LiteralPath $Source)) {
-            Write-DDMLog "Modulo declarado, mas ausente: $Module" 'WARN'
-            continue
+function Invoke-Rollback([string]$Backup) {
+    Log 'Iniciando rollback transacional.' 'WARN'
+    $Errors=@()
+    Stop-Service 'Zabbix Agent' -Force -ErrorAction SilentlyContinue
+    Stop-Service 'Zabbix Agent 2' -Force -ErrorAction SilentlyContinue
+    $Snap=Import-DDMClixmlSafe (Join-Path $Backup 'snapshot.clixml')
+    foreach ($Current in @(Get-ZabbixProducts)) {
+        $Was=@($Snap.Products | Where-Object { $_.Family -eq $Current.Family -and $_.DisplayVersion -eq $Current.DisplayVersion }).Count -gt 0
+        if (-not $Was) { try { Invoke-Msi 'REMOVE' $Current.ProductCode @() $Current.DisplayName } catch { $Errors += $_.Exception.Message; Log $_.Exception.Message 'ERROR' } }
+    }
+    foreach ($P in @($Snap.Products)) {
+        $Exists=@(Get-ZabbixProducts | Where-Object { $_.Family -eq $P.Family -and $_.DisplayVersion -eq $P.DisplayVersion }).Count -gt 0
+        if (-not $Exists -and -not (Test-DDMBlank $P.LocalPackage) -and (Test-Path $P.LocalPackage)) {
+            $Properties=@('ADDLOCAL=ALL','DONOTSTART=1','SKIP=fw')
+            if (-not (Test-DDMBlank $P.InstallLocation)) { $Properties += ('INSTALLFOLDER="' + [string]$P.InstallLocation + '"') }
+            try { Invoke-Msi 'INSTALL' $P.LocalPackage $Properties $P.DisplayName } catch { $Errors += $_.Exception.Message; Log $_.Exception.Message 'ERROR' }
         }
-        Get-ChildItem -LiteralPath $Source -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { -not $_.PSIsContainer } |
-            ForEach-Object {
-                if ($_.Extension -ieq '.conf') {
-                    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $IncludeRoot $_.Name) -Force
-                }
-                elseif (@('.ps1','.cmd','.bat','.vbs','.json') -contains $_.Extension.ToLowerInvariant()) {
-                    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $ScriptsRoot $_.Name) -Force
-                }
+    }
+    foreach ($Dir in @($DDMProduct.Agent1Directory,$DDMProduct.Agent2Directory)) {
+        $Saved=Join-Path $Backup (Split-Path -Leaf $Dir)
+        if (Test-Path $Saved) { try { if (Test-Path $Dir) { Remove-Item $Dir -Recurse -Force -ErrorAction Stop }; Copy-Item $Saved $Dir -Recurse -Force -ErrorAction Stop } catch { $Errors += $_.Exception.Message } }
+    }
+    try { Restore-ServiceSnapshot $Snap.Agent1Service } catch { $Errors += $_.Exception.Message }
+    try { Restore-ServiceSnapshot $Snap.Agent2Service } catch { $Errors += $_.Exception.Message }
+    foreach ($P in @($Snap.Products)) {
+        $Restored=@(Get-ZabbixProducts | Where-Object { $_.Family -eq $P.Family -and $_.DisplayVersion -eq $P.DisplayVersion }).Count -gt 0
+        if (-not $Restored) { $Errors += "Produto nao restaurado: $($P.DisplayName) $($P.DisplayVersion)" }
+    }
+    foreach ($ServiceSnap in @($Snap.Agent1Service,$Snap.Agent2Service)) {
+        $Actual=Get-Service $ServiceSnap.Name -ErrorAction SilentlyContinue
+        if ($ServiceSnap.Exists -and $null -eq $Actual) { $Errors += "Servico nao restaurado: $($ServiceSnap.Name)" }
+        if (-not $ServiceSnap.Exists -and $null -ne $Actual) { $Errors += "Servico indevido apos rollback: $($ServiceSnap.Name)" }
+        if ($ServiceSnap.Exists -and [string]$ServiceSnap.Status -eq 'Running' -and $Actual.Status -ne 'Running') { $Errors += "Servico nao voltou a Running: $($ServiceSnap.Name)" }
+    }
+    if ($Errors.Count -gt 0) { throw "Rollback incompleto: $($Errors -join ' | ')" }
+    Log 'Rollback validado e finalizado.' 'WARN'
+}
+
+function Stop-Agents {
+    Stop-Service 'Zabbix Agent' -Force -ErrorAction SilentlyContinue
+    Stop-Service 'Zabbix Agent 2' -Force -ErrorAction SilentlyContinue
+    Start-Sleep 2
+    Get-Process zabbix_agentd,zabbix_agent2 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
+function Install-AllModules([string]$InstallRoot,[string]$Family) {
+    $Modules=Join-Path $ProductRoot 'modules'
+    $IncludeRoot=Join-Path $InstallRoot $(if($Family -eq 'AGENT2'){'zabbix_agent2.d\ddm'}else{'zabbix_agentd.d\ddm'})
+    $ScriptsRoot=Join-Path $InstallRoot 'scripts\ddm'
+    if (Test-Path $IncludeRoot) { Remove-Item $IncludeRoot -Recurse -Force }
+    if (Test-Path $ScriptsRoot) { Remove-Item $ScriptsRoot -Recurse -Force }
+    New-Item $IncludeRoot -ItemType Directory -Force | Out-Null
+    New-Item $ScriptsRoot -ItemType Directory -Force | Out-Null
+    $Managed=@()
+    if (-not (Test-Path $Modules)) { return $Managed }
+    foreach ($Module in @(Get-ChildItem $Modules | Where-Object { $_.PSIsContainer } | Sort-Object Name)) {
+        if (@($DDMProduct.NativeOnlyModules | ForEach-Object { ([string]$_).ToUpperInvariant() }) -contains $Module.Name.ToUpperInvariant()) { Log "Modulo $($Module.Name) nao copiado: coleta nativa/plugin/template."; continue }
+        $ModuleScripts=Join-Path $ScriptsRoot $Module.Name
+        New-Item $ModuleScripts -ItemType Directory -Force | Out-Null
+        foreach ($File in @(Get-ChildItem $Module.FullName -Recurse | Where-Object { -not $_.PSIsContainer })) {
+            $Rel=$File.FullName.Substring($Module.FullName.Length).TrimStart('\')
+            if ($File.Extension -ieq '.conf') {
+                $Dest=Join-Path $IncludeRoot ($Module.Name + '-' + $File.Name)
+                if (Test-Path $Dest) { throw "Colisao de modulo: $Dest" }
+                $Text=[System.IO.File]::ReadAllText($File.FullName)
+                $NewScriptRoot=$ModuleScripts.TrimEnd('\') + '\'
+                $Text=$Text.Replace('C:\Program Files\Zabbix Agent\scripts\',$NewScriptRoot).Replace('C:\Program Files\Zabbix Agent 2\scripts\',$NewScriptRoot)
+                [System.IO.File]::WriteAllText($Dest,$Text,(New-Object System.Text.UTF8Encoding($false)))
+                $Managed += New-Object PSObject -Property @{Path=$Dest;Sha256=(Get-DDMSha256 $Dest);Module=$Module.Name}
+            } else {
+                $Dest=Join-Path $ModuleScripts $Rel
+                $Parent=Split-Path -Parent $Dest; if (-not (Test-Path $Parent)) {New-Item $Parent -ItemType Directory -Force|Out-Null}
+                Copy-Item $File.FullName $Dest -Force
+                $Managed += New-Object PSObject -Property @{Path=$Dest;Sha256=(Get-DDMSha256 $Dest);Module=$Module.Name}
             }
+        }
     }
+    $Keys=@{}
+    foreach ($Conf in @(Get-ChildItem $IncludeRoot | Where-Object { -not $_.PSIsContainer -and $_.Extension -ieq '.conf' })) {
+        foreach ($Line in @(Get-Content $Conf.FullName -ErrorAction SilentlyContinue)) {
+            if ([string]$Line -match '^\s*UserParameter\s*=\s*([^,=]+)') { $Key=$Matches[1].Trim().ToLowerInvariant(); if ($Keys.ContainsKey($Key)) { throw "UserParameter duplicado entre modulos: $Key ($($Keys[$Key]) e $($Conf.Name))" }; $Keys[$Key]=$Conf.Name }
+        }
+    }
+    return $Managed
 }
 
-function Write-DDMAgent2Config {
-    param([string[]]$LegacyLines)
-    $Root = [string]$DDMProduct.Agent2Directory
-    $ConfigPath = Join-Path $Root 'zabbix_agent2.conf'
-    $Lines = @(
-        '# DDM Zabbix Windows - Agent 2',
-        "# Cliente: $($DDMClientProfile.ClientId)",
-        "# Produto: $($DDMProduct.ProductVersion)",
-        'LogType=file',
-        "LogFile=$Root\zabbix_agent2.log",
-        "LogFileSize=$($DDMProduct.LogFileSize)",
-        "DebugLevel=$($DDMProduct.DebugLevel)",
-        "Server=$($Identity.Proxy)",
-        "ServerActive=$($Identity.ProxyActive)",
-        "Hostname=$($Identity.Hostname)",
-        "HostMetadata=$($Identity.Metadata)",
-        "ListenPort=$($DDMProduct.ListenPort)",
-        "Timeout=$($DDMProduct.Timeout)",
-        'UnsafeUserParameters=1',
-        'AllowKey=system.run[*]',
-        'Plugins.SystemRun.LogRemoteCommands=1',
-        "Include=$Root\zabbix_agent2.d\plugins.d\*.conf",
-        "Include=$Root\zabbix_agent2.d\ddm\*.conf",
-        "Include=$Root\zabbix_agent2.d\legacy-migrated.conf"
-    )
-    Write-Utf8NoBom -Path $ConfigPath -Content (($Lines -join "`r`n") + "`r`n")
-
-    if (@($LegacyLines).Count -gt 0) {
-        Write-Utf8NoBom -Path (Join-Path $Root 'zabbix_agent2.d\legacy-migrated.conf') -Content ((@($LegacyLines) -join "`r`n") + "`r`n")
-    }
-    else {
-        Write-Utf8NoBom -Path (Join-Path $Root 'zabbix_agent2.d\legacy-migrated.conf') -Content "# Nenhum UserParameter legado migrado.`r`n"
-    }
-    return $ConfigPath
-}
-
-function Write-DDMAgent1Config {
-    param([string[]]$LegacyLines)
-    $Root = [string]$DDMProduct.Agent1Directory
-    $ConfigPath = Join-Path $Root 'zabbix_agentd.conf'
-    $Lines = @(
-        '# DDM Zabbix Windows - Agent 1 legado',
-        "# Cliente: $($DDMClientProfile.ClientId)",
-        "# Produto: $($DDMProduct.ProductVersion)",
-        "LogFile=$Root\zabbix_agentd.log",
-        "LogFileSize=$($DDMProduct.LogFileSize)",
-        "DebugLevel=$($DDMProduct.DebugLevel)",
-        "Server=$($Identity.Proxy)",
-        "ServerActive=$($Identity.ProxyActive)",
-        "Hostname=$($Identity.Hostname)",
-        "HostMetadata=$($Identity.Metadata)",
-        "ListenPort=$($DDMProduct.ListenPort)",
-        'StartAgents=5',
-        "Timeout=$($DDMProduct.Timeout)",
-        'UnsafeUserParameters=1',
-        'AllowKey=system.run[*]',
-        "Include=$Root\zabbix_agentd.d\ddm\*.conf",
-        "Include=$Root\zabbix_agentd.d\legacy-migrated.conf"
-    )
-    [System.IO.File]::WriteAllText($ConfigPath,(($Lines -join "`r`n") + "`r`n"),[System.Text.Encoding]::ASCII)
-
-    $LegacyPath = Join-Path $Root 'zabbix_agentd.d\legacy-migrated.conf'
-    $LegacyParent = Split-Path -Parent $LegacyPath
-    if (-not (Test-Path -LiteralPath $LegacyParent)) { New-Item -Path $LegacyParent -ItemType Directory -Force | Out-Null }
-    if (@($LegacyLines).Count -gt 0) {
-        [System.IO.File]::WriteAllText($LegacyPath,((@($LegacyLines) -join "`r`n") + "`r`n"),[System.Text.Encoding]::ASCII)
-    }
-    else {
-        [System.IO.File]::WriteAllText($LegacyPath,"# Nenhum UserParameter legado migrado.`r`n",[System.Text.Encoding]::ASCII)
-    }
-    return $ConfigPath
-}
-
-function Test-PortListening {
-    $Result = @(& netstat.exe -ano | Select-String (':{0}\s+.*LISTENING' -f $DDMProduct.ListenPort))
-    return $Result.Count -gt 0
-}
-
-function Test-Agent1 {
-    param([string]$ConfigPath)
-    $Exe = Join-Path ([string]$DDMProduct.Agent1Directory) 'zabbix_agentd.exe'
-    if (-not (Test-Path -LiteralPath $Exe)) { throw "Binario Agent 1 ausente: $Exe" }
-    $Output = @(& $Exe -c $ConfigPath -t agent.ping 2>&1)
-    if ($LASTEXITCODE -ne 0 -or (($Output -join ' ') -notmatch '\[t\|1\]')) {
-        throw "Teste Agent 1 falhou: $($Output -join ' ')"
-    }
-    $Service = Get-Service -Name 'Zabbix Agent' -ErrorAction Stop
-    if ($Service.Status -ne 'Running') { throw "Servico Agent 1 nao esta Running: $($Service.Status)" }
-    if (-not (Test-PortListening)) { throw "Porta $($DDMProduct.ListenPort) nao esta LISTENING." }
-}
-
-function Test-Agent2Plugins {
-    if (-not [bool]$DDMProduct.InstallAgent2Plugins) { return }
-    $Root = [string]$DDMProduct.Agent2Directory
+function Test-Agent2PluginInstall([string]$InstallRoot) {
     foreach ($Name in @('mssql.conf','mongodb.conf','postgresql.conf')) {
-        $Found = @(Get-ChildItem -LiteralPath $Root -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { -not $_.PSIsContainer -and $_.Name -ieq $Name })
-        if ($Found.Count -eq 0) { throw "Plugin Agent 2 nao validado. Arquivo ausente: $Name" }
+        $Path=Join-Path (Join-Path $InstallRoot 'zabbix_agent2.d') $Name
+        if (-not (Test-Path $Path)) { throw "Plugin Agent 2 ausente: $Path" }
+    }
+    $Product=@(Get-ZabbixProducts | Where-Object { $_.Family -eq 'PLUGINS' })
+    if ($Product.Count -eq 0) { throw 'Pacote Zabbix Agent 2 Plugins nao consta no inventario MSI.' }
+}
+
+function Remove-OppositeServiceIfUnmanaged([string]$ServiceName) {
+    $Service=Get-Service $ServiceName -ErrorAction SilentlyContinue
+    if ($null -ne $Service) {
+        Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue
+        & sc.exe delete $ServiceName | Out-Null
+        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1060) { throw "Falha ao excluir servico oposto: $ServiceName (ExitCode=$LASTEXITCODE)" }
+        for ($I=0;$I -lt 20;$I++) { if (-not (Get-Service $ServiceName -ErrorAction SilentlyContinue)) { return }; Start-Sleep 1 }
+        throw "Servico oposto permaneceu instalado: $ServiceName"
     }
 }
 
-function Test-Agent2 {
-    param([string]$ConfigPath)
-    $Exe = Join-Path ([string]$DDMProduct.Agent2Directory) 'zabbix_agent2.exe'
-    if (-not (Test-Path -LiteralPath $Exe)) { throw "Binario Agent 2 ausente: $Exe" }
-    $Output = @(& $Exe -c $ConfigPath -t agent.ping 2>&1)
-    if ($LASTEXITCODE -ne 0 -or (($Output -join ' ') -notmatch '\[t\|1\]')) {
-        throw "Teste Agent 2 falhou: $($Output -join ' ')"
+function Remove-OldState {
+    $Backups=@(Get-ChildItem $BackupRoot | Where-Object { $_.PSIsContainer } | Sort-Object LastWriteTime -Descending)
+    foreach ($Old in @($Backups | Select-Object -Skip ([int]$DDMProduct.KeepBackupSets))) { Remove-Item $Old.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    $Logs=@(Get-ChildItem $LogRoot | Where-Object { -not $_.PSIsContainer } | Sort-Object LastWriteTime -Descending)
+    foreach ($Old in @($Logs | Select-Object -Skip 100)) { Remove-Item $Old.FullName -Force -ErrorAction SilentlyContinue }
+}
+
+function Test-PendingReboot {
+    if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') { return $true }
+    if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') { return $true }
+    try { $V=(Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations; if ($V) { return $true } } catch {}
+    return $false
+}
+
+function Write-AgentConfig([string]$Family,[string]$InstallRoot,$Identity) {
+    $Config=Join-Path $InstallRoot $(if($Family -eq 'AGENT2'){'zabbix_agent2.conf'}else{'zabbix_agentd.conf'})
+    $Lines=@(
+        '# Managed by DDM SNOC Windows',
+        ('# Product=' + $DesiredProductVersion),
+        ('LogFile=' + $InstallRoot + '\' + $(if($Family -eq 'AGENT2'){'zabbix_agent2.log'}else{'zabbix_agentd.log'})),
+        ('LogFileSize=' + $DDMProduct.LogFileSize),('DebugLevel=' + $DDMProduct.DebugLevel),
+        ('Server=' + $Identity.Proxy),('ServerActive=' + $Identity.ProxyActive),('Hostname=' + $Identity.Hostname),('HostMetadata=' + $Identity.Metadata),
+        ('ListenPort=' + $DDMProduct.ListenPort),('Timeout=' + $DDMProduct.Timeout),'UnsafeUserParameters=1','AllowKey=system.run[*]'
+    )
+    if ($Family -eq 'AGENT2') {
+        $Lines += 'Plugins.SystemRun.LogRemoteCommands=1'
+        $Lines += ('Include=' + $InstallRoot + '\zabbix_agent2.d\plugins.d\*.conf')
+        $Lines += ('Include=' + $InstallRoot + '\zabbix_agent2.d\*.conf')
+        $Lines += ('Include=' + $InstallRoot + '\zabbix_agent2.d\ddm\*.conf')
+    } else {
+        $Lines += 'StartAgents=5'
+        $Lines += ('Include=' + $InstallRoot + '\zabbix_agentd.d\ddm\*.conf')
     }
-    $Service = Get-Service -Name 'Zabbix Agent 2' -ErrorAction Stop
-    if ($Service.Status -ne 'Running') { throw "Servico Agent 2 nao esta Running: $($Service.Status)" }
-    if (-not (Test-PortListening)) { throw "Porta $($DDMProduct.ListenPort) nao esta LISTENING." }
-    Test-Agent2Plugins
+    $Temp=$Config + '.new'
+    [System.IO.File]::WriteAllText($Temp,(($Lines -join "`r`n")+"`r`n"),(New-Object System.Text.UTF8Encoding($false)))
+    return New-Object PSObject -Property @{Final=$Config;Temp=$Temp}
 }
 
-function Disable-OppositeService {
-    param([string]$TargetAgent)
-    if ($TargetAgent -eq 'AGENT2') { $Name = 'Zabbix Agent' } else { $Name = 'Zabbix Agent 2' }
-    if (Get-Service -Name $Name -ErrorAction SilentlyContinue) {
-        Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue
-        Set-Service -Name $Name -StartupType Disabled -ErrorAction SilentlyContinue
+function Test-AgentConfig([string]$Family,[string]$InstallRoot,$ConfigPair) {
+    $Exe=Join-Path $InstallRoot $(if($Family -eq 'AGENT2'){'zabbix_agent2.exe'}else{'zabbix_agentd.exe'})
+    if (-not (Test-Path $Exe)) { throw "Binario ausente: $Exe" }
+    if ($Family -eq 'AGENT2') {
+        $Out=@(& $Exe -c $ConfigPair.Temp -T 2>&1)
+        if ($LASTEXITCODE -ne 0) { throw "Validacao -T falhou: $($Out -join ' ')" }
+    }
+    $Out=@(& $Exe -c $ConfigPair.Temp -t agent.ping 2>&1)
+    if ($LASTEXITCODE -ne 0 -or ($Out -join ' ') -notmatch '\[t\|1\]') { throw "agent.ping falhou: $($Out -join ' ')" }
+    Move-Item $ConfigPair.Temp $ConfigPair.Final -Force
+}
+
+function Remove-OppositeProduct([string]$Family) {
+    $RemoveFamilies=if($Family -eq 'AGENT2'){@('AGENT1')}else{@('AGENT2','PLUGINS')}
+    foreach ($P in @(Get-ZabbixProducts | Where-Object { $RemoveFamilies -contains $_.Family })) { Invoke-Msi 'REMOVE' $P.ProductCode @() $P.DisplayName }
+}
+
+function Remove-ManagedLegacy($Client,[string]$OldRoot) {
+    if ($null -eq $Client.Legacy -or $null -eq $Client.Legacy.ManagedFiles) { return }
+    foreach ($Rel in @($Client.Legacy.ManagedFiles)) {
+        $Path=Join-Path $OldRoot ([string]$Rel)
+        if (Test-Path $Path) { Remove-Item $Path -Recurse -Force -ErrorAction SilentlyContinue; Log "Legado controlado removido: $Path" }
     }
 }
-
-function Remove-OppositeProducts {
-    param([string]$TargetAgent)
-    $Products = Get-InstalledZabbixProducts
-    foreach ($Product in $Products) {
-        $Name = [string]$Product.DisplayName
-        $Remove = $false
-        if ($TargetAgent -eq 'AGENT2' -and $Name -match '^Zabbix Agent(?! 2)') { $Remove = $true }
-        if ($TargetAgent -eq 'AGENT1' -and ($Name -like 'Zabbix Agent 2*')) { $Remove = $true }
-        if ($Remove) { Remove-DDMProduct $Product }
-    }
-}
-
-$SystemInfo = Get-DDMSystemInfo
-Test-DDMProfileScope -SystemInfo $SystemInfo
-$TargetAgent = Get-DDMTargetAgent -SystemInfo $SystemInfo
-$Identity = Get-DDMClientIdentity -Profile $DDMClientProfile -SystemInfo $SystemInfo -ComputerName $env:COMPUTERNAME -ProductVersion $DDMProduct.ProductVersion
-
-foreach ($Required in @('Hostname','Metadata','Proxy','ProxyActive','Modules')) {
-    if ($null -eq $Identity.PSObject.Properties[$Required]) { throw "Identidade incompleta. Campo ausente: $Required" }
-}
-if (Test-Blank $Identity.Hostname) { throw 'Hostname Zabbix ficou vazio.' }
-if (([string]$Identity.Hostname) -notmatch '^[A-Za-z0-9._-]+$') { throw "Hostname invalido: $($Identity.Hostname)" }
-if (([string]$Identity.Hostname).Length -gt 128) { throw 'Hostname Zabbix excede 128 caracteres.' }
-if (Test-Blank $Identity.Proxy) { throw 'Proxy ficou vazio.' }
-if (Test-Blank $Identity.ProxyActive) { throw 'ProxyActive ficou vazio.' }
-
-Write-DDMLog "Produto: $($DDMProduct.ProductName) $($DDMProduct.ProductVersion)"
-Write-DDMLog "Cliente: $($DDMClientProfile.ClientId)"
-Write-DDMLog "Dominio: $($SystemInfo.Domain)"
-Write-DDMLog "Sistema: $($SystemInfo.Caption) $($SystemInfo.Version)"
-Write-DDMLog "Agente alvo: $TargetAgent"
-if ($SystemInfo.IsServer -and $SystemInfo.Version.Major -eq 6 -and $SystemInfo.Version.Minor -ge 2) {
-    Write-DDMLog 'Windows Server 2012/2012 R2: Agent 2 liberado por regra operacional DDM.' 'WARN'
-}
-Write-DDMLog "Hostname Zabbix: $($Identity.Hostname)"
-Write-DDMLog "Proxy: $($Identity.Proxy)"
-Write-DDMLog "ProxyActive: $($Identity.ProxyActive)"
-Write-DDMLog "Modulos: $(@($Identity.Modules) -join ',')"
-Write-DDMLog "Metadata: $($Identity.Metadata)"
-
-if ($Mode -eq 'Diagnose') {
-    Write-DDMLog 'DIAGNOSTICO CONCLUIDO. Nenhuma alteracao foi aplicada.' 'OK'
-    exit 0
-}
-
-if (-not (Test-IsAdministrator)) { throw 'Execute como Administrador ou SYSTEM.' }
-
-$Agent1Before = Get-Service -Name 'Zabbix Agent' -ErrorAction SilentlyContinue
-$Agent2Before = Get-Service -Name 'Zabbix Agent 2' -ErrorAction SilentlyContinue
-$Agent1WasRunning = ($null -ne $Agent1Before -and $Agent1Before.Status -eq 'Running')
-$Agent2WasRunning = ($null -ne $Agent2Before -and $Agent2Before.Status -eq 'Running')
-$Agent1StartMode = Get-ServiceStartMode 'Zabbix Agent'
-$Agent2StartMode = Get-ServiceStartMode 'Zabbix Agent 2'
-$LegacyLines = Get-DDMLegacyUserParameterLines
-$Backup = Backup-DDMState
 
 try {
-    Stop-DDMZabbix
-    Disable-OppositeService -TargetAgent $TargetAgent
-
-    if ($TargetAgent -eq 'AGENT2') {
-        $Agent2Msi = Resolve-DDMArtifact -FileName $DDMProduct.Agent2File -Url $DDMProduct.Agent2Url -ExpectedSha256 ''
-        $PluginsMsi = Resolve-DDMArtifact -FileName $DDMProduct.Agent2PluginsFile -Url $DDMProduct.Agent2PluginsUrl -ExpectedSha256 ''
-
-        Invoke-DDMMsiInstall -Package $Agent2Msi -Properties @(
-            'ADDLOCAL=ALL',
-            'DONOTSTART=1',
-            'STARTUPTYPE=automatic',
-            'SKIP=fw',
-            ('INSTALLFOLDER="{0}"' -f $DDMProduct.Agent2Directory)
-        )
-        if ([bool]$DDMProduct.InstallAgent2Plugins) {
-            Invoke-DDMMsiInstall -Package $PluginsMsi -Properties @(
-                'ADDLOCAL=ALL',
-                ('INSTALLFOLDER="{0}"' -f $DDMProduct.Agent2Directory)
-            )
-        }
-
-        Copy-DDMLegacyScriptsToAgent2
-        Copy-DDMModules -TargetAgent 'AGENT2' -InstallDirectory $DDMProduct.Agent2Directory
-        $ConfigPath = Write-DDMAgent2Config -LegacyLines $LegacyLines
-        Set-Service -Name 'Zabbix Agent 2' -StartupType Automatic
-        Start-Service -Name 'Zabbix Agent 2'
-        Start-Sleep -Seconds 7
-        Test-Agent2 -ConfigPath $ConfigPath
-        $TargetValidated = $true
-
-        Remove-OppositeProducts -TargetAgent 'AGENT2'
-        if ((Get-Service -Name 'Zabbix Agent 2').Status -ne 'Running') { Start-Service -Name 'Zabbix Agent 2' }
-        Start-Sleep -Seconds 3
-        Test-Agent2 -ConfigPath $ConfigPath
+    $Locked=$Mutex.WaitOne(0,$false); if(-not $Locked){throw 'Outra instalacao esta ativa.'}
+    if ($Mode -ne 'Diagnose' -and -not (Test-Admin)) { throw 'Execute como Administrador ou SYSTEM.' }
+    if ((Get-DDMSha256 $ClientRuntimePath) -ne $ClientRuntimeSha256) { throw 'Hash do cliente divergente.' }
+    $Client=Import-DDMClixmlSafe $ClientRuntimePath
+    $System=Get-DDMSystemInfo
+    $Target=Get-DDMTargetAgent $System $DDMProduct
+    $Identity=Resolve-DDMClientIdentity $Client $DDMProduct $System
+    Log "Cliente=$($Client.ClientId); Alvo=$($Target.Family)/$($Target.Architecture); Host=$($Identity.Hostname); Proxy=$($Identity.Proxy); ModulosDetectados=$($Identity.Modules -join ',')"
+    if ($Mode -eq 'Diagnose') { exit 0 }
+    $Products=Get-ZabbixProducts
+    $Backup=Backup-State $Products $Target
+    try {
+        $AgentRole=if($Target.Family -eq 'AGENT2'){'AGENT2_AMD64'}elseif($Target.Architecture -eq 'X86'){'AGENT1_X86'}else{'AGENT1_AMD64'}
+        $AgentMsi=Get-Artifact $AgentRole
+        $PluginMsi=$null
+        if ($Target.Family -eq 'AGENT2' -and [bool]$DDMProduct.InstallAgent2Plugins) {$PluginMsi=Get-Artifact 'PLUGINS_AMD64'}
+        Stop-Agents
+        $InstallRoot=if($Target.Family -eq 'AGENT2'){$DDMProduct.Agent2Directory}else{$DDMProduct.Agent1Directory}
+        Invoke-Msi 'INSTALL' $AgentMsi @('ADDLOCAL=ALL','DONOTSTART=1','STARTUPTYPE=automatic','SKIP=fw',('INSTALLFOLDER="'+$InstallRoot+'"')) $AgentRole
+        if ($PluginMsi) { Invoke-Msi 'INSTALL' $PluginMsi @('ADDLOCAL=ALL',('INSTALLFOLDER="'+$InstallRoot+'"')) 'Zabbix Agent2 Plugins'; Test-Agent2PluginInstall $InstallRoot }
+        $Managed=Install-AllModules $InstallRoot $Target.Family
+        $ConfigPair=Write-AgentConfig $Target.Family $InstallRoot $Identity
+        Test-AgentConfig $Target.Family $InstallRoot $ConfigPair
+        Set-Service $Target.Service -StartupType Automatic
+        Start-Service $Target.Service
+        Start-Sleep 6
+        $ExpectedProcess=if($Target.Family -eq 'AGENT2'){'zabbix_agent2'}else{'zabbix_agentd'}
+        if (-not (Test-DDMPortOwnedByProcess ([int]$DDMProduct.ListenPort) @($ExpectedProcess))) { throw 'Porta 10050 nao pertence ao agente alvo.' }
+        $TargetValidated=$true
+        Remove-OppositeProduct $Target.Family
+        Remove-OppositeServiceIfUnmanaged $Target.OppositeService
+        if ((Get-Service $Target.Service).Status -ne 'Running') { Start-Service $Target.Service }
+        $OldRoot=if($Target.Family -eq 'AGENT2'){$DDMProduct.Agent1Directory}else{$DDMProduct.Agent2Directory}
+        Remove-ManagedLegacy $Client $OldRoot
+        $PluginVersion=''
+        if ($Target.Family -eq 'AGENT2') { $PP=@(Get-ZabbixProducts | Where-Object { $_.Family -eq 'PLUGINS' } | Select-Object -First 1); if($PP.Count -gt 0){$PluginVersion=[string]$PP[0].DisplayVersion}; if(Test-DDMBlank $PluginVersion){$PluginVersion=$DesiredAgentVersion} }
+        $PreexistingReboot=Test-PendingReboot
+        $Good=New-Object PSObject -Property @{ReleaseId=$DesiredReleaseId;ProductVersion=$DesiredProductVersion;AgentVersion=$DesiredAgentVersion;PluginVersion=$PluginVersion;ClientSourceSha256=$ClientSourceSha256;ClientRuntimeSha256=$ClientRuntimeSha256;ClientConfigVersion=[string]$Client.ConfigVersion;ClientId=[string]$Client.ClientId;Family=$Target.Family;Architecture=$Target.Architecture;Hostname=$Identity.Hostname;Proxy=$Identity.Proxy;ProxyActive=$Identity.ProxyActive;Metadata=$Identity.Metadata;GeneratedConfigSha256=(Get-DDMSha256 $ConfigPair.Final);ManagedModuleFiles=$Managed;RebootRequired=($RebootRequired -or $PreexistingReboot);AppliedAt=(Get-Date).ToUniversalTime().ToString('o');Status='IMPLEMENTED'}
+        Export-DDMClixmlAtomic $Good (Join-Path $StateRoot 'last-good-state.clixml') 10
+        Set-DDMLocalSecureAcl $StateRoot
+        Write-DDMAtomicText (Join-Path $StateRoot 'lastapply.status') ("OK - " + (Get-Date -Format s) + "`r`n") 'ASCII'
+        Remove-OldState
+        Log "Instalacao validada. Agent=$DesiredAgentVersion; Plugin=$PluginVersion; Reboot=$($RebootRequired -or $PreexistingReboot)" 'OK'
+        if ($RebootRequired) { exit 3010 } else { exit 0 }
+    } catch {
+        $Failure=$_
+        Log $Failure.Exception.Message 'ERROR'
+        $RollbackFailure=''
+        if (-not $TargetValidated) { try {Invoke-Rollback $Backup} catch {$RollbackFailure=$_.Exception.Message; Log ("Rollback falhou: " + $RollbackFailure) 'ERROR'} }
+        if (-not (Test-DDMBlank $RollbackFailure)) { Write-DDMAtomicText (Join-Path $StateRoot 'rollback.failed') ($RollbackFailure + "`r`n") 'UTF8' }
+        Write-DDMAtomicText (Join-Path $StateRoot 'lastapply.status') ("ERROR - " + (Get-Date -Format s) + " - " + $Failure.Exception.Message + "`r`n") 'UTF8'
+        throw $Failure
     }
-    else {
-        $Agent1Msi = Resolve-DDMArtifact -FileName $DDMProduct.Agent1File -Url $DDMProduct.Agent1Url -ExpectedSha256 $DDMProduct.Agent1Sha256
-        Invoke-DDMMsiInstall -Package $Agent1Msi -Properties @(
-            'ADDLOCAL=ALL',
-            'DONOTSTART=1',
-            'STARTUPTYPE=automatic',
-            'SKIP=fw',
-            ('INSTALLFOLDER="{0}"' -f $DDMProduct.Agent1Directory)
-        )
-
-        Copy-DDMModules -TargetAgent 'AGENT1' -InstallDirectory $DDMProduct.Agent1Directory
-        $ConfigPath = Write-DDMAgent1Config -LegacyLines $LegacyLines
-        Set-Service -Name 'Zabbix Agent' -StartupType Automatic
-        Start-Service -Name 'Zabbix Agent'
-        Start-Sleep -Seconds 5
-        Test-Agent1 -ConfigPath $ConfigPath
-        $TargetValidated = $true
-
-        Remove-OppositeProducts -TargetAgent 'AGENT1'
-        if ((Get-Service -Name 'Zabbix Agent').Status -ne 'Running') { Start-Service -Name 'Zabbix Agent' }
-        Start-Sleep -Seconds 3
-        Test-Agent1 -ConfigPath $ConfigPath
-    }
-
-    Set-Content -LiteralPath (Join-Path $StateRoot 'product.version') -Value $DDMProduct.ProductVersion -Encoding ASCII
-    Set-Content -LiteralPath (Join-Path $StateRoot 'client.id') -Value $DDMClientProfile.ClientId -Encoding ASCII
-    Set-Content -LiteralPath (Join-Path $StateRoot 'agent.family') -Value $TargetAgent -Encoding ASCII
-    Set-Content -LiteralPath (Join-Path $StateRoot 'modules.active') -Value (@($Identity.Modules) -join ',') -Encoding ASCII
-    Set-Content -LiteralPath (Join-Path $StateRoot 'lastapply.status') -Value ("OK - {0}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')) -Encoding ASCII
-
-    Write-DDMLog 'VALIDACAO FINAL:' 'OK'
-    Write-DDMLog "Agente ativo: $TargetAgent" 'OK'
-    Write-DDMLog "Hostname: $($Identity.Hostname)" 'OK'
-    Write-DDMLog "Porta $($DDMProduct.ListenPort): LISTENING" 'OK'
-    Write-DDMLog "Backup: $Backup" 'OK'
-    Write-DDMLog 'FINALIZADO COM SUCESSO.' 'OK'
-    exit 0
 }
-catch {
-    $Failure = $_
-    Write-DDMLog "FALHA: $($Failure.Exception.Message)" 'ERROR'
-
-    if (-not $TargetValidated) {
-        Write-DDMLog 'Agente alvo nao validou. Tentando restaurar o agente anterior.' 'WARN'
-        Stop-DDMZabbix
-
-        if ($Agent1WasRunning -and (Get-Service -Name 'Zabbix Agent' -ErrorAction SilentlyContinue)) {
-            if ($Agent1StartMode -eq 'Auto') { Set-Service -Name 'Zabbix Agent' -StartupType Automatic }
-            else { Set-Service -Name 'Zabbix Agent' -StartupType Manual }
-            Start-Service -Name 'Zabbix Agent' -ErrorAction SilentlyContinue
-        }
-        if ($Agent2WasRunning -and (Get-Service -Name 'Zabbix Agent 2' -ErrorAction SilentlyContinue)) {
-            if ($Agent2StartMode -eq 'Auto') { Set-Service -Name 'Zabbix Agent 2' -StartupType Automatic }
-            else { Set-Service -Name 'Zabbix Agent 2' -StartupType Manual }
-            Start-Service -Name 'Zabbix Agent 2' -ErrorAction SilentlyContinue
-        }
-    }
-    else {
-        Write-DDMLog 'O agente alvo foi validado; ele sera mantido ativo. A falha ocorreu na limpeza final.' 'WARN'
-        Disable-OppositeService -TargetAgent $TargetAgent
-    }
-
-    Set-Content -LiteralPath (Join-Path $StateRoot 'lastapply.status') -Value ("ERROR - {0} - {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),$Failure.Exception.Message) -Encoding UTF8
-    if ($Failure.InvocationInfo -and $Failure.InvocationInfo.PositionMessage) {
-        Write-DDMLog $Failure.InvocationInfo.PositionMessage 'ERROR'
-    }
-    throw $Failure
-}
+catch { Log $_.Exception.Message 'ERROR'; exit 1 }
+finally { if($Locked){try{$Mutex.ReleaseMutex()}catch{}}; $Mutex.Close() }
