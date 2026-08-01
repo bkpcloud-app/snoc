@@ -22,7 +22,9 @@ jobs:
           foreach($Legacy in @('base-package','templates\Client.example.ps1','templates\client-definition.example.json','tools\New-BKPCloud-Zabbix-Client.ps1','tools\Bootstrap-New-BKPCloud-Zabbix-Client.ps1','tools\Restore-SplitFiles.ps1')){
             if(Test-Path (Join-Path $Root $Legacy)){throw "Legado presente: $Legacy"}
           }
-          if(Get-ChildItem $Root -Recurse -Force | Where-Object {$_.FullName -match '\\\.parts\\'}){throw 'Diretorio .parts presente.'}
+          $AllPaths=@(Get-ChildItem $Root -Recurse -Force | ForEach-Object {$_.FullName})
+          if($AllPaths -match '\\.parts\\'){throw 'Diretorio .parts presente.'}
+          if($AllPaths -match '\\base-package\\'){throw 'Referencia fisica a base-package presente.'}
           if(-not(Test-Path (Join-Path $Root 'modules'))){throw 'Pasta modules ausente.'}
 
       - name: Parse active PowerShell files
@@ -43,10 +45,12 @@ jobs:
           $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           . (Join-Path $Root 'config\DDM-Product.ps1')
           if($DDMProduct.ProductName -ne 'DDM SNOC Windows'){throw 'ProductName invalido.'}
-          if($DDMProduct.ProductVersion -ne '2.0.1'){throw 'ProductVersion invalido.'}
+          if($DDMProduct.ProductVersion -ne '2.0.2'){throw 'ProductVersion invalido.'}
           if($DDMProduct.ClientSchemaVersion -ne 3){throw 'Schema invalido.'}
           if($DDMProduct.ZabbixUpdatePolicy -ne 'LATEST_STABLE_IN_MAJOR' -or $DDMProduct.ZabbixMajorLine -ne '7.0'){throw 'Politica Zabbix invalida.'}
-          if($DDMProduct.RepositoryAssetPattern -notmatch 'MOTOR'){throw 'Asset do motor nao e especifico.'}
+          if($DDMProduct.RepositoryAssetPattern -notmatch 'MOTOR' -or $DDMProduct.RepositoryAssetPattern -match 'AD-SEED'){throw 'Asset do motor nao e especifico.'}
+          if($DDMProduct.RepositoryReleaseApiUrl -match '/latest'){throw 'Consulta de releases nao pode depender da ultima release global do repositorio.'}
+          if([string]::IsNullOrWhiteSpace($DDMProduct.PreviousVersionFile)){throw 'PreviousVersionFile ausente.'}
           $Path=Join-Path $Root 'CLIENTE.example.ps1';$Raw=[IO.File]::ReadAllText($Path)
           if($Raw -notmatch '(?ms)^\s*(?:#.*\r?\n\s*)*\$DDMClient\s*=\s*(?<data>@\{.*\})\s*$'){throw 'Modelo nao e somente dados.'}
           $Psd1=Join-Path $env:TEMP 'CLIENTE-ci.psd1';[IO.File]::WriteAllText($Psd1,$Matches.data,[Text.Encoding]::UTF8)
@@ -71,18 +75,31 @@ jobs:
           if((Get-DDMTargetAgent (New-Object PSObject -Property @{Architecture='AMD64';IsServer=$true;Version=(New-Object Version '6.2');Caption='2012'}) $P).Family -ne 'AGENT2'){throw 'Agent2 2012 falhou.'}
           try{Get-DDMTargetAgent (New-Object PSObject -Property @{Architecture='ARM64';IsServer=$true;Version=(New-Object Version '10.0');Caption='ARM'}) $P;throw 'ARM64 aceito.'}catch{if($_.Exception.Message -eq 'ARM64 aceito.'){throw}}
 
-      - name: Enforce update AD and security invariants
+      - name: Enforce update AD, fallback and rollback invariants
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
           $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           $Update=Get-Content (Join-Path $Root 'templates\central\ATUALIZAR-AD.cmd') -Raw
           foreach($Required in @('CENTRAL-UPDATER','CLIENTE.ps1','Update-DDM-SNOC-Central.ps1','%~dp0')){if($Update -notmatch [regex]::Escape($Required)){throw "ATUALIZAR-AD sem $Required"}}
-          $All=(Get-ChildItem $Root -Recurse -File | Get-Content -Raw) -join "`n"
-          foreach($Forbidden in @('$DDMClientProfile','Get-DDMClientIdentity','DDM_GITHUB_TOKEN','clients.public.json','archive/refs/heads/main.zip')){if($All -match [regex]::Escape($Forbidden)){throw "Arquitetura antiga: $Forbidden"}}
+          $Files=Get-ChildItem $Root -Recurse -File
+          $All=($Files | Get-Content -Raw) -join "`n"
+          foreach($Forbidden in @('$DDMClientProfile','Get-DDMClientIdentity','DDM_GITHUB_TOKEN','clients.public.json','archive/refs/heads/main.zip','base-package\modules')){if($All -match [regex]::Escape($Forbidden)){throw "Arquitetura antiga: $Forbidden"}}
           foreach($Private in @('mizu.local','britta.local','itsouthamerica.ad','adb01.local','10.210.5.7','10.160.1.25','10.160.2.254','SNOC-BRASANITAS')){if($All.IndexOf($Private,[StringComparison]::OrdinalIgnoreCase)-ge 0){throw "Dado real publicado: $Private"}}
+          $Supply=Get-Content (Join-Path $Root 'central\lib\DDM-Central-Supply.ps1') -Raw
+          foreach($Required in @('ddm-snoc-windows-v','DDM-SNOC-WINDOWS-MOTOR-','per_page=30','.sha256')){if($Supply -notmatch [regex]::Escape($Required)){throw "Selecao de release incompleta: $Required"}}
+          $Publish=Get-Content (Join-Path $Root 'central\lib\Invoke-DDM-Central-Publish.ps1') -Raw
+          foreach($Required in @('CENTRAL-TOOLS','PreviousVersionFile','ROLLBACK-REQUEST.clixml','fallback legado e proibido')){if($Publish -notmatch [regex]::Escape($Required)){throw "Publicacao central sem $Required"}}
+          if($Publish -match 'base-package'){throw 'Publicador ainda referencia base-package.'}
+          $Bootstrap=Get-Content (Join-Path $Root 'bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1') -Raw
+          foreach($Required in @('Assert-DDMLocalDesiredState','Arquivo local nao declarado','ROLLBACK-REQUEST.clixml','RollbackAuthorizationExpiresAtUtc')){if($Bootstrap -notmatch [regex]::Escape($Required)){throw "Fallback local sem $Required"}}
+          $Endpoint=Get-Content (Join-Path $Root 'endpoint\Invoke-DDM-SNOC-Daily.ps1') -Raw
+          foreach($Required in @('AllowDowngrade','RollbackAuthorizationExpiresAtUtc','Autorizacao local de rollback expirada')){if($Endpoint -notmatch [regex]::Escape($Required)){throw "Endpoint sem $Required"}}
           $Engine=Get-Content (Join-Path $Root 'engine\Install-DDM-Zabbix-Windows.ps1') -Raw
-          foreach($Required in @("@('AGENT2','PLUGINS')",'zabbix_agent2.d\*.conf','Rollback validado e finalizado','UserParameter duplicado','PLUGINS_AMD64')){if($Engine -notmatch [regex]::Escape($Required)){throw "Invariante ausente: $Required"}}
+          foreach($Required in @("@('AGENT2','PLUGINS')",'zabbix_agent2.d\*.conf','Rollback validado e finalizado','UserParameter duplicado','PLUGINS_AMD64','X509RevocationMode]::NoCheck')){if($Engine -notmatch [regex]::Escape($Required)){throw "Invariante ausente: $Required"}}
+          $CentralSecurity=Get-Content (Join-Path $Root 'central\lib\DDM-Central-Client.ps1') -Raw
+          if($CentralSecurity -notmatch [regex]::Escape('X509RevocationMode]::Online')){throw 'Central deixou de validar revogacao online.'}
+          foreach($Required in @('tools\Set-DDM-CentralRelease.ps1','templates\central\VOLTAR-RELEASE.cmd')){if(-not(Test-Path (Join-Path $Root $Required))){throw "Rollback central ausente: $Required"}}
 
       - name: Validate modules
         shell: powershell
@@ -100,4 +117,4 @@ jobs:
           $ErrorActionPreference='Stop'
           $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           . (Join-Path $Product 'config\DDM-Product.ps1')
-          foreach($Required in @('config\DDM-Product.ps1','lib\DDM-Common.ps1','central\Update-DDM-SNOC-Central.ps1','bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1','templates\central\ATUALIZAR-AD.cmd','docs\UPDATE-AD.md')){if(-not(Test-Path (Join-Path $Product $Required))){throw "Asset incompleto: $Required"}}
+          foreach($Required in @('config\DDM-Product.ps1','lib\DDM-Common.ps1','central\Update-DDM-SNOC-Central.ps1','bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1','templates\central\ATUALIZAR-AD.cmd','templates\central\VOLTAR-RELEASE.cmd','tools\Set-DDM-CentralRelease.ps1','docs\UPDATE-AD.md')){if(-not(Test-Path (Join-Path $Product $Required))){throw "Asset incompleto: $Required"}}
