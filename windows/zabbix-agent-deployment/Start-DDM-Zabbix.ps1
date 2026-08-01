@@ -14,7 +14,7 @@ param(
     [string]$PrivateProfileRawBase,
 
     [string]$ArtifactsRoot,
-    [string]$OutputRoot = 'C:\temp\DDM-Zabbix-Packages',
+    [string]$OutputRoot = 'C:\temp\DDM-SNOC-Packages',
     [switch]$AllowInternetDownload,
     [switch]$NonInteractive,
     [switch]$Force
@@ -169,7 +169,7 @@ $Catalog = Get-DDMCatalog
 $Selected = Resolve-DDMClient -Catalog $Catalog -Value $Client
 $Bundle = Resolve-DDMClientBundle -Entry $Selected
 
-Write-DDMTitle 'DDM ZABBIX WINDOWS'
+Write-DDMTitle 'DDM SNOC WINDOWS'
 Write-Host "Produto : $($DDMProduct.ProductVersion)"
 Write-Host "Cliente : $($Selected.DisplayName) [$($Selected.Id)]"
 Write-Host "Perfil  : $($Bundle.Source)"
