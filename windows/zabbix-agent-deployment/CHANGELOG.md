@@ -1,5 +1,17 @@
 # Historico
 
+## 2.0.2 — fallback integral e rollback central
+
+- cache local passa a validar manifestos, todos os hashes, arquivos extras, reparse points e runtime do cliente antes de executar sem o AD;
+- selecao do motor passa a procurar somente releases `ddm-snoc-windows-v*` e assets `DDM-SNOC-WINDOWS-MOTOR-*`;
+- suportado digest SHA-256 do GitHub ou arquivo `.sha256` publicado junto do asset;
+- criado `VOLTAR-RELEASE.cmd` com validacao da release e autorizacao temporaria de downgrade;
+- `PREVIOUS.txt` preserva a release anterior e o update agendado respeita a janela de rollback;
+- endpoints validam o MSI em cache sem exigir consulta de revogacao online; a central continua fazendo a validacao online antes de publicar;
+- removido o ultimo fallback funcional para `base-package`;
+- AD-SEED passa a incluir atualizacao e rollback central;
+- adicionados portoes de CI para impedir regressao nesses fluxos.
+
 ## 2.0.1 — update para o AD e higienizacao de producao
 
 - criado `ATUALIZAR-AD.cmd` para uso direto no Agendador de Tarefas;
