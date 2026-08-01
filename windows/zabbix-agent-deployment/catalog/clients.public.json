@@ -19,6 +19,14 @@
       "ProfileVisibility": "private"
     },
     {
+      "Id": "PLASCAR",
+      "DisplayName": "Plascar",
+      "Aliases": ["PLASCAR", "PLA"],
+      "ProfileFile": "plascar.profile.ps1",
+      "IdentityFile": "plascar.identity.ps1",
+      "ProfileVisibility": "private"
+    },
+    {
       "Id": "AGL",
       "DisplayName": "Mizu / AGL",
       "Aliases": ["MIZU", "AGL"],
