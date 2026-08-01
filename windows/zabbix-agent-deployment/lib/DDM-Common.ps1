@@ -115,9 +115,9 @@ function Get-DDMCidrInfo {
     $Prefix=0
     if (-not [int]::TryParse($Pair[1],[ref]$Prefix) -or $Prefix -lt 0 -or $Prefix -gt 32) { throw "CIDR invalido: $Cidr" }
     [uint64]$Ip=[uint64](Convert-DDMIPv4ToUInt32 $Pair[0])
-    [uint64]$Mask=if($Prefix -eq 0){0}else{([uint64]0xFFFFFFFF -shl (32-$Prefix)) -band [uint64]0xFFFFFFFF}
+    [uint64]$Mask=if($Prefix -eq 0){0}else{([uint64]4294967295 -shl (32-$Prefix)) -band [uint64]4294967295}
     [uint64]$Network=$Ip -band $Mask
-    [uint64]$Broadcast=$Network -bor ((-bnot $Mask) -band [uint64]0xFFFFFFFF)
+    [uint64]$Broadcast=$Network -bor ((-bnot $Mask) -band [uint64]4294967295)
     $Octets=@(); [uint64]$Temp=$Network
     for($I=3;$I -ge 0;$I--){$Octets += [string](($Temp -shr ($I*8)) -band 255)}
     return New-Object PSObject -Property @{Cidr=$Cidr;Prefix=$Prefix;Network=$Network;Broadcast=$Broadcast;Canonical=(($Octets -join '.') + '/' + $Prefix)}
@@ -137,7 +137,7 @@ function Test-DDMIPv4InCidr {
     if (-not [int]::TryParse($Pair[1],[ref]$Prefix) -or $Prefix -lt 0 -or $Prefix -gt 32) { throw "CIDR invalido: $Cidr" }
     $Ip = [uint64](Convert-DDMIPv4ToUInt32 $Address)
     $Net = [uint64](Convert-DDMIPv4ToUInt32 $Pair[0])
-    [uint64]$Mask = if ($Prefix -eq 0) { 0 } else { ([uint64]0xFFFFFFFF -shl (32-$Prefix)) -band [uint64]0xFFFFFFFF }
+    [uint64]$Mask = if ($Prefix -eq 0) { 0 } else { ([uint64]4294967295 -shl (32-$Prefix)) -band [uint64]4294967295 }
     return (($Ip -band $Mask) -eq ($Net -band $Mask))
 }
 
