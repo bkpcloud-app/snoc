@@ -11,6 +11,14 @@
       "ProfileVisibility": "private"
     },
     {
+      "Id": "BRITTA",
+      "DisplayName": "Britta",
+      "Aliases": ["BRITTA", "BRI"],
+      "ProfileFile": "britta.profile.ps1",
+      "IdentityFile": "britta.identity.ps1",
+      "ProfileVisibility": "private"
+    },
+    {
       "Id": "AGL",
       "DisplayName": "Mizu / AGL",
       "Aliases": ["MIZU", "AGL"],
