@@ -13,7 +13,7 @@ MOTOR + ARTIFACTS + RELEASES + CURRENT.txt
                     ↓
 bootstrap local executado como SYSTEM
                     ↓
-cache local validado
+cache local integralmente validado
                     ↓
 agente e modulos
 ```
@@ -26,7 +26,7 @@ A primeira implantacao usa o asset `DDM-SNOC-WINDOWS-AD-SEED-<versao>.zip`. Depo
 
 O CMD:
 
-- consulta a release mais nova do motor;
+- procura a release mais nova especifica do DDM SNOC Windows;
 - consulta o patch estavel mais novo da linha Zabbix 7.0;
 - baixa Agent 1 x86/AMD64, Agent 2 AMD64 e plugins;
 - valida digest, SHA-256, assinatura e cadeia do certificado;
@@ -34,6 +34,23 @@ O CMD:
 - preserva `CLIENTE.ps1`.
 
 Os endpoints nunca acessam GitHub ou CDN.
+
+## Fallback sem o AD
+
+Quando o compartilhamento central estiver indisponivel, o endpoint somente usa o cache local depois de validar:
+
+- hash do manifesto do motor;
+- hash de todos os arquivos do motor;
+- ausencia de arquivos extras e reparse points;
+- hash do manifesto e de todos os MSIs;
+- hash do runtime do cliente;
+- presenca do endpoint e do instalador locais.
+
+Qualquer divergencia bloqueia a execucao pelo cache.
+
+## Rollback central
+
+`VOLTAR-RELEASE.cmd` lista e ativa uma release central anterior ja validada. O fluxo grava `PREVIOUS.txt`, cria uma autorizacao temporaria de downgrade e altera somente `CURRENT.txt`. O update agendado respeita a janela de rollback e nao reativa imediatamente a versao mais nova.
 
 ## Sistemas
 
@@ -52,11 +69,14 @@ MSSQL, PostgreSQL, MongoDB e IIS usam plugin ou template nativo e nao recebem sc
 ```text
 CLIENTE.ps1
 ATUALIZAR-AD.cmd
+VOLTAR-RELEASE.cmd
 CURRENT.txt
+PREVIOUS.txt
 MOTOR\<versao do motor>
 ARTIFACTS\<versao do Zabbix>
 RELEASES\<release completa>
 CENTRAL-UPDATER\
+CENTRAL-TOOLS\
 BOOTSTRAP-INSTALL\
 INSTALAR-BOOTSTRAP.cmd
 DIAGNOSTICAR.cmd
@@ -70,7 +90,8 @@ GPO-DIARIA.cmd
 - releases imutaveis;
 - publicacao transacional;
 - selecao de rede fail-closed;
-- MSI validado por hash e assinatura;
+- MSI validado na central por hash, assinatura e revogacao online;
+- endpoint offline valida hash, assinatura, cadeia local e manifesto sem depender da internet;
 - rollback validado;
 - ACL local restrita;
 - dados reais de clientes fora do repositorio;
