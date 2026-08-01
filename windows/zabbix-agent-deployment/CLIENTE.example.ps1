@@ -7,8 +7,8 @@ $DDMClientProfile = @{
     ConfigVersion   = '1.0.0'
     ClientId        = 'CLIENTE'
 
-    # Use os dominios reais somente no arquivo local do cliente.
-    AcceptedDomains = @('cliente.local')
+    # Vazio somente neste exemplo publico. O arquivo real deve listar os dominios aceitos.
+    AcceptedDomains = @()
     ServersOnly     = $false
 
     DefaultSite     = 'DC'
