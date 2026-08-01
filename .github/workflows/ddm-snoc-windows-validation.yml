@@ -90,7 +90,7 @@ jobs:
           foreach($Required in @('ddm-snoc-windows-v','DDM-SNOC-WINDOWS-MOTOR-','per_page=30','.sha256')){if($Supply -notmatch [regex]::Escape($Required)){throw "Selecao de release incompleta: $Required"}}
           $Publish=Get-Content (Join-Path $Root 'central\lib\Invoke-DDM-Central-Publish.ps1') -Raw
           foreach($Required in @('CENTRAL-TOOLS','PreviousVersionFile','ROLLBACK-REQUEST.clixml','fallback legado e proibido')){if($Publish -notmatch [regex]::Escape($Required)){throw "Publicacao central sem $Required"}}
-          if($Publish -match 'base-package'){throw 'Publicador ainda referencia base-package.'}
+          foreach($LegacyCode in @("Join-Path `$SourceRoot 'base-package'",'base-package\modules')){if($Publish -match [regex]::Escape($LegacyCode)){throw "Publicador ainda possui caminho legado: $LegacyCode"}}
           $Bootstrap=Get-Content (Join-Path $Root 'bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1') -Raw
           foreach($Required in @('Assert-DDMLocalDesiredState','Arquivo local nao declarado','ROLLBACK-REQUEST.clixml','RollbackAuthorizationExpiresAtUtc')){if($Bootstrap -notmatch [regex]::Escape($Required)){throw "Fallback local sem $Required"}}
           $Endpoint=Get-Content (Join-Path $Root 'endpoint\Invoke-DDM-SNOC-Daily.ps1') -Raw
