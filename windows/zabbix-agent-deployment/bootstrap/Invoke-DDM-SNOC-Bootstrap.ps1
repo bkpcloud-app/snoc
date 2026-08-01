@@ -28,7 +28,7 @@ function Get-DDMSafeChildPath([string]$Root,[string]$Relative) {
 
 function Assert-DDMLocalDirectory([string]$Root,[string]$ManifestPath,[string]$ExpectedManifestHash,[string]$Label) {
     if (-not (Test-Path -LiteralPath $Root)) { throw "$Label local ausente: $Root" }
-    if (-not (Test-Path -LiteralPath $ManifestPath)) { throw "Manifesto local ausente para $Label: $ManifestPath" }
+    if (-not (Test-Path -LiteralPath $ManifestPath)) { throw "Manifesto local ausente para ${Label}: $ManifestPath" }
     if ((Get-DDMSha256 $ManifestPath) -ne $ExpectedManifestHash) { throw "Hash do manifesto local divergente para $Label." }
     $Manifest=@(Import-DDMClixmlSafe $ManifestPath)
     if ($Manifest.Count -eq 0) { throw "Manifesto local vazio para $Label." }
@@ -36,21 +36,21 @@ function Assert-DDMLocalDirectory([string]$Root,[string]$ManifestPath,[string]$E
     foreach ($Item in $Manifest) {
         $Relative=if ($Item.Path) {[string]$Item.Path} else {[string]$Item.Name}
         $Hash=[string]$Item.Sha256
-        if ($Hash -notmatch '^[0-9A-Fa-f]{64}$') { throw "SHA-256 invalido no manifesto de $Label: $Relative" }
+        if ($Hash -notmatch '^[0-9A-Fa-f]{64}$') { throw "SHA-256 invalido no manifesto de ${Label}: $Relative" }
         $Full=Get-DDMSafeChildPath $Root $Relative
-        if (-not (Test-Path -LiteralPath $Full)) { throw "Arquivo local ausente em $Label: $Relative" }
+        if (-not (Test-Path -LiteralPath $Full)) { throw "Arquivo local ausente em ${Label}: $Relative" }
         $File=Get-Item -LiteralPath $Full
         if ($File.PSIsContainer) { throw "Manifesto de $Label aponta para diretorio: $Relative" }
-        if (($File.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Reparse point proibido em $Label: $Relative" }
-        if ((Get-DDMSha256 $Full) -ne $Hash.ToUpperInvariant()) { throw "Hash local divergente em $Label: $Relative" }
+        if (($File.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Reparse point proibido em ${Label}: $Relative" }
+        if ((Get-DDMSha256 $Full) -ne $Hash.ToUpperInvariant()) { throw "Hash local divergente em ${Label}: $Relative" }
         $Expected[$Full.ToLowerInvariant()]=$true
     }
     $ManifestFull=[System.IO.Path]::GetFullPath($ManifestPath).ToLowerInvariant()
     foreach ($Actual in @(Get-ChildItem -LiteralPath $Root -Recurse -Force | Where-Object { -not $_.PSIsContainer })) {
-        if (($Actual.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Reparse point proibido em $Label: $($Actual.FullName)" }
+        if (($Actual.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Reparse point proibido em ${Label}: $($Actual.FullName)" }
         $Key=[System.IO.Path]::GetFullPath($Actual.FullName).ToLowerInvariant()
         if ($Key -eq $ManifestFull) { continue }
-        if (-not $Expected.ContainsKey($Key)) { throw "Arquivo local nao declarado no manifesto de $Label: $($Actual.FullName)" }
+        if (-not $Expected.ContainsKey($Key)) { throw "Arquivo local nao declarado no manifesto de ${Label}: $($Actual.FullName)" }
     }
 }
 
