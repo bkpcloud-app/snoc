@@ -3,7 +3,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$ClientConfigPath,
     [string]$OutputRoot='C:\temp\DDM-SNOC-PACKAGES',
-    [string]$DefaultCentralRoot='\\10.210.5.7\social',
+    [string]$DefaultCentralRoot='',
     [switch]$Force
 )
 $ErrorActionPreference='Stop'
@@ -22,6 +22,8 @@ try {
     $ReleaseRoot=Join-Path (Join-Path $TempCentral 'RELEASES') $ReleaseId
     $Release=Import-Clixml -LiteralPath (Join-Path $ReleaseRoot $DDMProduct.ReleaseManifestFile)
     $ClientRuntime=Import-Clixml -LiteralPath (Join-Path $ReleaseRoot $DDMProduct.ClientRuntimeFile)
+    if ([string]::IsNullOrWhiteSpace($DefaultCentralRoot)) { $DefaultCentralRoot=[string]$ClientRuntime.Update.CentralPath }
+    if ([string]::IsNullOrWhiteSpace($DefaultCentralRoot)) { throw 'CentralRoot nao resolvido pelo cliente nem por parametro.' }
     $SafeClient=(([string]$ClientRuntime.ClientId).ToUpperInvariant() -replace '[^A-Z0-9_-]','_')
     $PackageName='DDM-SNOC-WINDOWS-{0}-MOTOR-{1}-ZABBIX-{2}' -f $SafeClient,$DDMProduct.ProductVersion,$Release.AgentVersion
     $PackageRoot=Join-Path $OutputRoot $PackageName
