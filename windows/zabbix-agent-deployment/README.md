@@ -4,7 +4,7 @@ Produto único para instalar, migrar, reparar e padronizar Zabbix Agent em ambie
 
 ## Princípio
 
-Não existe um instalador diferente para Brasanitas, Mizu/AGL ou cada novo cliente.
+Não existe um instalador diferente para Brasanitas, Britta, Plascar, Mizu/AGL ou cada novo cliente.
 
 O produto possui:
 
@@ -28,12 +28,16 @@ O assistente apresenta os clientes cadastrados. Também é possível informar di
 
 ```powershell
 .\Start-DDM-Zabbix.ps1 -Client BRASANITAS -Action Diagnose -ProfileRoot 'D:\DDM-CLIENT-PROFILES'
+.\Start-DDM-Zabbix.ps1 -Client BRITTA     -Action Diagnose -ProfileRoot 'D:\DDM-CLIENT-PROFILES'
+.\Start-DDM-Zabbix.ps1 -Client PLASCAR    -Action Diagnose -ProfileRoot 'D:\DDM-CLIENT-PROFILES'
 .\Start-DDM-Zabbix.ps1 -Client MIZU       -Action Diagnose -ProfileRoot 'D:\DDM-CLIENT-PROFILES'
 ```
 
 Aliases iniciais:
 
 - `BRASANITAS` ou `BRA`;
+- `BRITTA` ou `BRI`;
+- `PLASCAR` ou `PLA`;
 - `MIZU` ou `AGL`.
 
 ## Sistemas e agentes
@@ -53,9 +57,9 @@ Versão inicial da linha 2.x:
 - Agent 2 plugins MSI;
 - Agent 1 MSI para legado.
 
-## Brasanitas sem acesso ao GitHub
+## Clientes sem acesso ao GitHub
 
-GitHub continua sendo a origem oficial. Em uma máquina administrativa com acesso ao GitHub, gere o pacote offline:
+GitHub continua sendo a origem oficial. Em uma máquina administrativa com acesso ao GitHub, gere o pacote offline do cliente escolhido:
 
 ```powershell
 .\Start-DDM-Zabbix.ps1 `
@@ -94,7 +98,7 @@ A estrutura antiga `base-package` permanece temporariamente no repositório apen
 
 O catálogo público contém apenas nomes e aliases. Domínios, proxies, redes, sites, OUs e regras internas ficam em uma pasta protegida ou repositório GitHub privado.
 
-A lógica específica da Mizu/AGL fica no arquivo de identidade do cliente. Assim, suas regras de datacenter, fábricas, VLAN industrial, OUs e nomenclatura são reaproveitadas automaticamente, sem preencher servidor por servidor.
+Os perfis que já construímos para Britta, Plascar e Mizu/AGL devem ser migrados para esse formato, preservando as regras já validadas. A lógica específica da Mizu/AGL permanece no arquivo de identidade do cliente, incluindo datacenters, fábricas, VLAN industrial, OUs e nomenclatura, sem preencher servidor por servidor.
 
 Leia [docs/CLIENT-CATALOG.md](docs/CLIENT-CATALOG.md).
 
