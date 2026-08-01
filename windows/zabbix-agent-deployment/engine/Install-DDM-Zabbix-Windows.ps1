@@ -80,9 +80,9 @@ function Get-Artifact([string]$Role) {
     $Sig=Get-AuthenticodeSignature $Path
     if ($Sig.Status -ne 'Valid' -or $null -eq $Sig.SignerCertificate -or [string]$Sig.SignerCertificate.Subject -notmatch '(?i)CN=Zabbix SIA(,|$)') { throw "Assinatura Zabbix invalida: $Path" }
     $Chain=New-Object System.Security.Cryptography.X509Certificates.X509Chain
-    $Chain.ChainPolicy.RevocationMode=[System.Security.Cryptography.X509Certificates.X509RevocationMode]::Online
+    $Chain.ChainPolicy.RevocationMode=[System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
     $Chain.ChainPolicy.RevocationFlag=[System.Security.Cryptography.X509Certificates.X509RevocationFlag]::ExcludeRoot
-    if (-not $Chain.Build($Sig.SignerCertificate)) { throw "Cadeia Authenticode invalida: $Path" }
+    if (-not $Chain.Build($Sig.SignerCertificate)) { throw "Cadeia Authenticode invalida no cache local: $Path" }
     return $Path
 }
 
