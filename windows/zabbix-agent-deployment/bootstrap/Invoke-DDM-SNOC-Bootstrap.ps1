@@ -18,13 +18,69 @@ $Mutex=New-Object System.Threading.Mutex($false,'Global\DDM_SNOC_WINDOWS')
 $Locked=$false
 function Log([string]$Message,[string]$Level='INFO') { $L='{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),$Level,$Message; Write-Host $L; Add-Content $LogFile $L -Encoding UTF8 }
 
+function Get-DDMSafeChildPath([string]$Root,[string]$Relative) {
+    if (Test-DDMBlank $Relative) { throw 'Caminho relativo vazio no manifesto.' }
+    $RootFull=[System.IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
+    $Full=[System.IO.Path]::GetFullPath((Join-Path $Root $Relative))
+    if (-not $Full.ToLowerInvariant().StartsWith($RootFull.ToLowerInvariant())) { throw "Caminho escapa da raiz validada: $Relative" }
+    return $Full
+}
+
+function Assert-DDMLocalDirectory([string]$Root,[string]$ManifestPath,[string]$ExpectedManifestHash,[string]$Label) {
+    if (-not (Test-Path -LiteralPath $Root)) { throw "$Label local ausente: $Root" }
+    if (-not (Test-Path -LiteralPath $ManifestPath)) { throw "Manifesto local ausente para $Label: $ManifestPath" }
+    if ((Get-DDMSha256 $ManifestPath) -ne $ExpectedManifestHash) { throw "Hash do manifesto local divergente para $Label." }
+    $Manifest=@(Import-DDMClixmlSafe $ManifestPath)
+    if ($Manifest.Count -eq 0) { throw "Manifesto local vazio para $Label." }
+    $Expected=@{}
+    foreach ($Item in $Manifest) {
+        $Relative=if ($Item.Path) {[string]$Item.Path} else {[string]$Item.Name}
+        $Hash=[string]$Item.Sha256
+        if ($Hash -notmatch '^[0-9A-Fa-f]{64}$') { throw "SHA-256 invalido no manifesto de $Label: $Relative" }
+        $Full=Get-DDMSafeChildPath $Root $Relative
+        if (-not (Test-Path -LiteralPath $Full)) { throw "Arquivo local ausente em $Label: $Relative" }
+        $File=Get-Item -LiteralPath $Full
+        if ($File.PSIsContainer) { throw "Manifesto de $Label aponta para diretorio: $Relative" }
+        if (($File.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Reparse point proibido em $Label: $Relative" }
+        if ((Get-DDMSha256 $Full) -ne $Hash.ToUpperInvariant()) { throw "Hash local divergente em $Label: $Relative" }
+        $Expected[$Full.ToLowerInvariant()]=$true
+    }
+    $ManifestFull=[System.IO.Path]::GetFullPath($ManifestPath).ToLowerInvariant()
+    foreach ($Actual in @(Get-ChildItem -LiteralPath $Root -Recurse -Force | Where-Object { -not $_.PSIsContainer })) {
+        if (($Actual.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Reparse point proibido em $Label: $($Actual.FullName)" }
+        $Key=[System.IO.Path]::GetFullPath($Actual.FullName).ToLowerInvariant()
+        if ($Key -eq $ManifestFull) { continue }
+        if (-not $Expected.ContainsKey($Key)) { throw "Arquivo local nao declarado no manifesto de $Label: $($Actual.FullName)" }
+    }
+}
+
+function Assert-DDMLocalDesiredState($Desired) {
+    foreach ($Name in @('ReleaseId','ProductVersion','AgentVersion','RuntimeRoot','ArtifactsRoot','ClientRuntimePath','ClientRuntimeSha256','MotorManifestSha256','ArtifactManifestSha256')) {
+        $Property=$Desired.PSObject.Properties[$Name]
+        if ($null -eq $Property -or (Test-DDMBlank $Property.Value)) { throw "Estado local incompleto: $Name" }
+    }
+    if ([string]$Desired.ClientRuntimeSha256 -notmatch '^[0-9A-Fa-f]{64}$') { throw 'ClientRuntimeSha256 local invalido.' }
+    if (-not (Test-Path -LiteralPath ([string]$Desired.ClientRuntimePath))) { throw 'CLIENTE.runtime.clixml local ausente.' }
+    if ((Get-DDMSha256 ([string]$Desired.ClientRuntimePath)) -ne ([string]$Desired.ClientRuntimeSha256).ToUpperInvariant()) { throw 'CLIENTE.runtime.clixml local com hash divergente.' }
+
+    $MotorManifest=Join-Path ([string]$Desired.RuntimeRoot) $DDMProduct.MotorManifestFile
+    Assert-DDMLocalDirectory ([string]$Desired.RuntimeRoot) $MotorManifest ([string]$Desired.MotorManifestSha256).ToUpperInvariant() 'motor'
+    $ArtifactManifest=Join-Path ([string]$Desired.ArtifactsRoot) $DDMProduct.ArtifactManifestFile
+    Assert-DDMLocalDirectory ([string]$Desired.ArtifactsRoot) $ArtifactManifest ([string]$Desired.ArtifactManifestSha256).ToUpperInvariant() 'artefatos'
+
+    $Endpoint=Join-Path ([string]$Desired.RuntimeRoot) 'endpoint\Invoke-DDM-SNOC-Daily.ps1'
+    $Engine=Join-Path ([string]$Desired.RuntimeRoot) 'engine\Install-DDM-Zabbix-Windows.ps1'
+    if (-not (Test-Path -LiteralPath $Endpoint) -or -not (Test-Path -LiteralPath $Engine)) { throw 'Runtime local nao contem endpoint e motor obrigatorios.' }
+    return $true
+}
+
 function Copy-DirectoryVerified([string]$Source,[string]$Destination,$Manifest) {
     $Staging=$Destination + '.staging-' + [guid]::NewGuid().ToString('N')
     Remove-Item $Staging -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -Path $Staging -ItemType Directory -Force | Out-Null
     Get-ChildItem -LiteralPath $Source -Force | Copy-Item -Destination $Staging -Recurse -Force
     foreach ($Item in @($Manifest)) {
-        $Path=Join-Path $Staging ([string]$Item.Path)
+        $Path=Get-DDMSafeChildPath $Staging ([string]$Item.Path)
         if (-not (Test-Path -LiteralPath $Path)) { throw "Arquivo do motor ausente: $($Item.Path)" }
         if ((Get-DDMSha256 $Path) -ne [string]$Item.Sha256) { throw "Hash do motor divergente: $($Item.Path)" }
     }
@@ -51,8 +107,8 @@ function Copy-SelfAtomic([string]$Source,[string]$Destination) {
 }
 
 function Invoke-LocalEndpoint($Desired,[string]$EffectiveMode) {
+    [void](Assert-DDMLocalDesiredState $Desired)
     $Endpoint=Join-Path ([string]$Desired.RuntimeRoot) 'endpoint\Invoke-DDM-SNOC-Daily.ps1'
-    if (-not (Test-Path $Endpoint)) { throw "Endpoint local ausente: $Endpoint" }
     $Args=@('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"'+$Endpoint+'"'),'-DesiredStatePath',('"'+(Join-Path $StateRoot 'desired-state.clixml')+'"'),'-Mode',$EffectiveMode)
     if ($Force) { $Args += '-Force' }
     $P=Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList ($Args -join ' ') -Wait -PassThru
@@ -104,7 +160,8 @@ try {
         $LocalRuntime=Join-Path $DDMProduct.RuntimeDirectory $Current
         $NeedsMotor=$Force -or -not (Test-Path $LocalRuntime)
         if (-not $NeedsMotor) {
-            foreach ($Item in @($MotorManifest)) { $P=Join-Path $LocalRuntime ([string]$Item.Path); if (-not (Test-Path $P) -or (Get-DDMSha256 $P) -ne [string]$Item.Sha256) { $NeedsMotor=$true; break } }
+            try { Assert-DDMLocalDirectory $LocalRuntime (Join-Path $LocalRuntime $DDMProduct.MotorManifestFile) ([string]$Release.MotorManifestSha256).ToUpperInvariant() 'motor' | Out-Null }
+            catch { $NeedsMotor=$true; Log ("Cache do motor rejeitado e sera recomposto: " + $_.Exception.Message) 'WARN' }
         }
         if ($NeedsMotor) { Log "Sincronizando motor $Current para cache local."; Copy-DirectoryVerified $CentralMotor $LocalRuntime $MotorManifest }
 
@@ -126,6 +183,7 @@ try {
 
         $Desired=New-Object PSObject -Property @{ ReleaseId=$ReleaseId; ProductVersion=$Current; AgentVersion=$AgentVersion; RuntimeRoot=$LocalRuntime; ArtifactsRoot=$LocalArtifacts; ClientRuntimePath=$LocalConfig; ClientRuntimeSha256=$ConfigHash; ClientSourceSha256=[string]$Release.ClientSourceSha256; MotorManifestSha256=[string]$Release.MotorManifestSha256; ArtifactManifestSha256=[string]$Release.ArtifactManifestSha256; CentralRoot=$CentralRoot; SyncedAt=(Get-Date).ToUniversalTime().ToString('o') }
         Export-DDMClixmlAtomic $Desired (Join-Path $StateRoot 'desired-state.clixml') 5
+        [void](Assert-DDMLocalDesiredState $Desired)
 
         $NewBootstrap=Join-Path $LocalRuntime 'bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1'
         $NewCommon=Join-Path $LocalRuntime 'lib\DDM-Common.ps1'
@@ -149,7 +207,7 @@ try {
     $DesiredPath=Join-Path $StateRoot 'desired-state.clixml'
     if (-not (Test-Path $DesiredPath)) { throw 'Central indisponivel e nenhum estado local foi sincronizado.' }
     $Desired=Import-DDMClixmlSafe $DesiredPath
-    if (-not (Test-Path $Desired.RuntimeRoot)) { throw 'Runtime local anterior ausente.' }
+    [void](Assert-DDMLocalDesiredState $Desired)
     $FallbackMode=if ($Mode -eq 'Apply') {'Apply'} elseif ($Mode -eq 'Repair') {'Repair'} elseif ($Mode -eq 'Diagnose') {'Diagnose'} else {'Auto'}
     $Code=Invoke-LocalEndpoint $Desired $FallbackMode
     exit $Code
