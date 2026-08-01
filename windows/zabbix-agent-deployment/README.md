@@ -101,4 +101,6 @@ GPO-DIARIA.cmd
 
 O trabalho ocorre em branch e pull request. Somente tags aprovadas geram releases de producao. Nao e necessario um segundo repositorio enquanto branch protection, CI e release por tag forem obrigatorios.
 
+Estado tecnico atual: motor `2.0.2`, workflow de validacao #70 aprovado. Pilotos reais continuam obrigatorios antes do merge e da implantacao ampla.
+
 Consulte `docs/UPDATE-AD.md`, `docs/ARQUITETURA.md`, `docs/SEGURANCA.md` e `docs/TESTES-E-LIBERACAO.md`.
