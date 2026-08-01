@@ -2,7 +2,7 @@
 $DDMProduct = @{
     ProductName              = 'DDM SNOC Windows'
     ProductCode              = 'DDM-SNOC-WINDOWS'
-    ProductVersion           = '2.0.1'
+    ProductVersion           = '2.0.2'
     ClientSchemaVersion      = 3
     ZabbixMajorLine          = '7.0'
     ZabbixUpdatePolicy       = 'LATEST_STABLE_IN_MAJOR'
@@ -34,6 +34,7 @@ $DDMProduct = @{
     CentralArtifactsFolder   = 'ARTIFACTS'
     CentralReleaseFolder     = 'RELEASES'
     CurrentVersionFile       = 'CURRENT.txt'
+    PreviousVersionFile      = 'PREVIOUS.txt'
     ReleaseReadyFile         = 'READY'
     ClientConfigFile         = 'CLIENTE.ps1'
     ClientRuntimeFile        = 'CLIENTE.runtime.clixml'
@@ -42,8 +43,8 @@ $DDMProduct = @{
     MotorManifestFile        = 'MOTOR-MANIFEST.clixml'
     ArtifactManifestFile     = 'ARTIFACT-MANIFEST.clixml'
 
-    RepositoryReleaseApiUrl = 'https://api.github.com/repos/bkpcloud-app/snoc/releases/latest'
-    RepositoryAssetPattern  = '^DDM-SNOC-WINDOWS-MOTOR-[0-9]+\.[0-9]+\.[0-9]+\.zip$'
+    RepositoryReleaseApiUrl = 'https://api.github.com/repos/bkpcloud-app/snoc/releases?per_page=30'
+    RepositoryAssetPattern  = '^DDM-SNOC-WINDOWS-MOTOR-[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\.zip$'
     RepositoryProductPath   = 'windows\zabbix-agent-deployment'
     ExpectedZabbixSigner     = 'Zabbix SIA'
 
