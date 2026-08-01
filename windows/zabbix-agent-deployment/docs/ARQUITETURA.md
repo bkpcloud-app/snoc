@@ -1,104 +1,46 @@
 # Arquitetura oficial
 
-## Componentes
+## Planos separados
 
-O DDM SNOC Windows possui três componentes simples:
+### Atualização central
 
-1. **motor público**, versionado no GitHub;
-2. **pasta central do cliente**, mantida no AD ou servidor administrativo;
-3. **rotina diária das máquinas**, distribuída por GPO ou tarefa equivalente.
+O servidor central baixa somente uma GitHub Release não-draft e não-prerelease, exige digest SHA-256 do asset, valida o motor e publica uma release interna completa. Depois consulta o CDN oficial do Zabbix e resolve o patch estável mais recente da linha 7.0.
 
-O arquivo `CLIENTE.ps1` pertence ao cliente e fica somente na pasta central local.
+### Conformidade dos endpoints
 
-## Fluxo dos clientes padrão
+A GPO é usada para instalar o bootstrap local. A manutenção diária passa a ser feita por uma tarefa local como `SYSTEM`; ela não executa o motor diretamente pelo compartilhamento.
 
-```text
-GitHub
-   ↓
-servidor central do cliente
-   ↓
-pasta central
-   ↓
-GPO diária
-   ↓
-máquinas Windows
-```
+## Release interna
 
-O servidor central é o único ponto que acessa o GitHub. As máquinas acessam somente o compartilhamento interno.
-
-## Fluxo offline
+`CURRENT.txt` contém um identificador composto por:
 
 ```text
-máquina administrativa externa
-   ↓
-pacote central completo
-   ↓
-pasta central do cliente
-   ↓
-GPO diária
-   ↓
-máquinas Windows
+<versão do motor>__<versão do Zabbix>__<hash do CLIENTE.ps1>
 ```
 
-Esse fluxo é usado na Brasanitas. O pacote manual contém a mesma estrutura consumida pelas máquinas.
+A release contém:
 
-## Separação de responsabilidades
+- manifesto da release;
+- hash do manifesto do motor;
+- hash do manifesto de artefatos;
+- configuração compilada do cliente;
+- marcador `READY` com hash do manifesto da release.
 
-### GitHub
+O endpoint rejeita conteúdo parcial, divergente ou ambíguo e mantém o último estado local validado.
 
-Contém:
+## Compatibilidade legado
 
-- motor;
-- regras de instalação e migração;
-- rotina central;
-- rotina diária;
-- módulos reutilizáveis;
-- modelos sanitizados;
-- manuais públicos.
+O Schema 3 é compilado na central por PowerShell 5.1 para CLIXML somente de dados. O endpoint legado apenas importa esse arquivo; não interpreta nem executa `CLIENTE.ps1`. Assim, o Server 2008 pode continuar no fluxo Agent 1 sem precisar de parser AST local.
 
-Não contém dados reais de clientes.
+## Fail-closed
 
-### Pasta central
+A execução para antes de alterar o agente quando ocorrer:
 
-Contém:
-
-- `CLIENTE.ps1`;
-- versão ativa em `CURRENT.txt`;
-- versões do motor em `MOTOR`;
-- instaladores validados em `ARTIFACTS`;
-- comandos operacionais.
-
-### Máquina
-
-Mantém cache em:
-
-```text
-C:\ProgramData\BKPCloud\SNOC-Windows
-```
-
-A máquina não executa o instalador diretamente pela internet. Primeiro copia o motor e os artefatos necessários para o cache local.
-
-## Atualização imutável
-
-Cada versão do motor ocupa uma pasta própria:
-
-```text
-MOTOR\2.0.0-preview.2
-```
-
-`CURRENT.txt` aponta para a versão ativa. A publicação é feita por estágio e troca do ponteiro, evitando uma pasta parcialmente atualizada.
-
-O servidor central mantém as versões mais recentes para facilitar rollback.
-
-## Arquivo do cliente
-
-`CLIENTE.ps1` é independente da versão do motor. Ele possui sua própria `ConfigVersion`.
-
-Exemplo de estados independentes:
-
-```text
-Motor: 2.0.0-preview.2
-Configuração do cliente: 1.3.0
-```
-
-Uma mudança de proxy ou rede pode atualizar somente o arquivo do cliente. Uma correção do instalador pode atualizar somente o motor.
+- domínio ou SID divergente;
+- rede obrigatória não encontrada;
+- empate de rede com destinos diferentes;
+- arquitetura sem MSI compatível;
+- cliente em status não liberado;
+- ACL central ampla com permissão de escrita;
+- artefato, manifesto ou assinatura inválida;
+- rollback anterior sem MSI recuperável.
