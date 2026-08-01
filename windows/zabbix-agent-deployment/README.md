@@ -16,6 +16,17 @@ O produto possui:
 - diagnóstico antes da aplicação;
 - backup, migração, validação e rollback.
 
+## Clientes já existentes
+
+O catálogo inicial reconhece os quatro ambientes que já fazem parte do produto:
+
+- `AGL` — aliases `MIZU` e `AGL`;
+- `BRASANITAS` — aliases `BRASANITAS` e `BRA`;
+- `BRITTA` — aliases `BRITTA` e `BRI`;
+- `PLASCAR` — aliases `PLASCAR` e `PLA`.
+
+Britta, Plascar e Mizu/AGL não devem ser recriadas. Seus perfis anteriores serão migrados para o formato privado do motor universal, preservando as regras já definidas.
+
 ## Cliente predefinido
 
 Execute no Windows PowerShell 5.1:
@@ -32,13 +43,6 @@ O assistente apresenta os clientes cadastrados. Também é possível informar di
 .\Start-DDM-Zabbix.ps1 -Client PLASCAR    -Action Diagnose -ProfileRoot 'D:\DDM-CLIENT-PROFILES'
 .\Start-DDM-Zabbix.ps1 -Client MIZU       -Action Diagnose -ProfileRoot 'D:\DDM-CLIENT-PROFILES'
 ```
-
-Aliases iniciais:
-
-- `BRASANITAS` ou `BRA`;
-- `BRITTA` ou `BRI`;
-- `PLASCAR` ou `PLA`;
-- `MIZU` ou `AGL`.
 
 ## Sistemas e agentes
 
@@ -98,7 +102,7 @@ A estrutura antiga `base-package` permanece temporariamente no repositório apen
 
 O catálogo público contém apenas nomes e aliases. Domínios, proxies, redes, sites, OUs e regras internas ficam em uma pasta protegida ou repositório GitHub privado.
 
-Os perfis que já construímos para Britta, Plascar e Mizu/AGL devem ser migrados para esse formato, preservando as regras já validadas. A lógica específica da Mizu/AGL permanece no arquivo de identidade do cliente, incluindo datacenters, fábricas, VLAN industrial, OUs e nomenclatura, sem preencher servidor por servidor.
+A lógica específica da Mizu/AGL permanece no arquivo de identidade do cliente, incluindo datacenters, fábricas, VLAN industrial, OUs e nomenclatura, sem preencher servidor por servidor.
 
 Leia [docs/CLIENT-CATALOG.md](docs/CLIENT-CATALOG.md).
 
