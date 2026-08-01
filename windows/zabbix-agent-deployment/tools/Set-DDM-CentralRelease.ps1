@@ -54,7 +54,7 @@ try {
             $Rows+=New-Object PSObject -Property @{Current=($Dir.Name -eq $Current);ReleaseId=$Dir.Name;Motor=[string]$Info.ProductVersion;Zabbix=[string]$Info.AgentVersion;Client=[string]$Info.ClientId;PublishedAt=[string]$Info.PublishedAt}
         } catch { Log ("Release ignorada: " + $Dir.Name + ' - ' + $_.Exception.Message) 'WARN' }
     }
-    if($List){$Rows | Sort-Object Current -Descending,PublishedAt -Descending | Format-Table Current,ReleaseId,Motor,Zabbix,Client,PublishedAt -AutoSize; exit 0}
+    if($List){$Rows | Sort-Object @{Expression='Current';Descending=$true},@{Expression='PublishedAt';Descending=$true} | Format-Table Current,ReleaseId,Motor,Zabbix,Client,PublishedAt -AutoSize; exit 0}
     if([string]::IsNullOrWhiteSpace($Current)){throw 'CURRENT.txt ausente ou vazio.'}
     [void](Get-ValidatedRelease $Current)
     $Target=if($UsePrevious){FirstLine $PreviousPath}else{$ReleaseId}
