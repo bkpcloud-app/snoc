@@ -1,76 +1,48 @@
-# CLIENTE.ps1
+# Contrato CLIENTE.ps1 — Schema 3
 
-## Regra principal
+O arquivo deve conter somente comentários e uma atribuição literal:
 
-Cada ambiente possui um único arquivo chamado:
-
-```text
-CLIENTE.ps1
+```powershell
+$DDMClient = @{
+    SchemaVersion = 3
+    # dados do ambiente
+}
 ```
 
-Ele fica na raiz da pasta central e nunca é baixado nem substituído pelo motor.
+Não são aceitos comandos, funções, credenciais, tokens, PSK, chaves privadas ou referências a código externo.
 
-## Conteúdo
+## Seções obrigatórias
 
-O arquivo define:
+- identidade e versão da configuração;
+- status e bloqueios;
+- atualização e caminho central;
+- escopo de domínio;
+- comunicação;
+- hostname e metadata;
+- redes e prioridades;
+- implantação e autorregistro.
 
-- `ClientId`;
-- `ConfigVersion`;
-- domínios aceitos;
-- proxy passivo e ativo;
-- redes e sites;
-- padrão de hostname;
-- metadata;
-- módulos padrão;
-- detecção leve de funções e aplicações;
-- exceções do cliente.
+## Estados publicáveis
 
-Ele também define a função `Get-DDMClientIdentity`, usada pelo motor para calcular os dados finais da máquina.
+- `PILOT_READY`
+- `PILOT_READY_AFTER_ACL`
+- `PRODUCTION_READY`
 
-## Proteção contra cliente errado
+Outros estados são recusados pelo atualizador central, salvo uso explícito de uma opção administrativa de diagnóstico.
 
-O campo `AcceptedDomains` é obrigatório nos arquivos reais. Se o domínio detectado não estiver autorizado, a execução para antes de instalar ou alterar o agente.
+## Redes
 
-Também podem ser adicionadas validações específicas por rede, site ou SID de domínio dentro do próprio arquivo.
+A seleção segue esta ordem:
+
+1. exceção explícita de host/cluster;
+2. exclusão de IPs virtuais conhecidos;
+3. interface com gateway padrão;
+4. maior prioridade;
+5. prefixo mais específico;
+6. empate entre destinos diferentes bloqueia a execução.
+
+CIDRs devem ser canônicos, válidos e possuir prioridade. Sobreposição sem desempate é proibida.
 
 ## Versionamento
 
-Sempre que o conteúdo real mudar, incremente:
-
-```powershell
-ConfigVersion = '1.0.1'
-```
-
-A rotina diária compara o hash completo do arquivo. Portanto, mesmo que alguém esqueça de aumentar a versão, a mudança ainda será aplicada. A versão existe para auditoria e suporte.
-
-## Módulos
-
-O arquivo pode declarar módulos comuns, como:
-
-```text
-CORE
-ADDS
-HYPERV
-VEEAM
-MSSQL
-IIS
-TOTVS
-SENIOR
-```
-
-A detecção deve ser rápida. Prefira serviços, arquivos conhecidos ou chaves diretas. Evite varreduras amplas no disco.
-
-Módulos de aplicações devem permanecer leves e sem impacto quando a aplicação não existir.
-
-## Arquivos reais
-
-Os arquivos dos clientes iniciais serão gerados separadamente:
-
-- Mizu / AGL;
-- Britta;
-- Plascar;
-- Brasanitas.
-
-Eles não devem ser enviados ao repositório público.
-
-Use `CLIENTE.example.ps1` apenas como contrato técnico e ponto de partida.
+Toda alteração real deve incrementar `ConfigVersion`. A release também usa o SHA-256 do arquivo fonte, portanto uma mudança é detectada mesmo quando a versão textual não for alterada.
