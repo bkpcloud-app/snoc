@@ -1,144 +1,69 @@
-# MODELO PUBLICO E SANITIZADO.
-# Copie para a pasta central como CLIENTE.ps1 e preencha somente no ambiente do cliente.
-# Este arquivo e local, fixo e nunca deve ser sobrescrito pela atualizacao do motor.
+# MODELO PUBLICO E SANITIZADO - SOMENTE DADOS.
+# Copie para CLIENTE.ps1 na pasta central. O motor nunca cria nem substitui esse arquivo.
+$DDMClient = @{
+    SchemaVersion        = 3
+    ConfigVersion        = '3.0.0'
+    ClientId             = 'CLIENTE'
+    DisplayName          = 'Cliente de exemplo'
+    Status               = 'DRAFT'
+    ProductionReady      = $false
+    MinimumEngineVersion = '2.0.0'
+    ProductTag           = 'DDMSNOCWIN'
+    Blockers              = @('Preencher e aprovar os dados reais do ambiente.')
 
-$DDMClientProfile = @{
-    SchemaVersion   = 1
-    ConfigVersion   = '1.0.0'
-    ClientId        = 'CLIENTE'
-
-    # Vazio somente neste exemplo publico. O arquivo real deve listar os dominios aceitos.
-    AcceptedDomains = @()
-    ServersOnly     = $false
-
-    DefaultSite     = 'DC'
-    Proxy           = '192.0.2.10'
-    ProxyActive     = '192.0.2.10'
-    DefaultModules  = @('CORE')
-
-    Settings = @{
-        HostnamePattern = 'SRV-CLIENTE-{COMPUTER}'
-        MetadataPrefix  = 'CLIENTE'
-        RemovePrefixes  = @('SRV-')
+    Update = @{
+        CentralUpdateMode = 'GITHUB_RELEASE_LATEST_STABLE_7_0'
+        CentralPath       = '\\dominio.exemplo\NETLOGON\SCRIPTS\ZBX'
+        EndpointMode      = 'LOCAL_BOOTSTRAP_SCHEDULED_TASK'
+        EndpointInternet  = $false
+        KeepMotorVersions = 4
     }
 
-    # Regras opcionais por IPv4. Pattern usa expressao regular.
-    NetworkRules = @(
-        @{
-            Pattern     = '^192\.0\.2\.'
-            Site        = 'DC'
-            Proxy       = '192.0.2.10'
-            ProxyActive = '192.0.2.10'
-            Area        = 'SERVER'
-        }
+    Scope = @{
+        AcceptedDomains     = @('dominio.exemplo')
+        DomainSid           = ''
+        ServersAllowed      = $true
+        WorkstationsAllowed = $false
+        RequireNetworkMatch = $true
+        BlockOnMismatch     = $true
+    }
+
+    Communication = @{
+        ListenPort         = 10050
+        TLSMode            = 'UNENCRYPTED_INTERNAL'
+        ServerSource       = 'NETWORK_RULE'
+        ServerActiveSource = 'NETWORK_RULE'
+    }
+
+    Identity = @{
+        HostnamePattern      = 'SRV-CLIENTE-{SITE}-{BASE_WITHOUT_SRV_PREFIX}'
+        MetadataTemplate     = ';CLI=CLIENTE;OS={OS};CLASSE={CLASS};SITE={SITE};ORIGNAME={ORIGNAME};PRODUCT=DDMSNOCWIN;PRODUCT_VER={PRODUCT_VERSION};MODULES={MODULES};'
+        HostMetadataMaxBytes = 2034
+    }
+
+    Networks = @(
+        @{ Cidr='192.0.2.0/24'; Site='DC'; GroupSite='CLIENTE-DC'; Proxy='192.0.2.10'; Class='SERVER'; Area=''; Priority=100 }
     )
 
-    # Deteccao leve por servico. Nenhuma varredura pesada e executada.
-    ModuleDetection = @(
-        @{ Module='ADDS';   ServicePatterns=@('NTDS') },
-        @{ Module='HYPERV'; ServicePatterns=@('vmms') },
-        @{ Module='VEEAM';  ServicePatterns=@('VeeamBackupSvc') },
-        @{ Module='MSSQL';  ServicePatterns=@('MSSQLSERVER','MSSQL$*') },
-        @{ Module='IIS';    ServicePatterns=@('W3SVC') }
-    )
-}
-
-function Get-DDMLocalIPv4 {
-    $Addresses = @()
-    try {
-        $Adapters = Get-WmiObject Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True' -ErrorAction Stop
-        foreach ($Adapter in $Adapters) {
-            foreach ($Address in @($Adapter.IPAddress)) {
-                if (([string]$Address) -match '^\d{1,3}(\.\d{1,3}){3}$' -and ([string]$Address) -notmatch '^169\.254\.') {
-                    $Addresses += [string]$Address
-                }
-            }
-        }
-    }
-    catch { }
-    return @($Addresses | Sort-Object -Unique)
-}
-
-function Get-DDMClientIdentity {
-    param(
-        $Profile,
-        $SystemInfo,
-        [string]$ComputerName,
-        [string]$ProductVersion
-    )
-
-    $BaseName = $ComputerName.ToUpperInvariant()
-    if ($Profile.Settings.ContainsKey('RemovePrefixes')) {
-        foreach ($Prefix in @($Profile.Settings.RemovePrefixes)) {
-            if ($BaseName.StartsWith(([string]$Prefix).ToUpperInvariant())) {
-                $BaseName = $BaseName.Substring(([string]$Prefix).Length)
-                break
-            }
-        }
+    Exceptions = @{
+        ExplicitHyperVNodes = @{}
+        ClusterSiteMap      = @{}
+        IgnoredIPv4         = @()
     }
 
-    $Site = [string]$Profile.DefaultSite
-    $Proxy = [string]$Profile.Proxy
-    $ProxyActive = [string]$Profile.ProxyActive
-    $Area = [string]$SystemInfo.Class
-    $Addresses = @(Get-DDMLocalIPv4)
-
-    if ($Profile.ContainsKey('NetworkRules')) {
-        foreach ($Rule in @($Profile.NetworkRules)) {
-            $Matched = $false
-            foreach ($Address in $Addresses) {
-                if ($Address -match [string]$Rule.Pattern) { $Matched = $true; break }
-            }
-            if ($Matched) {
-                if ($Rule.ContainsKey('Site'))        { $Site = [string]$Rule.Site }
-                if ($Rule.ContainsKey('Proxy'))       { $Proxy = [string]$Rule.Proxy }
-                if ($Rule.ContainsKey('ProxyActive')) { $ProxyActive = [string]$Rule.ProxyActive }
-                if ($Rule.ContainsKey('Area'))        { $Area = [string]$Rule.Area }
-                break
-            }
-        }
+    Deployment = @{
+        InstallAllCompatibleModules = $true
+        ModuleDetectionPurpose      = 'METADATA_AND_DIAGNOSTICS_ONLY'
+        ApplicationTemplatesLinkedAutomatically = $false
     }
 
-    $Modules = @($Profile.DefaultModules)
-    if ($Profile.ContainsKey('ModuleDetection')) {
-        $Services = @(Get-Service -ErrorAction SilentlyContinue)
-        foreach ($Detection in @($Profile.ModuleDetection)) {
-            $Detected = $false
-            foreach ($Pattern in @($Detection.ServicePatterns)) {
-                if (@($Services | Where-Object { $_.Name -like [string]$Pattern }).Count -gt 0) {
-                    $Detected = $true
-                    break
-                }
-            }
-            if ($Detected -and $Modules -notcontains [string]$Detection.Module) {
-                $Modules += [string]$Detection.Module
-            }
-        }
+    AutoRegistration = @{
+        Enabled = $true
+        CreateHost = $true
+        AddHostGroups = $true
+        LinkApplicationTemplatesAutomatically = $false
+        ReuseOrRenameLegacyHosts = $false
     }
 
-    $Pattern = [string]$Profile.Settings.HostnamePattern
-    $Hostname = $Pattern.Replace('{COMPUTER}',$BaseName).Replace('{SITE}',$Site).ToUpperInvariant()
-    $Metadata = @(
-        "CLI=$($Profile.ClientId)",
-        "OS=$($SystemInfo.OsTag)",
-        "CLASSE=$($SystemInfo.Class)",
-        "SITE=$Site",
-        "AREA=$Area",
-        "ORIGNAME=$ComputerName",
-        "MODULES=$($Modules -join ',')",
-        'PRODUCT=DDMSNOC',
-        "PRODUCT_VER=$ProductVersion",
-        "CONFIG_VER=$($Profile.ConfigVersion)"
-    ) -join ';'
-
-    return New-Object PSObject -Property @{
-        Hostname=$Hostname
-        Metadata=(';' + $Metadata + ';')
-        Proxy=$Proxy
-        ProxyActive=$ProxyActive
-        Site=$Site
-        Area=$Area
-        Class=[string]$SystemInfo.Class
-        Modules=@($Modules | Sort-Object -Unique)
-    }
+    Legacy = @{ ManagedFiles=@() }
 }
