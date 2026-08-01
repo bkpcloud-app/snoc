@@ -1,8 +1,9 @@
-# Configuracao comum do produto DDM Zabbix Windows.
+# Configuracao comum do produto DDM SNOC Windows.
 # Este arquivo deve permanecer igual para todos os clientes.
 
 $DDMProduct = @{
-    ProductName       = 'DDM Zabbix Windows'
+    ProductName       = 'DDM SNOC Windows'
+    ProductCode       = 'DDM-SNOC-WINDOWS'
     ProductVersion    = '2.0.0-preview.1'
     AgentVersion      = '7.0.28'
 
@@ -21,9 +22,9 @@ $DDMProduct = @{
     StateDirectory    = 'C:\ProgramData\BKPCloud\Zabbix'
 
     ListenPort        = 10050
-    Timeout            = 30
-    LogFileSize        = 20
-    DebugLevel         = 3
+    Timeout           = 30
+    LogFileSize       = 20
+    DebugLevel        = 3
 
     # Regra operacional DDM: Agent 2 em Windows Server 2012/2012 R2 ou superior
     # e Windows 10/11. Windows Server 2008/2008 R2 segue no Agent 1.
