@@ -62,16 +62,34 @@ function Assert-DDMLocalDesiredState($Desired) {
     if ([string]$Desired.ClientRuntimeSha256 -notmatch '^[0-9A-Fa-f]{64}$') { throw 'ClientRuntimeSha256 local invalido.' }
     if (-not (Test-Path -LiteralPath ([string]$Desired.ClientRuntimePath))) { throw 'CLIENTE.runtime.clixml local ausente.' }
     if ((Get-DDMSha256 ([string]$Desired.ClientRuntimePath)) -ne ([string]$Desired.ClientRuntimeSha256).ToUpperInvariant()) { throw 'CLIENTE.runtime.clixml local com hash divergente.' }
-
     $MotorManifest=Join-Path ([string]$Desired.RuntimeRoot) $DDMProduct.MotorManifestFile
     Assert-DDMLocalDirectory ([string]$Desired.RuntimeRoot) $MotorManifest ([string]$Desired.MotorManifestSha256).ToUpperInvariant() 'motor'
     $ArtifactManifest=Join-Path ([string]$Desired.ArtifactsRoot) $DDMProduct.ArtifactManifestFile
     Assert-DDMLocalDirectory ([string]$Desired.ArtifactsRoot) $ArtifactManifest ([string]$Desired.ArtifactManifestSha256).ToUpperInvariant() 'artefatos'
-
     $Endpoint=Join-Path ([string]$Desired.RuntimeRoot) 'endpoint\Invoke-DDM-SNOC-Daily.ps1'
     $Engine=Join-Path ([string]$Desired.RuntimeRoot) 'engine\Install-DDM-Zabbix-Windows.ps1'
     if (-not (Test-Path -LiteralPath $Endpoint) -or -not (Test-Path -LiteralPath $Engine)) { throw 'Runtime local nao contem endpoint e motor obrigatorios.' }
     return $true
+}
+
+function Get-DDMRollbackAuthorization([string]$Root,[string]$ReleaseId) {
+    $Result=New-Object PSObject -Property @{Allowed=$false;ExpiresAtUtc=''}
+    $Path=Join-Path $Root 'ROLLBACK-REQUEST.clixml'
+    if (-not (Test-Path -LiteralPath $Path)) { return $Result }
+    try {
+        $Request=Import-DDMClixmlSafe $Path
+        if ([string]$Request.State -ne 'AUTHORIZED') { throw 'estado diferente de AUTHORIZED' }
+        if ([string]$Request.TargetReleaseId -ne $ReleaseId) { return $Result }
+        $Expires=[datetime]::Parse([string]$Request.ExpiresAtUtc).ToUniversalTime()
+        if ($Expires -le (Get-Date).ToUniversalTime()) { Log "Autorizacao de rollback expirada para $ReleaseId." 'WARN'; return $Result }
+        $Result.Allowed=$true
+        $Result.ExpiresAtUtc=$Expires.ToString('o')
+        Log "Rollback autorizado para $ReleaseId ate $($Result.ExpiresAtUtc)." 'WARN'
+        return $Result
+    } catch {
+        Log ("ROLLBACK-REQUEST.clixml rejeitado: " + $_.Exception.Message) 'WARN'
+        return $Result
+    }
 }
 
 function Copy-DirectoryVerified([string]$Source,[string]$Destination,$Manifest) {
@@ -136,7 +154,6 @@ try {
         Start-Sleep -Seconds ($Seed % ($MaxJitterSeconds+1))
     }
     Write-DDMAtomicText (Join-Path $StateRoot 'central.root') ($CentralRoot + "`r`n") 'UTF8'
-
     $CentralAvailable=$false
     try { $CentralAvailable=Test-Path -LiteralPath $CentralRoot } catch { $CentralAvailable=$false }
     if ($CentralAvailable) {
@@ -164,13 +181,11 @@ try {
             catch { $NeedsMotor=$true; Log ("Cache do motor rejeitado e sera recomposto: " + $_.Exception.Message) 'WARN' }
         }
         if ($NeedsMotor) { Log "Sincronizando motor $Current para cache local."; Copy-DirectoryVerified $CentralMotor $LocalRuntime $MotorManifest }
-
         $ConfigSource=Join-Path $ReleaseRoot $DDMProduct.ClientRuntimeFile
         $ConfigHash=Read-DDMFirstLine (Join-Path $ReleaseRoot $DDMProduct.ClientRuntimeHashFile)
         if ($ConfigHash -ne [string]$Release.ClientRuntimeSha256 -or (Get-DDMSha256 $ConfigSource) -ne $ConfigHash) { throw 'Runtime do cliente divergente da release.' }
         $LocalConfig=Join-Path (Join-Path $StateRoot 'Config') $DDMProduct.ClientRuntimeFile
         Copy-FileVerified $ConfigSource $LocalConfig $ConfigHash
-
         $AgentVersion=[string]$Release.AgentVersion
         $CentralArtifacts=Join-Path $CentralRoot ([string]$Release.ArtifactsRelativePath)
         $ArtifactManifestPath=Join-Path $CentralArtifacts $DDMProduct.ArtifactManifestFile
@@ -180,11 +195,10 @@ try {
         New-Item -Path $LocalArtifacts -ItemType Directory -Force | Out-Null
         foreach ($Item in @($ArtifactManifest)) { Copy-FileVerified (Join-Path $CentralArtifacts $Item.Name) (Join-Path $LocalArtifacts $Item.Name) ([string]$Item.Sha256) }
         Export-DDMClixmlAtomic $ArtifactManifest (Join-Path $LocalArtifacts $DDMProduct.ArtifactManifestFile) 6
-
-        $Desired=New-Object PSObject -Property @{ ReleaseId=$ReleaseId; ProductVersion=$Current; AgentVersion=$AgentVersion; RuntimeRoot=$LocalRuntime; ArtifactsRoot=$LocalArtifacts; ClientRuntimePath=$LocalConfig; ClientRuntimeSha256=$ConfigHash; ClientSourceSha256=[string]$Release.ClientSourceSha256; MotorManifestSha256=[string]$Release.MotorManifestSha256; ArtifactManifestSha256=[string]$Release.ArtifactManifestSha256; CentralRoot=$CentralRoot; SyncedAt=(Get-Date).ToUniversalTime().ToString('o') }
+        $Rollback=Get-DDMRollbackAuthorization $CentralRoot $ReleaseId
+        $Desired=New-Object PSObject -Property @{ ReleaseId=$ReleaseId; ProductVersion=$Current; AgentVersion=$AgentVersion; RuntimeRoot=$LocalRuntime; ArtifactsRoot=$LocalArtifacts; ClientRuntimePath=$LocalConfig; ClientRuntimeSha256=$ConfigHash; ClientSourceSha256=[string]$Release.ClientSourceSha256; MotorManifestSha256=[string]$Release.MotorManifestSha256; ArtifactManifestSha256=[string]$Release.ArtifactManifestSha256; CentralRoot=$CentralRoot; AllowDowngrade=[bool]$Rollback.Allowed; RollbackAuthorizationExpiresAtUtc=[string]$Rollback.ExpiresAtUtc; SyncedAt=(Get-Date).ToUniversalTime().ToString('o') }
         Export-DDMClixmlAtomic $Desired (Join-Path $StateRoot 'desired-state.clixml') 5
         [void](Assert-DDMLocalDesiredState $Desired)
-
         $NewBootstrap=Join-Path $LocalRuntime 'bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1'
         $NewCommon=Join-Path $LocalRuntime 'lib\DDM-Common.ps1'
         $NewProduct=Join-Path $LocalRuntime 'config\DDM-Product.ps1'
@@ -202,7 +216,6 @@ try {
         Log ("Central disponivel, mas a release foi rejeitada: " + $_.Exception.Message + ". Mantendo ultimo estado local.") 'WARN'
       }
     }
-
     Log 'Usando ultimo estado local validado.' 'WARN'
     $DesiredPath=Join-Path $StateRoot 'desired-state.clixml'
     if (-not (Test-Path $DesiredPath)) { throw 'Central indisponivel e nenhum estado local foi sincronizado.' }
