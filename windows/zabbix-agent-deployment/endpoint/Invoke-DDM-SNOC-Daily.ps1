@@ -23,16 +23,62 @@ function Get-InstalledVersion([string]$Binary) {
     return $V
 }
 
-function Get-PluginVersion {
+function Get-PluginProducts {
     $Paths=@('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*')
-    $P=@(Get-ItemProperty $Paths -ErrorAction SilentlyContinue | Where-Object { [string]$_.DisplayName -like 'Zabbix Agent2 Plugins*' -or [string]$_.DisplayName -like 'Zabbix Agent 2 Plugins*' } | Select-Object -First 1)
-    if ($P.Count -eq 0) { return '' }
+    return @(Get-ItemProperty $Paths -ErrorAction SilentlyContinue | Where-Object { [string]$_.DisplayName -like 'Zabbix Agent2 Plugins*' -or [string]$_.DisplayName -like 'Zabbix Agent 2 Plugins*' })
+}
+function Get-PluginVersion {
+    $P=@(Get-PluginProducts)
+    if ($P.Count -ne 1) { return '' }
     if ([string]$P[0].DisplayVersion -match '(\d+\.\d+\.\d+)') { return $Matches[1] }
     return [string]$P[0].DisplayVersion
 }
 
-function Get-ServicePath([string]$Name) {
-    try { $S=Get-WmiObject Win32_Service -Filter ("Name='" + $Name.Replace("'","''") + "'"); return [string]$S.PathName } catch { return '' }
+function Get-ServiceInfo([string]$Name) {
+    try { return Get-WmiObject Win32_Service -Filter ("Name='" + $Name.Replace("'","''") + "'") -ErrorAction Stop } catch { return $null }
+}
+
+function Test-DDMTcp([string]$Host,[int]$Port,[int]$TimeoutMs=3000) {
+    if (Test-DDMBlank $Host) { return $false }
+    $Client=New-Object System.Net.Sockets.TcpClient
+    try {
+        $Async=$Client.BeginConnect($Host,$Port,$null,$null)
+        if (-not $Async.AsyncWaitHandle.WaitOne($TimeoutMs,$false)) { return $false }
+        $Client.EndConnect($Async)
+        return $true
+    } catch { return $false }
+    finally { $Client.Close() }
+}
+
+function Test-PendingReboot {
+    if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') { return $true }
+    if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') { return $true }
+    try { if ((Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue).PendingFileRenameOperations) { return $true } } catch {}
+    return $false
+}
+
+function Test-ManagedModuleIntegrity($Good) {
+    $Reasons=@()
+    foreach ($Item in @($Good.ManagedModuleFiles)) {
+        $Path=[string]$Item.Path
+        $Hash=[string]$Item.Sha256
+        if (Test-DDMBlank $Path -or $Hash -notmatch '^[0-9A-Fa-f]{64}$') { $Reasons+='modulo_manifesto_invalido'; continue }
+        if (-not (Test-Path -LiteralPath $Path)) { $Reasons+=('modulo_ausente=' + $Path); continue }
+        $Info=Get-Item -LiteralPath $Path
+        if ($Info.PSIsContainer -or (($Info.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) { $Reasons+=('modulo_inseguro=' + $Path); continue }
+        if ((Get-DDMSha256 $Path) -ne $Hash.ToUpperInvariant()) { $Reasons+=('modulo_hash_divergente=' + $Path) }
+    }
+    return $Reasons
+}
+
+function Test-AgentConfiguration([string]$Family,[string]$Binary,[string]$Config) {
+    if (-not (Test-Path -LiteralPath $Binary) -or -not (Test-Path -LiteralPath $Config)) { return $false }
+    if ($Family -eq 'AGENT2') {
+        $Out=@(& $Binary -c $Config -T 2>&1)
+        if ($LASTEXITCODE -ne 0) { Log ("Validacao -T falhou: " + ($Out -join ' ')) 'WARN'; return $false }
+    }
+    $Out=@(& $Binary -c $Config -t agent.ping 2>&1)
+    return ($LASTEXITCODE -eq 0 -and ($Out -join ' ') -match '\[t\|1\]')
 }
 
 function Test-DDMCompliance($Target,$Identity,$Client) {
@@ -44,12 +90,23 @@ function Test-DDMCompliance($Target,$Identity,$Client) {
     $Config=Join-Path $AgentRoot $(if ($Target.Family -eq 'AGENT2') {'zabbix_agent2.conf'} else {'zabbix_agentd.conf'})
     $ActualVersion=Get-InstalledVersion $Binary
     if ($null -eq $Service) {$Reasons+='servico_ausente'} elseif ($Service.Status -ne 'Running') {$Reasons+='servico_parado'}
-    if ($null -ne $Service) { $ServicePath=Get-ServicePath $Target.Service; $NormalizedServicePath=$ServicePath.Trim(); if ($NormalizedServicePath.StartsWith('"')) { $NormalizedServicePath=$NormalizedServicePath.Substring(1); $EndQuote=$NormalizedServicePath.IndexOf('"'); if ($EndQuote -ge 0) { $NormalizedServicePath=$NormalizedServicePath.Substring(0,$EndQuote) } } else { $Space=$NormalizedServicePath.ToLowerInvariant().IndexOf('.exe '); if ($Space -ge 0) { $NormalizedServicePath=$NormalizedServicePath.Substring(0,$Space+4) } }; if ($NormalizedServicePath -ne $Binary) {$Reasons+='caminho_servico_divergente'} }
-    if ($null -ne $Opposite -and $Opposite.Status -eq 'Running') {$Reasons+='servico_oposto_ativo'}
+    $ServiceInfo=Get-ServiceInfo $Target.Service
+    if ($ServiceInfo) {
+        $ServicePath=[string]$ServiceInfo.PathName
+        $NormalizedServicePath=$ServicePath.Trim()
+        if ($NormalizedServicePath.StartsWith('"')) { $NormalizedServicePath=$NormalizedServicePath.Substring(1); $EndQuote=$NormalizedServicePath.IndexOf('"'); if ($EndQuote -ge 0) { $NormalizedServicePath=$NormalizedServicePath.Substring(0,$EndQuote) } }
+        else { $Space=$NormalizedServicePath.ToLowerInvariant().IndexOf('.exe '); if ($Space -ge 0) { $NormalizedServicePath=$NormalizedServicePath.Substring(0,$Space+4) } }
+        if ($NormalizedServicePath -ne $Binary) {$Reasons+='caminho_servico_divergente'}
+        if ([string]$ServiceInfo.StartMode -ne 'Auto') {$Reasons+='startup_nao_automatico'}
+    }
+    if ($null -ne $Opposite) {$Reasons+='servico_oposto_instalado'}
     if ($ActualVersion -ne [string]$Desired.AgentVersion) {$Reasons+=('versao_agente=' + $ActualVersion)}
     $ExpectedProcess=if($Target.Family -eq 'AGENT2'){'zabbix_agent2'}else{'zabbix_agentd'}
-    if (-not (Test-DDMPortOwnedByProcess ([int]$DDMProduct.ListenPort) @($ExpectedProcess))) {$Reasons+='porta_nao_pertence_ao_agente_alvo'}
+    $ListenPort=if($Client.Communication.ListenPort){[int]$Client.Communication.ListenPort}else{[int]$DDMProduct.ListenPort}
+    if (-not (Test-DDMPortOwnedByProcess $ListenPort @($ExpectedProcess))) {$Reasons+='porta_nao_pertence_ao_agente_alvo'}
     if (-not (Test-Path $Config)) {$Reasons+='config_ausente'}
+    elseif (-not (Test-AgentConfiguration $Target.Family $Binary $Config)) {$Reasons+='config_invalida'}
+
     $LastGoodPath=Join-Path $StateRoot 'last-good-state.clixml'
     if (-not (Test-Path $LastGoodPath)) {$Reasons+='estado_ausente'} else {
         $Good=Import-DDMClixmlSafe $LastGoodPath
@@ -63,7 +120,10 @@ function Test-DDMCompliance($Target,$Identity,$Client) {
         if ([string]$Good.ProxyActive -ne [string]$Identity.ProxyActive) {$Reasons+='proxy_ativo_divergente'}
         if ([string]$Good.Metadata -ne [string]$Identity.Metadata) {$Reasons+='metadata_divergente'}
         if (Test-Path $Config) { if ((Get-DDMSha256 $Config) -ne [string]$Good.GeneratedConfigSha256) {$Reasons+='hash_config_divergente'} }
+        $Reasons+=@(Test-ManagedModuleIntegrity $Good)
         if ($Target.Family -eq 'AGENT2' -and [bool]$DDMProduct.InstallAgent2Plugins) {
+            $PluginProducts=@(Get-PluginProducts)
+            if ($PluginProducts.Count -ne 1) {$Reasons+=('quantidade_plugins=' + $PluginProducts.Count)}
             $PluginVersion=Get-PluginVersion
             if ($PluginVersion -ne [string]$Desired.AgentVersion) {$Reasons+=('plugin_real=' + $PluginVersion)}
             foreach ($PluginConf in @('mssql.conf','mongodb.conf','postgresql.conf')) { if (-not (Test-Path (Join-Path (Join-Path $DDMProduct.Agent2Directory 'zabbix_agent2.d') $PluginConf))) {$Reasons+=('plugin_conf_ausente=' + $PluginConf)} }
@@ -72,7 +132,22 @@ function Test-DDMCompliance($Target,$Identity,$Client) {
     }
     $LastStatus=Read-DDMFirstLine (Join-Path $StateRoot 'lastapply.status')
     if ($LastStatus -like 'ERROR*') {$Reasons+='ultima_aplicacao_com_erro'}
-    return New-Object PSObject -Property @{ Compliant=($Reasons.Count -eq 0); Reasons=$Reasons; ActualVersion=$ActualVersion; Binary=$Binary; Config=$Config }
+    if (Test-Path -LiteralPath (Join-Path $StateRoot $DDMProduct.RollbackFailureFile)) {$Reasons+='rollback_pendente'}
+    if (-not (Test-DDMTcp $Identity.ProxyActive 10051 3000)) {$Reasons+='proxy_ativo_tcp_10051_indisponivel'}
+    return New-Object PSObject -Property @{ Compliant=($Reasons.Count -eq 0); Reasons=@($Reasons | Sort-Object -Unique); ActualVersion=$ActualVersion; Binary=$Binary; Config=$Config }
+}
+
+function Write-ProductStatus($Client,$Identity,$Target,$Compliance,[string]$State,[string]$Message) {
+    try {
+        $Payload=New-Object PSObject -Property @{Product=$DDMProduct.ProductCode;State=$State;Message=$Message;ReleaseId=[string]$Desired.ReleaseId;ProductVersion=[string]$Desired.ProductVersion;AgentVersion=[string]$Desired.AgentVersion;ClientId=[string]$Client.ClientId;Hostname=[string]$Identity.Hostname;Proxy=[string]$Identity.Proxy;Family=[string]$Target.Family;Compliant=[bool]$Compliance.Compliant;Reasons=@($Compliance.Reasons);UpdatedAtUtc=(Get-Date).ToUniversalTime().ToString('o')}
+        Write-DDMAtomicText (Join-Path $StateRoot $DDMProduct.ProductStatusFile) (($Payload | ConvertTo-Json -Depth 6)+"`r`n") 'UTF8'
+    } catch {}
+}
+
+function Remove-OldDailyLogs {
+    $Days=if($DDMProduct.KeepLogDays){[int]$DDMProduct.KeepLogDays}else{30}
+    $Cutoff=(Get-Date).AddDays(-$Days)
+    foreach ($File in @(Get-ChildItem -LiteralPath $LogRoot -File -ErrorAction SilentlyContinue | Where-Object {$_.LastWriteTime -lt $Cutoff})) { Remove-Item -LiteralPath $File.FullName -Force -ErrorAction SilentlyContinue }
 }
 
 try {
@@ -86,6 +161,7 @@ try {
         }
     }
     $Client=Import-DDMClixmlSafe $Desired.ClientRuntimePath
+    if ([string]$Client.ClientId -ne [string]$Desired.ClientId) { throw 'ClientId do desired-state diverge do runtime.' }
     $System=Get-DDMSystemInfo
     $Target=Get-DDMTargetAgent $System $DDMProduct
     $Identity=Resolve-DDMClientIdentity $Client $DDMProduct $System
@@ -94,12 +170,13 @@ try {
         try { $ActualV=New-Object System.Version -ArgumentList $Compliance.ActualVersion; $DesiredV=New-Object System.Version -ArgumentList ([string]$Desired.AgentVersion); if ($ActualV -gt $DesiredV -and -not $AllowDowngrade) { throw "Downgrade bloqueado: agente local $($Compliance.ActualVersion) e central $($Desired.AgentVersion)" } } catch { if ($_.Exception.Message -like 'Downgrade bloqueado*') { throw } }
     }
     Log "Diagnostico: cliente=$($Client.ClientId); host=$($Identity.Hostname); proxy=$($Identity.Proxy); alvo=$($Target.Family); versao=$($Desired.AgentVersion); compliant=$($Compliance.Compliant); rollback_autorizado=$AllowDowngrade; motivos=$($Compliance.Reasons -join ',')"
-    if ($Mode -eq 'Diagnose') { if ($Compliance.Compliant) {exit 0} else {exit 10} }
-    if ($Mode -eq 'Auto' -and $Compliance.Compliant -and -not $Force) { Log 'Sem alteracoes; encerrando.' 'OK'; exit 0 }
+    Write-ProductStatus $Client $Identity $Target $Compliance $(if($Compliance.Compliant){'OK'}else{'NONCOMPLIANT'}) ($Compliance.Reasons -join ',')
+    if ($Mode -eq 'Diagnose') { Remove-OldDailyLogs; if ($Compliance.Compliant) {exit 0} else {exit 10} }
+    if ($Mode -eq 'Auto' -and $Compliance.Compliant -and -not $Force) { Log 'Sem alteracoes; encerrando.' 'OK'; Remove-OldDailyLogs; exit 0 }
     if ((Get-DDMFreeSpaceMB $StateRoot) -lt [int]$DDMProduct.MinimumFreeSpaceMB) { throw 'Espaco livre insuficiente para aplicar.' }
     $Action=$Mode
     if ($Mode -eq 'Auto') {
-        if ($Compliance.Reasons -contains 'servico_ausente' -or $Compliance.Reasons -contains 'release_divergente' -or $Compliance.Reasons -contains 'motor_divergente' -or $Compliance.Reasons -contains 'cliente_divergente' -or $Compliance.Reasons -contains 'cliente_fonte_divergente' -or @($Compliance.Reasons | Where-Object { $_ -like 'versao_agente=*' }).Count -gt 0) {$Action='Apply'} else {$Action='Repair'}
+        if ($Compliance.Reasons -contains 'servico_ausente' -or $Compliance.Reasons -contains 'release_divergente' -or $Compliance.Reasons -contains 'motor_divergente' -or $Compliance.Reasons -contains 'cliente_divergente' -or $Compliance.Reasons -contains 'cliente_fonte_divergente' -or @($Compliance.Reasons | Where-Object { $_ -like 'versao_agente=*' -or $_ -like 'plugin_real=*' }).Count -gt 0) {$Action='Apply'} else {$Action='Repair'}
     }
     $Engine=Join-Path $RuntimeRoot 'engine\Install-DDM-Zabbix-Windows.ps1'
     $Args=@('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"'+$Engine+'"'),'-Mode',$Action,'-ClientRuntimePath',('"'+$Desired.ClientRuntimePath+'"'),'-ArtifactsRoot',('"'+$Desired.ArtifactsRoot+'"'),'-DesiredProductVersion',([string]$Desired.ProductVersion),'-DesiredAgentVersion',([string]$Desired.AgentVersion),'-DesiredReleaseId',([string]$Desired.ReleaseId),'-ClientSourceSha256',([string]$Desired.ClientSourceSha256),'-ClientRuntimeSha256',([string]$Desired.ClientRuntimeSha256))
@@ -108,7 +185,19 @@ try {
     if (@(0,3010) -notcontains $P.ExitCode) { throw "Motor retornou $($P.ExitCode)" }
     $Compliance=Test-DDMCompliance $Target $Identity $Client
     if (-not $Compliance.Compliant) { throw "Pos-validacao falhou: $($Compliance.Reasons -join ', ')" }
+    if (-not (Test-PendingReboot)) { Remove-Item -LiteralPath (Join-Path $StateRoot 'reboot.required') -Force -ErrorAction SilentlyContinue }
+    Remove-Item -LiteralPath (Join-Path $StateRoot $DDMProduct.RollbackFailureFile) -Force -ErrorAction SilentlyContinue
+    Write-ProductStatus $Client $Identity $Target $Compliance 'OK' 'Aplicacao concluida e validada.'
+    Remove-OldDailyLogs
     Log "Aplicacao concluida. Acao=$Action; reboot=$($P.ExitCode -eq 3010)" 'OK'
     exit $P.ExitCode
 }
-catch { Log $_.Exception.Message 'ERROR'; exit 1 }
+catch {
+    try {
+        $Dummy=New-Object PSObject -Property @{Compliant=$false;Reasons=@($_.Exception.Message)}
+        if ($Client -and $Identity -and $Target) { Write-ProductStatus $Client $Identity $Target $Dummy 'ERROR' $_.Exception.Message }
+    } catch {}
+    Log $_.Exception.Message 'ERROR'
+    Remove-OldDailyLogs
+    exit 1
+}
