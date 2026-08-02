@@ -219,6 +219,16 @@ function Install-AllModules([string]$InstallRoot,[string]$Family) {
     return $Managed
 }
 
+function Prepare-Agent1WithoutModules([string]$InstallRoot) {
+    $IncludeRoot=Join-Path $InstallRoot 'zabbix_agentd.d\ddm'
+    $ScriptsRoot=Join-Path $InstallRoot 'scripts\ddm'
+    if (Test-Path $IncludeRoot) { Remove-Item $IncludeRoot -Recurse -Force }
+    if (Test-Path $ScriptsRoot) { Remove-Item $ScriptsRoot -Recurse -Force }
+    New-Item $IncludeRoot -ItemType Directory -Force | Out-Null
+    Log 'Fluxo legado Agent 1: nenhum modulo ADDS, Hyper-V, TOTVS ou Veeam sera instalado.' 'OK'
+    return @()
+}
+
 function Test-Agent2PluginInstall([string]$InstallRoot) {
     foreach ($Name in @('mssql.conf','mongodb.conf','postgresql.conf')) {
         $Path=Join-Path (Join-Path $InstallRoot 'zabbix_agent2.d') $Name
@@ -323,7 +333,8 @@ try {
         $InstallRoot=if($Target.Family -eq 'AGENT2'){$DDMProduct.Agent2Directory}else{$DDMProduct.Agent1Directory}
         Invoke-Msi 'INSTALL' $AgentMsi @('ADDLOCAL=ALL','DONOTSTART=1','STARTUPTYPE=automatic','SKIP=fw',('INSTALLFOLDER="'+$InstallRoot+'"')) $AgentRole
         if ($PluginMsi) { Invoke-Msi 'INSTALL' $PluginMsi @('ADDLOCAL=ALL',('INSTALLFOLDER="'+$InstallRoot+'"')) 'Zabbix Agent2 Plugins'; Test-Agent2PluginInstall $InstallRoot }
-        $Managed=Install-AllModules $InstallRoot $Target.Family
+        if ($Target.Family -eq 'AGENT2') { $Managed=Install-AllModules $InstallRoot $Target.Family }
+        else { $Managed=Prepare-Agent1WithoutModules $InstallRoot }
         $ConfigPair=Write-AgentConfig $Target.Family $InstallRoot $Identity
         Test-AgentConfig $Target.Family $InstallRoot $ConfigPair
         Set-Service $Target.Service -StartupType Automatic
