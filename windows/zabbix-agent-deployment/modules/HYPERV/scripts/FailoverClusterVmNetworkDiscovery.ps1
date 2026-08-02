@@ -1,35 +1,21 @@
-function Get-ZbxVMNetworkAdapters {
-    # Define the prefix to remove
-    $Prefix = "Virtual Machine "
-
-    # Retrieve all virtual machine cluster groups
-    $HostVms = Get-VM 
-
-    $Result = @()
-
-    $HostVms | ForEach-Object {
-        # Remove the prefix from the VM name
-        $global:VmName = $_.Name
-
-        # Retrieve the virtual machine object using the VM name and get all network adapters
-        $Vm = $_ | Get-VM
- 
-        $NetworkAdapters = Get-VMNetworkAdapter -VM $Vm
-
-        # Iterate through each network adapter and gather information
-        $NetworkAdapters | ForEach-Object {
-            $MacAddressType = if ($_.DynamicMacAddressEnabled) { "Dynamic" } else { "Static" }
-            $Result += @{
-                '{#VMNAME}'        = $VmName
-                '{#NAME}'          = $_.Name
-                '{#ID}'            = $_.AdapterId
-                '{#TYPE}'          = $MacAddressType
+$ErrorActionPreference='Stop'
+try {
+    Import-Module Hyper-V -ErrorAction Stop
+    $Result=@()
+    foreach($Vm in @(Get-VM -ErrorAction Stop|Sort-Object Name)){
+        foreach($Adapter in @(Get-VMNetworkAdapter -VM $Vm -ErrorAction Stop|Sort-Object Name)){
+            $Type=if([bool]$Adapter.DynamicMacAddressEnabled){'Dynamic'}else{'Static'}
+            $Result+=@{
+                '{#VMNAME}'=[string]$Vm.Name
+                '{#NAME}'=[string]$Adapter.Name
+                '{#ID}'=[string]$Adapter.Name
+                '{#TYPE}'=$Type
             }
         }
     }
-
-    return $Result
+    ConvertTo-Json $Result -Compress -Depth 4
+    exit 0
+}catch{
+    Write-Output '[]'
+    exit 1
 }
-
-$JsonResult = Get-ZbxVMNetworkAdapters | ConvertTo-Json -Compress
-$JsonResult
