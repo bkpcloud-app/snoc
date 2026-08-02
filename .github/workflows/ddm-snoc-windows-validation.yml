@@ -29,9 +29,9 @@ jobs:
           foreach($File in @(Get-ChildItem $Root -Filter '*.ps1' -Recurse)){
             $Tokens=$null;$Errors=$null
             [void][System.Management.Automation.Language.Parser]::ParseFile($File.FullName,[ref]$Tokens,[ref]$Errors)
-            foreach($Error in @($Errors)){
+            foreach($ParseError in @($Errors)){
               $Failed=$true
-              Write-Host ("PARSER_ERROR file={0} line={1} column={2} text={3} message={4}" -f $File.FullName,$Error.Extent.StartLineNumber,$Error.Extent.StartColumnNumber,$Error.Extent.Text,$Error.Message)
+              Write-Host ("PARSER_ERROR file={0} line={1} column={2} text={3} message={4}" -f $File.FullName,$ParseError.Extent.StartLineNumber,$ParseError.Extent.StartColumnNumber,$ParseError.Extent.Text,$ParseError.Message)
             }
           }
           if($Failed){throw 'PowerShell parser errors were found.'}
