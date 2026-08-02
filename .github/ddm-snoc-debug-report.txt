@@ -1,0 +1,34 @@
+﻿1/10 Parse PowerShell files
+2/10 Enforce PowerShell 2.0 surface
+RESULT=FAILURE
+MESSAGE=PowerShell 2.0 usa parametro moderno de Get-ChildItem em D:\a\snoc\snoc\windows\zabbix-agent-deployment\bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1
+POSITION=At D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1:7 char:71
++ ... bool]$Condition,[string]$Message){if(-not$Condition){throw $Message}}
++                                                          ~~~~~~~~~~~~~~
+STACK=at Assert, D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 7
+at <ScriptBlock>, D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 22
+at <ScriptBlock>, D:\a\_temp\8b938b12-a92d-4d5a-ac55-e96b2b827ac5.ps1: line 6
+at <ScriptBlock>, <No file>: line 1
+
+
+PSMessageDetails      : 
+Exception             : System.Management.Automation.RuntimeException: PowerShell 2.0 usa parametro moderno de 
+                        Get-ChildItem em 
+                        D:\a\snoc\snoc\windows\zabbix-agent-deployment\bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1
+TargetObject          : PowerShell 2.0 usa parametro moderno de Get-ChildItem em 
+                        D:\a\snoc\snoc\windows\zabbix-agent-deployment\bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1
+CategoryInfo          : OperationStopped: (PowerShell 2.0 ...C-Bootstrap.ps1:String) [], RuntimeException
+FullyQualifiedErrorId : PowerShell 2.0 usa parametro moderno de Get-ChildItem em 
+                        D:\a\snoc\snoc\windows\zabbix-agent-deployment\bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1
+ErrorDetails          : 
+InvocationInfo        : System.Management.Automation.InvocationInfo
+ScriptStackTrace      : at Assert, D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 7
+                        at <ScriptBlock>, 
+                        D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 22
+                        at <ScriptBlock>, D:\a\_temp\8b938b12-a92d-4d5a-ac55-e96b2b827ac5.ps1: line 6
+                        at <ScriptBlock>, <No file>: line 1
+PipelineIterationInfo : {}
+
+
+
+
