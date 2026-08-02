@@ -21,6 +21,7 @@ foreach($File in $PowerShellFiles){
     foreach($Token in $Tokens){if([string]$Token.Text -eq '-in' -or [string]$Token.Text -eq '-notin'){throw "PowerShell 2.0 usa operador moderno $($Token.Text) em $($File.FullName)"}}
     Assert ($Raw -notmatch '(?i)Get-ChildItem[^\r\n]*\s-(File|Directory)\b') "PowerShell 2.0 usa parametro moderno de Get-ChildItem em $($File.FullName)"
     Assert ($Raw -notmatch '(?i)\[pscustomobject\]') "PowerShell 2.0 usa [pscustomobject] em $($File.FullName)"
+    Assert ($Raw -notmatch '(?im)function\s+[^\r\n{]+\([^)]*\$Host(?:\s*[,\)])') "PowerShell 2.0 declara parametro reservado Host em $($File.FullName)"
 }
 
 Write-Host '3/10 Validate product contract'
@@ -29,7 +30,7 @@ Assert ($DDMProduct.ProductName -eq 'DDM SNOC Windows') 'ProductName invalido.'
 Assert ($DDMProduct.ProductVersion -eq '2.0.3') 'ProductVersion invalido.'
 Assert ($DDMProduct.ClientSchemaVersion -eq 3) 'Schema invalido.'
 Assert ($DDMProduct.RepositoryReleaseApiUrl -match 'per_page=100') 'Consulta de releases deve usar pagina ampliada.'
-Assert (-not(@($DDMProduct.DefaultModuleDetection|Where-Object{$_.Module -eq 'SENIOR'}).Count)) 'SENIOR detectado sem modulo implementado.'
+Assert (@($DDMProduct.DefaultModuleDetection|Where-Object{$_.Module -eq 'SENIOR'}).Count -eq 0) 'SENIOR detectado sem modulo implementado.'
 
 Write-Host '4/10 Unit-test common library'
 . (Join-Path $ProductRoot 'lib\DDM-Common.ps1')
@@ -60,7 +61,8 @@ Write-Host '6/10 Validate transaction invariants'
 $Engine=[IO.File]::ReadAllText((Join-Path $ProductRoot 'engine\Install-DDM-Zabbix-Windows.ps1'))
 foreach($Required in @('$TransactionCommitted','LocalPackageSha256','Install-AllModules','ddm.staging-','Rollback validado e finalizado','IMPLEMENTED_AND_VALIDATED')){Assert ($Engine.Contains($Required)) "Motor sem invariante: $Required"}
 Assert (-not$Engine.Contains('$TargetValidated')) 'Motor ainda usa janela de rollback antiga.'
-Assert ($Engine.IndexOf('Stop-Agents') -lt $Engine.IndexOf('Backup-State $Products')) 'Backup ainda ocorre antes da parada dos agentes.'
+Assert ($Engine.LastIndexOf('Stop-Agents') -lt $Engine.LastIndexOf('Backup-State $Products')) 'Backup ainda ocorre antes da parada dos agentes.'
+Assert ($Engine.LastIndexOf('$TransactionCommitted=$true') -gt $Engine.LastIndexOf('Export-Clixml -LiteralPath $GoodTemp')) 'Transacao e confirmada antes do estado final.'
 
 Write-Host '7/10 Validate central publication and bootstrap'
 $Publish=[IO.File]::ReadAllText((Join-Path $ProductRoot 'central\lib\Invoke-DDM-Central-Publish.ps1'))
@@ -88,7 +90,7 @@ $Repl=[IO.File]::ReadAllText((Join-Path $ProductRoot 'modules\ADDS\scripts\adds_
 $Totvs=[IO.File]::ReadAllText((Join-Path $ProductRoot 'modules\TOTVS\scripts\totvs_monitor.ps1'));Assert ($Totvs.Contains('Global\DDM-SNOC-Windows-TOTVS')) 'TOTVS sem mutex.';Assert ($Totvs.Contains('ModuleCache\TOTVS')) 'Cache TOTVS fora do produto.'
 
 Write-Host '10/10 Reject private data and legacy debris'
-$AllFiles=@(Get-ChildItem -LiteralPath $ProductRoot -Recurse -File);$All=($AllFiles|Get-Content -Raw) -join "`n"
+$AllFiles=@(Get-ChildItem -LiteralPath $ProductRoot -Recurse | Where-Object{-not$_.PSIsContainer});$All=($AllFiles|Get-Content -Raw) -join "`n"
 foreach($Private in @('mizu.local','britta.local','itsouthamerica.ad','adb01.local','10.210.5.7','10.160.1.25','SNOC-BRASANITAS')){Assert ($All.IndexOf($Private,[StringComparison]::OrdinalIgnoreCase) -lt 0) "Dado real publicado: $Private"}
 foreach($Legacy in @('base-package','templates\Client.example.ps1','templates\client-definition.example.json','tools\New-BKPCloud-Zabbix-Client.ps1','tools\Bootstrap-New-BKPCloud-Zabbix-Client.ps1','tools\Restore-SplitFiles.ps1')){Assert (-not(Test-Path (Join-Path $ProductRoot $Legacy))) "Legado presente: $Legacy"}
 Write-Host 'DDM SNOC Windows repository validation: SUCCESS' -ForegroundColor Green
