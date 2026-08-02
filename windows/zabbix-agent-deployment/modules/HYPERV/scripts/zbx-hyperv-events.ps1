@@ -1,52 +1,44 @@
 # zbx-hyperv-events.ps1
-# Script para coletar eventos críticos dos logs do Hyper-V
+# Coleta eventos Critical (nivel 1) e Error (nivel 2) dos logs Hyper-V.
 
 Param (
-    [Parameter(Position=0,Mandatory=$true)][string]$action
+    [Parameter(Position=0,Mandatory=$true)][string]$action,
+    [int]$WindowMinutes=5
 )
 
-# Função para descobrir as fontes de log do Hyper-V
+$ErrorActionPreference='Stop'
+
 function Get-EventSourcesLLD {
-    $sources = Get-WinEvent -ListLog "Microsoft-Windows-Hyper-V-*" | Select-Object -ExpandProperty LogName
-    $data = @()
-    foreach ($source in $sources) {
-        $data += @{ "{#VM.EVENTNAME}" = $source }
+    $data=@()
+    foreach ($source in @(Get-WinEvent -ListLog 'Microsoft-Windows-Hyper-V-*' -ErrorAction Stop | Select-Object -ExpandProperty LogName)) {
+        $data += @{ '{#VM.EVENTNAME}' = [string]$source }
     }
-    return ConvertTo-Json @{ "data" = $data } -Compress
+    return ConvertTo-Json @{data=$data} -Compress -Depth 4
 }
 
-# Função para obter a contagem de eventos críticos (Nível 2) das últimas 5 minutos
-function Get-CriticalEventsJSON {
-    $to_json = @{}
-    $sources = Get-WinEvent -ListLog "Microsoft-Windows-Hyper-V-*" | Select-Object -ExpandProperty LogName
-    
+function Get-HyperVEventsJSON {
+    $to_json=@{}
+    $sources=@(Get-WinEvent -ListLog 'Microsoft-Windows-Hyper-V-*' -ErrorAction Stop | Select-Object -ExpandProperty LogName)
     foreach ($source in $sources) {
         try {
-            $criticalEvents = Get-WinEvent -FilterHashtable @{
-                LogName   = $source
-                Level     = 2 # 2 = Crítico
-                StartTime = (Get-Date).AddMinutes(-5)
-            } -ErrorAction SilentlyContinue
-            
-            $to_json.Add($source, @{ "CriticalEvents" = $criticalEvents.Count })
+            $events=@(Get-WinEvent -FilterHashtable @{LogName=$source;Level=@(1,2);StartTime=(Get-Date).AddMinutes(-$WindowMinutes)} -ErrorAction Stop)
+            $critical=@($events | Where-Object {$_.Level -eq 1}).Count
+            $errors=@($events | Where-Object {$_.Level -eq 2}).Count
+            $to_json[$source]=@{CriticalEvents=$critical;ErrorEvents=$errors;TotalSevereEvents=($critical+$errors);WindowMinutes=$WindowMinutes}
         } catch {
-            $to_json.Add($source, @{ "CriticalEvents" = 0 })
+            $to_json[$source]=@{CriticalEvents=0;ErrorEvents=0;TotalSevereEvents=0;WindowMinutes=$WindowMinutes;Error=$_.Exception.Message}
         }
     }
-    return ConvertTo-Json $to_json -Compress
+    return ConvertTo-Json $to_json -Compress -Depth 5
 }
 
-
-# Ponto de entrada do script
-switch ($action) {
-    "lld.events" {
-        Write-Host $(Get-EventSourcesLLD)
+try {
+    switch ($action) {
+        'lld.events' { Write-Output (Get-EventSourcesLLD); exit 0 }
+        'full.events' { Write-Output (Get-HyperVEventsJSON); exit 0 }
+        default { throw 'Acao nao suportada.' }
     }
-    "full.events" {
-        Write-Host $(Get-CriticalEventsJSON)
-    }
-    Default {
-        Write-Host "Ação não suportada."
-        Exit 1
-    }
+} catch {
+    Write-Output (@{error=$_.Exception.Message;data=@{}} | ConvertTo-Json -Compress -Depth 4)
+    exit 1
 }
