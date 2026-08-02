@@ -44,7 +44,6 @@ function Invoke-ReplSummaryCollection{
         if($s -match '(?i)^(Source DSA|DSA de origem|DSA origem|Controlador de origem)\b'){$section='SOURCE';continue}
         if($s -match '(?i)^(Destination DSA|DSA de destino|DSA destino|Controlador de destino)\b'){$section='DESTINATION';continue}
         if($s -match '(?i)(operational errors|erros operacionais|nao foi possivel recuperar|não foi possível recuperar)'){$operationalError=$true;continue}
-        # Linha de dados: nome, maior delta, falhas/total, percentual e erro opcional.
         if($s -match '^(\S+)\s+(.+?)\s+(\d+)\s*/\s*(\d+)\s+(\d+)\s*%?\s*(.*)$'){
             $dsa=$matches[1];$delta=$matches[2].Trim();$fails=[int]$matches[3];$total=[int]$matches[4];$pct=[int]$matches[5];$errorRaw=$matches[6].Trim();$parsedRows++
             if($fails -gt 0 -or $pct -gt 0){
@@ -72,10 +71,22 @@ function Invoke-ReplSummaryCollection{
 $normalizedMode=$Mode.ToLowerInvariant();$validModes=@('details','raw','timestamp','json','status','update')
 if($validModes -notcontains $normalizedMode){Write-Output 'ERROR: invalid mode';exit 1}
 if($normalizedMode -eq 'update' -or (Test-CacheExpired)){
-    $mutex=New-Object System.Threading.Mutex($false,'Global\BKPCloud-Zabbix-ADDS-ReplSummary');$locked=$false
-    try{try{$locked=$mutex.WaitOne(30000)}catch[System.Threading.AbandonedMutexException]{$locked=$true};if(-not$locked){if(-not(Test-Path $JsonFile)){Write-CollectorError 'replication collector busy and no cache is available'}}elseif($normalizedMode -eq 'update' -or (Test-CacheExpired)){Invoke-ReplSummaryCollection}}
-    catch{Write-CollectorError $_.Exception.Message}
-    finally{if($locked){try{$mutex.ReleaseMutex()|Out-Null}catch{}};$mutex.Close()}
+    $mutex=New-Object System.Threading.Mutex($false,'Global\BKPCloud-Zabbix-ADDS-ReplSummary')
+    $locked=$false
+    try{
+        try{$locked=$mutex.WaitOne(30000)}
+        catch [System.Threading.AbandonedMutexException]{$locked=$true}
+        if(-not$locked){
+            if(-not(Test-Path $JsonFile)){Write-CollectorError 'replication collector busy and no cache is available'}
+        }elseif($normalizedMode -eq 'update' -or (Test-CacheExpired)){
+            Invoke-ReplSummaryCollection
+        }
+    }catch{
+        Write-CollectorError $_.Exception.Message
+    }finally{
+        if($locked){try{$mutex.ReleaseMutex()|Out-Null}catch{}}
+        $mutex.Close()
+    }
 }
 switch($normalizedMode){
     'status'{if(Test-Path $StatusFile){Get-Content $StatusFile -TotalCount 1}else{'2'}}
