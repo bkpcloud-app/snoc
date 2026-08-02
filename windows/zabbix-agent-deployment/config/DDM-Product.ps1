@@ -2,7 +2,7 @@
 $DDMProduct = @{
     ProductName              = 'DDM SNOC Windows'
     ProductCode              = 'DDM-SNOC-WINDOWS'
-    ProductVersion           = '2.0.2'
+    ProductVersion           = '2.0.3'
     ClientSchemaVersion      = 3
     ZabbixMajorLine          = '7.0'
     ZabbixUpdatePolicy       = 'LATEST_STABLE_IN_MAJOR'
@@ -22,7 +22,11 @@ $DDMProduct = @{
     KeepCentralVersions      = 4
     KeepLocalVersions        = 3
     KeepBackupSets           = 5
+    KeepLogDays              = 30
+    KeepOfflineBackups       = 5
     MinimumFreeSpaceMB       = 500
+    MaxOfflineCacheDays      = 14
+    CentralLockLeaseMinutes  = 180
 
     AllowAgent2OnServer2012  = $true
     InstallAgent2Plugins     = $true
@@ -42,8 +46,13 @@ $DDMProduct = @{
     ReleaseManifestFile      = 'RELEASE-MANIFEST.clixml'
     MotorManifestFile        = 'MOTOR-MANIFEST.clixml'
     ArtifactManifestFile     = 'ARTIFACT-MANIFEST.clixml'
+    CentralLockFile          = '.DDM-CENTRAL-UPDATE.lock'
+    RollbackRequestFile      = 'ROLLBACK-REQUEST.clixml'
+    RollbackFailureFile      = 'rollback.failed'
+    ProductStatusFile        = 'product-status.json'
+    EmergencyBlockFile       = 'BLOCK-RELEASE.txt'
 
-    RepositoryReleaseApiUrl = 'https://api.github.com/repos/bkpcloud-app/snoc/releases?per_page=30'
+    RepositoryReleaseApiUrl = 'https://api.github.com/repos/bkpcloud-app/snoc/releases?per_page=100'
     RepositoryAssetPattern  = '^DDM-SNOC-WINDOWS-MOTOR-[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\.zip$'
     RepositoryProductPath   = 'windows\zabbix-agent-deployment'
     ExpectedZabbixSigner     = 'Zabbix SIA'
@@ -54,7 +63,6 @@ $DDMProduct = @{
         @{ Module='VEEAM';  ServicePatterns=@('VeeamBackupSvc'); FilePatterns=@() },
         @{ Module='MSSQL';  ServicePatterns=@('MSSQLSERVER','MSSQL$*'); FilePatterns=@() },
         @{ Module='IIS';    ServicePatterns=@('W3SVC'); FilePatterns=@() },
-        @{ Module='TOTVS';  ServicePatterns=@('*TOTVS*','*Protheus*'); FilePatterns=@('C:\TOTVS','C:\Protheus') },
-        @{ Module='SENIOR'; ServicePatterns=@('*Senior*'); FilePatterns=@('C:\Senior') }
+        @{ Module='TOTVS';  ServicePatterns=@('*TOTVS*','*Protheus*'); FilePatterns=@('C:\TOTVS','C:\Protheus') }
     )
 }
