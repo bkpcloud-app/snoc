@@ -1,0 +1,50 @@
+name: Persist DDM SNOC Diagnostic
+
+on:
+  pull_request:
+    paths:
+      - 'windows/zabbix-agent-deployment/**'
+      - '.github/workflows/ddm-snoc-windows-debug-commit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnostic:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Capture validation
+        shell: powershell
+        run: |
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $Report=Join-Path $env:GITHUB_WORKSPACE '.github\ddm-snoc-debug-report.txt'
+          $Lines=New-Object System.Collections.Generic.List[string]
+          try {
+            & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product *>&1 | ForEach-Object {$Lines.Add([string]$_);Write-Host $_}
+            $Lines.Add('RESULT=SUCCESS')
+          } catch {
+            $Lines.Add('RESULT=FAILURE')
+            $Lines.Add('MESSAGE='+$_.Exception.Message)
+            $Lines.Add('POSITION='+[string]$_.InvocationInfo.PositionMessage)
+            $Lines.Add('STACK='+[string]$_.ScriptStackTrace)
+            $Lines.Add(($_ | Format-List * -Force | Out-String))
+          }
+          [IO.File]::WriteAllLines($Report,$Lines,[Text.Encoding]::UTF8)
+
+      - name: Commit diagnostic report
+        shell: powershell
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/ddm-snoc-debug-report.txt
+          if((git status --porcelain).Length -gt 0){
+            git commit -m 'ci(snoc-windows): persist temporary diagnostic report'
+            git push origin HEAD:${{ github.head_ref }}
+          }
