@@ -1,19 +1,17 @@
-function Get-ZbxClusterResources {
-    $resources = Get-ClusterResource | Select-Object Name, Id, ResourceType
-
-    $result = @()
-
-    $resources | ForEach-Object {
-        $result += @{
-            '{#NAME}' = $_.Name
-            '{#ID}' = $_.Id
-            '{#TYPE}' = $_.ResourceType.toString()
+$ErrorActionPreference='Stop'
+try {
+    Import-Module FailoverClusters -ErrorAction Stop
+    $Result=@()
+    foreach($Resource in @(Get-ClusterResource -ErrorAction Stop|Sort-Object Name)){
+        $Result+=@{
+            '{#NAME}'=[string]$Resource.Name
+            '{#ID}'=[string]$Resource.Id
+            '{#TYPE}'=[string]$Resource.ResourceType
         }
     }
-
-    return $result
+    ConvertTo-Json $Result -Compress -Depth 4
+    exit 0
+}catch{
+    Write-Output '[]'
+    exit 1
 }
-
-
-$jsonResult = Get-ZbxClusterResources | ConvertTo-Json -Compress
-$jsonResult
