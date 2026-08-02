@@ -11,12 +11,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ddm-snoc-windows-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
 
@@ -27,7 +32,8 @@ jobs:
           $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           $Failed=$false
           foreach($File in @(Get-ChildItem $Root -Filter '*.ps1' -Recurse)){
-            $Tokens=$null;$Errors=$null
+            $Tokens=$null
+            $Errors=$null
             [void][System.Management.Automation.Language.Parser]::ParseFile($File.FullName,[ref]$Tokens,[ref]$Errors)
             foreach($ParseError in @($Errors)){
               $Failed=$true
@@ -36,7 +42,7 @@ jobs:
           }
           if($Failed){throw 'PowerShell parser errors were found.'}
 
-      - name: Execute repository validation suite
+      - name: Execute 300-control repository validation
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
@@ -88,8 +94,8 @@ jobs:
         run: |
           $Evidence=Join-Path $env:RUNNER_TEMP 'DDM-SNOC-WINDOWS-VALIDATION.txt'
           @(
-            'Validation scope: parser, PowerShell 2 static surface, contracts, executable unit tests, asset build and structural invariants.',
-            'Not covered by CI: real MSI installation, supported Windows matrix, Zabbix autoregistration and application modules against production systems.',
+            'Validation scope: parser, PowerShell 2 surface, contracts, negative tests, central, rollback, modules, workflows, built asset and exactly 300 audit controls.',
+            'Not covered: real MSI installation, supported Windows matrix, Zabbix autoregistration and application modules against production systems.',
             ('Commit: ' + $env:GITHUB_SHA),
             ('GeneratedAtUtc: ' + (Get-Date).ToUniversalTime().ToString('o'))
           ) | Set-Content -LiteralPath $Evidence -Encoding UTF8
