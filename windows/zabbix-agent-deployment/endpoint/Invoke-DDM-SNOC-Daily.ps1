@@ -67,7 +67,7 @@ function Test-ManagedModuleIntegrity($Good) {
         if (Test-DDMBlank $Path -or $Hash -notmatch '^[0-9A-Fa-f]{64}$') { $Reasons+='modulo_manifesto_invalido';continue }
         if (-not (Test-Path -LiteralPath $Path)) { $Reasons+=('modulo_ausente=' + $Path);continue }
         $Info=Get-Item -LiteralPath $Path
-        if ($Info.PSIsContainer -or (($Info.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { $Reasons+=('modulo_inseguro=' + $Path);continue }
+        if ($Info.PSIsContainer -or (($Info.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) { $Reasons+=('modulo_inseguro=' + $Path);continue }
         if ((Get-DDMSha256 $Path) -ne $Hash.ToUpperInvariant()) { $Reasons+=('modulo_hash_divergente=' + $Path) }
     }
     return $Reasons
