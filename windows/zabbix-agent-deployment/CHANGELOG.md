@@ -12,7 +12,7 @@
 - removido o ultimo fallback funcional para `base-package`;
 - AD-SEED passa a incluir atualizacao e rollback central;
 - Windows Server 2008/2008 R2 com Agent 1 fica sem modulos ADDS, Hyper-V, TOTVS ou Veeam;
-- mapa historico R11 da Mizu/AGL definido como referencia do `CLIENTE.ps1` privado;
+- mapeamento de sites da Mizu/AGL passa a usar a confirmacao operacional atual, e nao o arquivo historico R11;
 - Brasanitas definida como implantacao e atualizacao manuais, sem tarefa automatica de update para o AD;
 - adicionados portoes de CI para impedir regressao nesses fluxos.
 
