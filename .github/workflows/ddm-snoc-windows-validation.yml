@@ -98,7 +98,7 @@ jobs:
           $Endpoint=Get-Content (Join-Path $Root 'endpoint\Invoke-DDM-SNOC-Daily.ps1') -Raw
           foreach($Required in @('AllowDowngrade','RollbackAuthorizationExpiresAtUtc','Autorizacao local de rollback expirada')){if($Endpoint -notmatch [regex]::Escape($Required)){throw "Endpoint sem $Required"}}
           $Engine=Get-Content (Join-Path $Root 'engine\Install-DDM-Zabbix-Windows.ps1') -Raw
-          foreach($Required in @("@('AGENT2','PLUGINS')",'zabbix_agent2.d\*.conf','Rollback validado e finalizado','UserParameter duplicado','PLUGINS_AMD64','X509RevocationMode]::NoCheck')){if($Engine -notmatch [regex]::Escape($Required)){throw "Invariante ausente: $Required"}}
+          foreach($Required in @("@('AGENT2','PLUGINS')",'zabbix_agent2.d\*.conf','Rollback validado e finalizado','UserParameter duplicado','PLUGINS_AMD64','X509RevocationMode]::NoCheck','Prepare-Agent1WithoutModules','Fluxo legado Agent 1: nenhum modulo')){if($Engine -notmatch [regex]::Escape($Required)){throw "Invariante ausente: $Required"}}
           $CentralSecurity=Get-Content (Join-Path $Root 'central\lib\DDM-Central-Client.ps1') -Raw
           if($CentralSecurity -notmatch [regex]::Escape('X509RevocationMode]::Online')){throw 'Central deixou de validar revogacao online.'}
           $Rollback=Get-Content (Join-Path $Root 'tools\Set-DDM-CentralRelease.ps1') -Raw
