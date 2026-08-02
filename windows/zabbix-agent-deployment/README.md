@@ -54,13 +54,15 @@ Qualquer divergencia bloqueia a execucao pelo cache.
 
 ## Sistemas
 
-- Server 2008/2008 R2: Agent 1, x86 ou AMD64 conforme o Windows.
+- Server 2008/2008 R2: Agent 1, x86 ou AMD64 conforme o Windows, sem modulos ADDS, Hyper-V, TOTVS ou Veeam.
 - Server 2012/2012 R2: Agent 2 AMD64 + plugins, como excecao operacional sujeita a piloto.
 - Server 2016+, Windows 10/11: Agent 2 AMD64 + plugins.
 
 ## Modulos
 
-Todos os modulos locais compativeis ficam instalados. A coleta somente ocorre quando o template correspondente e vinculado no Zabbix.
+Nos sistemas com Agent 2, todos os modulos locais compativeis ficam instalados. A coleta somente ocorre quando o template correspondente e vinculado no Zabbix.
+
+O fluxo legado Agent 1 dos Windows Server 2008/2008 R2 instala somente o agente e sua configuracao basica, sem os modulos ADDS, Hyper-V, TOTVS ou Veeam.
 
 MSSQL, PostgreSQL, MongoDB e IIS usam plugin ou template nativo e nao recebem scripts externos do motor.
 
@@ -101,6 +103,6 @@ GPO-DIARIA.cmd
 
 O trabalho ocorre em branch e pull request. Somente tags aprovadas geram releases de producao. Nao e necessario um segundo repositorio enquanto branch protection, CI e release por tag forem obrigatorios.
 
-Estado tecnico atual: motor `2.0.2`, workflow de validacao #70 aprovado. Pilotos reais continuam obrigatorios antes do merge e da implantacao ampla.
+Estado tecnico atual: motor `2.0.2`. Pilotos reais continuam obrigatorios antes do merge e da implantacao ampla.
 
 Consulte `docs/UPDATE-AD.md`, `docs/ARQUITETURA.md`, `docs/SEGURANCA.md` e `docs/TESTES-E-LIBERACAO.md`.
