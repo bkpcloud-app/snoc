@@ -5,11 +5,15 @@
 - cache local passa a validar manifestos, todos os hashes, arquivos extras, reparse points e runtime do cliente antes de executar sem o AD;
 - selecao do motor passa a procurar somente releases `ddm-snoc-windows-v*` e assets `DDM-SNOC-WINDOWS-MOTOR-*`;
 - suportado digest SHA-256 do GitHub ou arquivo `.sha256` publicado junto do asset;
-- criado `VOLTAR-RELEASE.cmd` com validacao da release e autorizacao temporaria de downgrade;
+- criado `VOLTAR-RELEASE.cmd` com validacao integral da release, bloqueio entre clientes diferentes e autorizacao temporaria de downgrade;
 - `PREVIOUS.txt` preserva a release anterior e o update agendado respeita a janela de rollback;
 - endpoints validam o MSI em cache sem exigir consulta de revogacao online; a central continua fazendo a validacao online antes de publicar;
+- manifesto de artefatos e copiado byte por byte para preservar o hash entre versoes do PowerShell;
 - removido o ultimo fallback funcional para `base-package`;
 - AD-SEED passa a incluir atualizacao e rollback central;
+- Windows Server 2008/2008 R2 com Agent 1 fica sem modulos ADDS, Hyper-V, TOTVS ou Veeam;
+- mapa historico R11 da Mizu/AGL definido como referencia do `CLIENTE.ps1` privado;
+- Brasanitas definida como implantacao e atualizacao manuais, sem tarefa automatica de update para o AD;
 - adicionados portoes de CI para impedir regressao nesses fluxos.
 
 ## 2.0.1 — update para o AD e higienizacao de producao
