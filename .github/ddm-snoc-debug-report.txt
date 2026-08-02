@@ -7,7 +7,7 @@ POSITION=At D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Reposi
 +         ~~~~~~~~~~~~~~
 STACK=at Assert-DDMTest, D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 22
 at <ScriptBlock>, D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 133
-at <ScriptBlock>, D:\a\_temp\92705871-4779-4f9b-a38f-6168d1de80c3.ps1: line 6
+at <ScriptBlock>, D:\a\_temp\4fc72f98-0779-4972-9ad9-cb3db128e016.ps1: line 6
 at <ScriptBlock>, <No file>: line 1
 
 
@@ -28,7 +28,7 @@ ScriptStackTrace      : at Assert-DDMTest,
                         D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 22
                         at <ScriptBlock>, 
                         D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 133
-                        at <ScriptBlock>, D:\a\_temp\92705871-4779-4f9b-a38f-6168d1de80c3.ps1: line 6
+                        at <ScriptBlock>, D:\a\_temp\4fc72f98-0779-4972-9ad9-cb3db128e016.ps1: line 6
                         at <ScriptBlock>, <No file>: line 1
 PipelineIterationInfo : {}
 
