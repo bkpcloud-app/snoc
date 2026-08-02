@@ -155,7 +155,7 @@ function Assert-DDMShareAcl([string]$Path) {
         }
     } catch {
         if ($_.Exception.Message -like 'Permissao SMB insegura:*') { throw }
-        Write-CentralLog ("Nao foi possivel consultar ACL SMB de $Server\$Share: " + $_.Exception.Message) 'WARN'
+        Write-CentralLog ("Nao foi possivel consultar ACL SMB de ${Server}\${Share}: " + $_.Exception.Message) 'WARN'
     }
 }
 
