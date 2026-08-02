@@ -1,5 +1,24 @@
 # Historico
 
+## 2.0.3 — endurecimento transacional e modos manual/automatico
+
+- migracao MSI refeita como transacao completa, com agentes parados antes do backup e rollback em qualquer falha anterior ao commit final;
+- MSIs de rollback passam a ter SHA-256 e assinatura validados antes da restauracao;
+- modulos passam a ser instalados por staging e seus hashes sao verificados diariamente;
+- publicacao central passa a usar lease no compartilhamento, manifesto fechado e carencia de retencao;
+- criado bloqueio emergencial por `BLOCK-RELEASE.txt` e estado estruturado em `product-status.json`;
+- cache offline passa a ter validade maxima e autoatualizacao transacional do bootstrap;
+- `CLIENTE.ps1` passa a distinguir `LOCAL_BOOTSTRAP_SCHEDULED_TASK` de `MANUAL_LOCAL_BOOTSTRAP`;
+- pacote offline manual deixa de incluir `GPO-DIARIA.cmd` e passa a incluir rollback central e SHA-256 externo;
+- rollback central passa a realinhar os controles centrais com a release escolhida;
+- corrigidas unidades, adaptadores, replicacao e niveis de evento do modulo Hyper-V;
+- ADDS deixa de suprimir mensagens por frase em ingles e passa a aceitar cabecalhos comuns do Repadmin em ingles/portugues;
+- TOTVS passa a usar mutex, cache protegido e mantem na descoberta servicos manuais/parados correspondentes;
+- coletor Veeam legado passa a usar mutex e bloqueio explicito quando o snap-in necessario nao existir;
+- novas chaves CORE informam rollback falho, estado do produto e ultima sincronizacao;
+- CI passa a executar uma suite real de parser, compatibilidade estatica, contratos, invariantes e construcao/reinspecao do asset;
+- tag de producao somente pode apontar para commit pertencente a `main`.
+
 ## 2.0.2 — fallback integral e rollback central
 
 - cache local passa a validar manifestos, todos os hashes, arquivos extras, reparse points e runtime do cliente antes de executar sem o AD;
@@ -12,8 +31,7 @@
 - removido o ultimo fallback funcional para `base-package`;
 - AD-SEED passa a incluir atualizacao e rollback central;
 - Windows Server 2008/2008 R2 com Agent 1 fica sem modulos ADDS, Hyper-V, TOTVS ou Veeam;
-- mapeamento de sites da Mizu/AGL passa a usar a confirmacao operacional atual, e nao o arquivo historico R11;
-- Brasanitas definida como implantacao e atualizacao manuais, sem tarefa automatica de update para o AD;
+- Brasanitas definida como implantacao e atualizacao manuais;
 - adicionados portoes de CI para impedir regressao nesses fluxos.
 
 ## 2.0.1 — update para o AD e higienizacao de producao
