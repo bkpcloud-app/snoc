@@ -190,7 +190,7 @@ function Remove-OldLocalData([string]$CurrentRuntime,[string]$CurrentArtifacts) 
     foreach ($Root in @($DDMProduct.RuntimeDirectory,(Join-Path $StateRoot 'Artifacts'))) {
         if (-not (Test-Path $Root)) { continue }
         $Dirs=@(Get-ChildItem $Root | Where-Object { $_.PSIsContainer -and $_.FullName -ne $CurrentRuntime -and $_.FullName -ne $CurrentArtifacts } | Sort-Object LastWriteTime -Descending)
-        foreach ($Old in @($Dirs | Select-Object -Skip ([math]::Max(0,[int]$DDMProduct.KeepLocalVersions-1))) { Remove-Item $Old.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+        foreach ($Old in @($Dirs | Select-Object -Skip ([math]::Max(0,[int]$DDMProduct.KeepLocalVersions-1)))) { Remove-Item $Old.FullName -Recurse -Force -ErrorAction SilentlyContinue }
     }
     $Cutoff=(Get-Date).AddDays(-[int]$DDMProduct.KeepLogDays)
     foreach ($OldLog in @(Get-ChildItem $LogRoot -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer -and $_.LastWriteTime -lt $Cutoff })) { Remove-Item $OldLog.FullName -Force -ErrorAction SilentlyContinue }
