@@ -8,6 +8,10 @@ $Compiled=Join-Path $CacheRoot 'zabbix_vbr_job.compiled.ps1'
 $HashFile=Join-Path $CacheRoot 'source.sha256'
 $Mutex=New-Object System.Threading.Mutex($false,'Global\DDM-SNOC-Windows-VEEAM')
 $Locked=$false
+function Get-Sha256([string]$Path){
+    $Sha=[System.Security.Cryptography.SHA256]::Create();$Stream=[System.IO.File]::OpenRead($Path)
+    try{return([BitConverter]::ToString($Sha.ComputeHash($Stream))).Replace('-','')}finally{$Stream.Close();$Sha.Dispose()}
+}
 try {
     try { $Locked=$Mutex.WaitOne(30000) } catch [System.Threading.AbandonedMutexException] { $Locked=$true }
     if (-not $Locked) { throw 'Veeam collector busy for more than 30 seconds.' }
@@ -37,9 +41,7 @@ try {
             [System.IO.File]::WriteAllText($HashFile,$Hash,[System.Text.Encoding]::ASCII)
         } finally { Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue }
     }
-    if ((Get-FileHash -LiteralPath $Compiled -Algorithm SHA256).Hash -ne (Get-FileHash -InputStream (New-Object System.IO.MemoryStream(,[System.Text.Encoding]::UTF8.GetBytes($Text))) -Algorithm SHA256).Hash) {
-        throw 'Coletor Veeam compilado diverge dos fragmentos validados.'
-    }
+    if ((Get-Sha256 $Compiled) -ne $Hash) { throw 'Coletor Veeam compilado diverge dos fragmentos validados.' }
     & $Compiled @args
     exit $LASTEXITCODE
 }
