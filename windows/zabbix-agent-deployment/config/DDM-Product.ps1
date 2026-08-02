@@ -2,7 +2,7 @@
 $DDMProduct = @{
     ProductName              = 'DDM SNOC Windows'
     ProductCode              = 'DDM-SNOC-WINDOWS'
-    ProductVersion           = '2.0.3'
+    ProductVersion           = '2.0.4'
     ClientSchemaVersion      = 3
     ZabbixMajorLine          = '7.0'
     ZabbixUpdatePolicy       = 'LATEST_STABLE_IN_MAJOR'
@@ -27,12 +27,17 @@ $DDMProduct = @{
     MinimumFreeSpaceMB       = 500
     MaxOfflineCacheDays      = 14
     CentralLockLeaseMinutes  = 180
+    StaleStagingHours        = 24
+    HttpTimeoutSeconds       = 120
+    MaxDownloadSizeMB        = 1024
 
     AllowAgent2OnServer2012  = $true
     InstallAgent2Plugins     = $true
     InstallAllModules        = $true
+    InstallCoreOnAgent1      = $true
     AllowSystemRun           = $true
     NativeOnlyModules        = @('MSSQL','SQL','POSTGRESQL','MONGODB','IIS')
+    BlockedModules           = @('VEEAM')
 
     CentralMotorFolder       = 'MOTOR'
     CentralArtifactsFolder   = 'ARTIFACTS'
@@ -47,8 +52,10 @@ $DDMProduct = @{
     MotorManifestFile        = 'MOTOR-MANIFEST.clixml'
     ArtifactManifestFile     = 'ARTIFACT-MANIFEST.clixml'
     CentralLockFile          = '.DDM-CENTRAL-UPDATE.lock'
+    CentralOwnerFile         = 'DDM-SNOC-WINDOWS.owner'
     RollbackRequestFile      = 'ROLLBACK-REQUEST.clixml'
     RollbackFailureFile      = 'rollback.failed'
+    BlockedReleaseStateFile  = 'release.blocked'
     ProductStatusFile        = 'product-status.json'
     EmergencyBlockFile       = 'BLOCK-RELEASE.txt'
 
