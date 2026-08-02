@@ -1,13 +1,15 @@
-Param (
-    [String] $VMName,
-    [String] $Id
+param(
+    [Parameter(Mandatory=$true)][string]$VMName,
+    [Parameter(Mandatory=$true)][string]$Id
 )
-
-$VmNetworkAdapater = Get-ClusterResource `
-    | Where-Object { $_.ResourceType -eq "Virtual Machine" } `
-    | Where-Object { $_.Name -like "*$VMName" } `
-    | Get-VM `
-    | Get-VMNetworkAdapter `
-    | Where-Object { $_.AdapterId -eq $Id }
-
-if ($VmNetworkAdapater.DynamicMacAddressEnabled) { "Dynamic" } else { "Static" }
+$ErrorActionPreference='Stop'
+try {
+    Import-Module Hyper-V -ErrorAction Stop
+    $Adapter=Get-VMNetworkAdapter -VMName $VMName -Name $Id -ErrorAction Stop|Select-Object -First 1
+    if($null -eq $Adapter){throw 'Adaptador nao encontrado.'}
+    if([bool]$Adapter.DynamicMacAddressEnabled){'Dynamic'}else{'Static'}
+    exit 0
+}catch{
+    'Unknown'
+    exit 1
+}
