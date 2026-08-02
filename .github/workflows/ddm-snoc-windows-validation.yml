@@ -20,6 +20,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Parse PowerShell with exact diagnostics
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $Failed=$false
+          foreach($File in @(Get-ChildItem $Root -Filter '*.ps1' -Recurse)){
+            $Tokens=$null;$Errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($File.FullName,[ref]$Tokens,[ref]$Errors)
+            foreach($Error in @($Errors)){
+              $Failed=$true
+              Write-Host ("PARSER_ERROR file={0} line={1} column={2} text={3} message={4}" -f $File.FullName,$Error.Extent.StartLineNumber,$Error.Extent.StartColumnNumber,$Error.Extent.Text,$Error.Message)
+            }
+          }
+          if($Failed){throw 'PowerShell parser errors were found.'}
+
       - name: Execute repository validation suite
         shell: powershell
         run: |
