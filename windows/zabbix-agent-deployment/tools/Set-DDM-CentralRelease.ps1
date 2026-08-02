@@ -34,7 +34,7 @@ function Enter-Lease{
             $Stream=New-Object IO.FileStream($LeasePath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
             try{$Payload=@{Product=$DDMProduct.ProductCode;Mode='CENTRAL_ROLLBACK';Computer=$env:COMPUTERNAME;ProcessId=$PID;StartedAtUtc=(Get-Date).ToUniversalTime().ToString('o');ExpiresAtUtc=(Get-Date).ToUniversalTime().AddMinutes($Minutes).ToString('o')}|ConvertTo-Json -Compress;$Bytes=[Text.Encoding]::UTF8.GetBytes($Payload);$Stream.Write($Bytes,0,$Bytes.Length)}finally{$Stream.Dispose()}
             $script:LeaseOwned=$true;return
-        }catch[IO.IOException]{
+        } catch [IO.IOException] {
             if(-not(Test-Path $LeasePath)){continue};$Expired=$false
             try{$Existing=Get-Content $LeasePath -Raw|ConvertFrom-Json;$Expired=[datetime]::Parse([string]$Existing.ExpiresAtUtc).ToUniversalTime() -lt (Get-Date).ToUniversalTime();if(-not$Expired){throw"Atualizacao ou rollback central ativo em $($Existing.Computer), PID=$($Existing.ProcessId)."}}
             catch{if($_.Exception.Message -like'Atualizacao ou rollback central ativo*'){throw};$Expired=((Get-Date)-(Get-Item $LeasePath).LastWriteTime).TotalMinutes -gt $Minutes;if(-not$Expired){throw'Lock central invalido e ainda dentro da janela de seguranca.'}}
