@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "product": "DDM SNOC Windows",
+  "catalogVersion": "1.0.0",
+  "repository": "bkpcloud-app/snoc",
+  "branch": "main",
+  "clients": [
+    {
+      "id": "AGL",
+      "displayName": "Mizu / AGL",
+      "configVersion": "3.1.0",
+      "path": "windows/zabbix-agent-deployment/clients/AGL/CLIENTE.ps1",
+      "sha256": "993E73E594B3FBA80AD0767449F507AE9767CD9FF4BF46E2DF1B149F7EEEB21E",
+      "enabled": true
+    },
+    {
+      "id": "PLASCAR",
+      "displayName": "Plascar",
+      "configVersion": "3.1.0",
+      "path": "windows/zabbix-agent-deployment/clients/PLASCAR/CLIENTE.ps1",
+      "sha256": "2990EFA22F5B339BE4167974C6E53B850749A627905EF9BE1EDCACEE8E3A4846",
+      "enabled": true
+    },
+    {
+      "id": "BRITTA",
+      "displayName": "Britta",
+      "configVersion": "3.1.0",
+      "path": "windows/zabbix-agent-deployment/clients/BRITTA/CLIENTE.ps1",
+      "sha256": "825024F82834B801AF778B2ACB991CF1865544D6293C270F8BF63B87501229BD",
+      "enabled": true
+    },
+    {
+      "id": "BRASANITAS",
+      "displayName": "Brasanitas",
+      "configVersion": "3.1.0",
+      "path": "windows/zabbix-agent-deployment/clients/BRASANITAS/CLIENTE.ps1",
+      "sha256": "83C0FA0156E5DE89B0E2403E28B3B771DFBC25AD3353305ACA1D7EFD7B0D4B54",
+      "enabled": true
+    }
+  ],
+  "catalogPath": "windows/zabbix-agent-deployment/clients/catalog.json"
+}
