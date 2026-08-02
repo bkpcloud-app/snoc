@@ -11,12 +11,9 @@ function Read-DDMClientPs1Safe([string]$Path) {
     $Item=Get-Item -LiteralPath $Path
     if (($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'CLIENTE.ps1 nao pode ser reparse point.' }
     $Raw=[System.IO.File]::ReadAllText($Path)
-    if ($Raw -notmatch '(?ms)^\s*(?:#.*\r?\n\s*)*\$DDMClient\s*=\s*(?<data>@\{.*\})\s*$') {
-        throw 'CLIENTE.ps1 deve conter somente comentarios e uma atribuicao literal para $DDMClient.'
-    }
-    $Data=$Matches['data']
+    if ($Raw -notmatch '(?ms)^\s*(?:#.*\r?\n\s*)*\$DDMClient\s*=\s*(?<data>@\{.*\})\s*$') { throw 'CLIENTE.ps1 deve conter somente comentarios e uma atribuicao literal para $DDMClient.' }
     $Temp=Join-Path $RunRoot 'CLIENTE.safe.psd1'
-    [System.IO.File]::WriteAllText($Temp,$Data,(New-Object System.Text.UTF8Encoding($false)))
+    [System.IO.File]::WriteAllText($Temp,$Matches['data'],(New-Object System.Text.UTF8Encoding($false)))
     try { $Client=Import-PowerShellDataFile -LiteralPath $Temp }
     catch { throw "CLIENTE.ps1 rejeitado pelo parser seguro: $($_.Exception.Message)" }
     if ($null -eq $Client -or -not ($Client -is [hashtable])) { throw 'CLIENTE.ps1 nao resultou em hashtable.' }
@@ -43,41 +40,58 @@ function Assert-DDMHostOrIp([string]$Value,[string]$Label) {
 }
 
 function Assert-DDMClient([hashtable]$Client,$Product) {
-    foreach ($Name in @('SchemaVersion','ConfigVersion','ClientId','DisplayName','Status','ProductionReady','MinimumEngineVersion','Update','Scope','Communication','Identity','Networks','Deployment','AutoRegistration')) {
+    foreach ($Name in @('SchemaVersion','ConfigVersion','ClientId','DisplayName','Status','ProductionReady','MinimumEngineVersion','ProductTag','Update','Scope','Communication','Identity','Networks','Deployment','AutoRegistration')) {
         if (-not $Client.ContainsKey($Name)) { throw "CLIENTE.ps1 sem campo obrigatorio: $Name" }
     }
     Assert-DDMNoSecrets $Client
     if ([int]$Client.SchemaVersion -ne [int]$Product.ClientSchemaVersion) { throw "Schema incompatível: $($Client.SchemaVersion)" }
     [void](Compare-DDMSemVer ([string]$Client.ConfigVersion) '0.0.0')
     if ([string]::IsNullOrWhiteSpace([string]$Client.ClientId) -or [string]$Client.ClientId -notmatch '^[A-Z0-9_-]+$') { throw 'ClientId vazio ou invalido.' }
+    if ([string]$Client.ProductTag -ne 'DDMSNOCWIN') { throw 'ProductTag deve ser DDMSNOCWIN.' }
 
     $EndpointModes=@('LOCAL_BOOTSTRAP_SCHEDULED_TASK','MANUAL_LOCAL_BOOTSTRAP')
     if ($EndpointModes -notcontains [string]$Client.Update.EndpointMode) { throw 'EndpointMode invalido.' }
     if ([string]$Client.Update.CentralUpdateMode -notmatch '^(GITHUB_RELEASE_LATEST_STABLE_7_0|MANUAL_LATEST_STABLE_7_0_PACKAGE)$') { throw 'CentralUpdateMode invalido.' }
     if ([string]::IsNullOrWhiteSpace([string]$Client.Update.CentralPath)) { throw 'CentralPath vazio.' }
+    if ([bool]$Client.Update.EndpointInternet) { throw 'EndpointInternet deve permanecer false.' }
+    if ($Client.Update.KeepMotorVersions -and ([int]$Client.Update.KeepMotorVersions -lt 2 -or [int]$Client.Update.KeepMotorVersions -gt 20)) { throw 'KeepMotorVersions deve estar entre 2 e 20.' }
     if ($Client.Update.MaxOfflineCacheDays -and ([int]$Client.Update.MaxOfflineCacheDays -lt 1 -or [int]$Client.Update.MaxOfflineCacheDays -gt 90)) { throw 'MaxOfflineCacheDays deve estar entre 1 e 90.' }
 
     if (-not [bool]$Client.Deployment.InstallAllCompatibleModules) { throw 'InstallAllCompatibleModules deve permanecer true.' }
+    if ([string]$Client.Deployment.ModuleDetectionPurpose -ne 'METADATA_AND_DIAGNOSTICS_ONLY') { throw 'ModuleDetectionPurpose invalido.' }
     if ([bool]$Client.Deployment.ApplicationTemplatesLinkedAutomatically -or [bool]$Client.AutoRegistration.LinkApplicationTemplatesAutomatically) { throw 'Templates de aplicacao nao podem ser vinculados automaticamente pelo motor.' }
     if ($Client.Deployment.Ring -and @('LAB','CANARY','PILOT','PRODUCTION') -notcontains [string]$Client.Deployment.Ring) { throw 'Deployment.Ring invalido.' }
     if ($Client.Deployment.ContainsKey('AllowSystemRun') -and [bool]$Client.Deployment.AllowSystemRun -ne [bool]$Product.AllowSystemRun) { throw 'AllowSystemRun do cliente diverge da politica aprovada do produto.' }
 
     if ($Client.AutoRegistration.ContainsKey('EngineExecutesServerActions') -and [bool]$Client.AutoRegistration.EngineExecutesServerActions) { throw 'O motor local nao executa acoes no Zabbix Server.' }
     if ($Client.AutoRegistration.ActionOwner -and [string]$Client.AutoRegistration.ActionOwner -ne 'ZABBIX_SERVER_CONFIGURATION') { throw 'AutoRegistration.ActionOwner invalido.' }
+    if ([bool]$Client.AutoRegistration.ReuseOrRenameLegacyHosts) { throw 'ReuseOrRenameLegacyHosts deve permanecer false.' }
+    if (-not [bool]$Client.AutoRegistration.Enabled -and ([bool]$Client.AutoRegistration.CreateHost -or [bool]$Client.AutoRegistration.AddHostGroups)) { throw 'Autorregistro desabilitado nao pode solicitar criacao de host ou grupos.' }
 
     if ([string]::IsNullOrWhiteSpace([string]$Client.Identity.MetadataTemplate)) { throw 'MetadataTemplate vazio.' }
     $HostnamePattern=if($Client.Identity.HostnamePattern){[string]$Client.Identity.HostnamePattern}else{[string]$Client.Identity.NormalHostnamePattern}
     if ([string]::IsNullOrWhiteSpace($HostnamePattern)) { throw 'Padrao de hostname vazio.' }
-    if (@($Client.Scope.AcceptedDomains).Count -eq 0) { throw 'AcceptedDomains vazio.' }
+    if ([int]$Client.Identity.HostMetadataMaxBytes -lt 256 -or [int]$Client.Identity.HostMetadataMaxBytes -gt 2034) { throw 'HostMetadataMaxBytes deve estar entre 256 e 2034.' }
+
+    $Domains=@($Client.Scope.AcceptedDomains)
+    if ($Domains.Count -eq 0) { throw 'AcceptedDomains vazio.' }
+    $NormalizedDomains=@()
+    foreach ($Domain in $Domains) {
+        $Value=([string]$Domain).Trim().TrimEnd('.').ToLowerInvariant()
+        if ($Value -notmatch '^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$') { throw "Dominio invalido em AcceptedDomains: $Domain" }
+        $NormalizedDomains += $Value
+    }
+    if (@($NormalizedDomains|Sort-Object -Unique).Count -ne $NormalizedDomains.Count) { throw 'AcceptedDomains possui duplicidade.' }
+    if ([bool]$Client.Scope.RequireNetworkMatch -and -not [bool]$Client.Scope.BlockOnMismatch) { throw 'RequireNetworkMatch=true exige BlockOnMismatch=true.' }
 
     $Status=[string]$Client.Status
     $PublishableStatus=@('PILOT_READY','PILOT_READY_AFTER_ACL','PRODUCTION_READY')
     if ([bool]$Client.ProductionReady) {
         if ($Status -ne 'PRODUCTION_READY') { throw 'ProductionReady=true exige Status=PRODUCTION_READY.' }
+        if ([string]$Client.Deployment.Ring -ne 'PRODUCTION') { throw 'ProductionReady=true exige Deployment.Ring=PRODUCTION.' }
         if (@($Client.Blockers).Count -gt 0) { throw 'ProductionReady=true com Blockers preenchido.' }
-    } elseif ($Status -eq 'PRODUCTION_READY') {
-        throw 'Status=PRODUCTION_READY exige ProductionReady=true.'
-    }
+    } elseif ($Status -eq 'PRODUCTION_READY') { throw 'Status=PRODUCTION_READY exige ProductionReady=true.' }
+    if (-not [bool]$Client.ProductionReady -and [string]$Client.Deployment.Ring -eq 'PRODUCTION') { throw 'Deployment.Ring=PRODUCTION exige ProductionReady=true.' }
     if ($PublishableStatus -contains $Status -and $Status -ne 'PRODUCTION_READY' -and [bool]$Client.ProductionReady) { throw 'Estado de piloto nao pode estar marcado como producao.' }
     if ((Compare-DDMSemVer ([string]$Client.MinimumEngineVersion) ([string]$Product.ProductVersion)) -gt 0) { throw 'Cliente exige motor mais novo.' }
 
@@ -88,8 +102,11 @@ function Assert-DDMClient([hashtable]$Client,$Product) {
     $Rules=@($Client.Networks)
     if ($Rules.Count -eq 0 -and [bool]$Client.Scope.RequireNetworkMatch) { throw 'RequireNetworkMatch=true sem Networks.' }
     if ($Rules.Count -eq 0) {
+        if ([string]$Client.Communication.ServerSource -ne 'FIXED' -or [string]$Client.Communication.ServerActiveSource -ne 'FIXED') { throw 'Cliente sem Networks deve usar ServerSource e ServerActiveSource FIXED.' }
         $FixedProxy=if($Client.Communication.Proxy){[string]$Client.Communication.Proxy}elseif($Client.Communication.Server){[string]$Client.Communication.Server}else{''}
         Assert-DDMHostOrIp $FixedProxy 'Communication.Proxy/Server'
+    } else {
+        if ([string]$Client.Communication.ServerSource -ne 'NETWORK_RULE' -or [string]$Client.Communication.ServerActiveSource -ne 'NETWORK_RULE') { throw 'Cliente com Networks deve usar ServerSource e ServerActiveSource NETWORK_RULE.' }
     }
     foreach ($Rule in $Rules) {
         $Info=Get-DDMCidrInfo ([string]$Rule.Cidr)
@@ -97,7 +114,7 @@ function Assert-DDMClient([hashtable]$Client,$Product) {
         if ([string]::IsNullOrWhiteSpace([string]$Rule.Site)) { throw "Site vazio: $($Rule.Cidr)" }
         Assert-DDMHostOrIp ([string]$Rule.Proxy) ("Proxy da rede " + [string]$Rule.Cidr)
         if ($Rule.ProxyActive) { Assert-DDMHostOrIp ([string]$Rule.ProxyActive) ("ProxyActive da rede " + [string]$Rule.Cidr) }
-        if ($null -eq $Rule.Priority) { throw "Priority ausente: $($Rule.Cidr)" }
+        if ($null -eq $Rule.Priority -or [int]$Rule.Priority -lt 0 -or [int]$Rule.Priority -gt 10000) { throw "Priority invalida: $($Rule.Cidr)" }
     }
     $Duplicates=@($Rules | Group-Object Cidr | Where-Object Count -gt 1)
     if ($Duplicates.Count -gt 0) { throw "CIDRs duplicados: $(@($Duplicates.Name) -join ', ')" }
@@ -141,17 +158,14 @@ function Assert-DDMCentralAcl([string]$Path) {
 function Assert-DDMShareAcl([string]$Path) {
     if ($Path -notmatch '^\\\\(?<server>[^\\]+)\\(?<share>[^\\]+)') { return }
     $Server=$Matches['server']; $Share=$Matches['share']
-    if (-not (Get-Command Get-SmbShareAccess -ErrorAction SilentlyContinue)) {
-        Write-CentralLog 'Get-SmbShareAccess indisponivel; permissao SMB deve ser validada pelo procedimento operacional.' 'WARN'
-        return
-    }
+    if (-not (Get-Command Get-SmbShareAccess -ErrorAction SilentlyContinue)) { Write-CentralLog 'Get-SmbShareAccess indisponivel; permissao SMB deve ser validada pelo procedimento operacional.' 'WARN'; return }
     try {
         $Rules=if ($Server -in @('.', 'localhost', $env:COMPUTERNAME)) { @(Get-SmbShareAccess -Name $Share -ErrorAction Stop) } else { @(Get-SmbShareAccess -Name $Share -CimSession $Server -ErrorAction Stop) }
         foreach ($Rule in $Rules) {
             if ([string]$Rule.AccessControlType -ne 'Allow') { continue }
-            $Account=([string]$Rule.AccountName).ToUpperInvariant()
-            $Broad=($Account -match '(^|\\)(EVERYONE|AUTHENTICATED USERS|USERS|DOMAIN USERS|DOMAIN COMPUTERS)$')
-            if ($Broad -and [string]$Rule.AccessRight -ne 'Read') { throw "Permissao SMB insegura: $($Rule.AccountName) possui $($Rule.AccessRight) no share $Share." }
+            try { $Sid=$Rule.AccountName.Translate([System.Security.Principal.SecurityIdentifier]).Value } catch { continue }
+            $Broad=($Sid -in @('S-1-1-0','S-1-5-11','S-1-5-32-545') -or $Sid -match '-513$' -or $Sid -match '-515$')
+            if ($Broad -and [string]$Rule.AccessRight -ne 'Read') { throw "Permissao SMB insegura: $Sid possui $($Rule.AccessRight) no share $Share." }
         }
     } catch {
         if ($_.Exception.Message -like 'Permissao SMB insegura:*') { throw }
@@ -167,5 +181,6 @@ function Test-DDMAuthenticodeStrong([string]$Path,[string]$ExpectedSigner) {
     $Chain=New-Object System.Security.Cryptography.X509Certificates.X509Chain
     $Chain.ChainPolicy.RevocationMode=[System.Security.Cryptography.X509Certificates.X509RevocationMode]::Online
     $Chain.ChainPolicy.RevocationFlag=[System.Security.Cryptography.X509Certificates.X509RevocationFlag]::ExcludeRoot
+    $Chain.ChainPolicy.UrlRetrievalTimeout=New-TimeSpan -Seconds 30
     if (-not $Chain.Build($Sig.SignerCertificate)) { throw "Cadeia do assinante nao validou: $Subject" }
 }
