@@ -1,48 +1,42 @@
 # Contrato CLIENTE.ps1 — Schema 3
 
-O arquivo deve conter somente comentários e uma atribuição literal:
+O arquivo deve conter somente comentarios e uma atribuicao literal para `$DDMClient`. Comandos, funcoes, credenciais, tokens, PSK, chaves privadas e referencias a codigo externo sao recusados.
 
-```powershell
-$DDMClient = @{
-    SchemaVersion = 3
-    # dados do ambiente
-}
-```
+## Estados
 
-Não são aceitos comandos, funções, credenciais, tokens, PSK, chaves privadas ou referências a código externo.
+- `DRAFT` ou outro estado bloqueado: nao publica sem opcao administrativa explicita.
+- `PILOT_READY`: liberado somente para piloto.
+- `PILOT_READY_AFTER_ACL`: liberado depois da ACL central aprovada.
+- `PRODUCTION_READY`: exige `ProductionReady=$true` e `Blockers=@()`.
 
-## Seções obrigatórias
+`ProductionReady=$true` com estado de piloto, ou `Status='PRODUCTION_READY'` com `ProductionReady=$false`, e rejeitado.
 
-- identidade e versão da configuração;
-- status e bloqueios;
-- atualização e caminho central;
-- escopo de domínio;
-- comunicação;
-- hostname e metadata;
-- redes e prioridades;
-- implantação e autorregistro.
+## Modos de atualizacao
 
-## Estados publicáveis
+### Central
 
-- `PILOT_READY`
-- `PILOT_READY_AFTER_ACL`
-- `PRODUCTION_READY`
+- `GITHUB_RELEASE_LATEST_STABLE_7_0`
+- `MANUAL_LATEST_STABLE_7_0_PACKAGE`
 
-Outros estados são recusados pelo atualizador central, salvo uso explícito de uma opção administrativa de diagnóstico.
+### Endpoint
+
+- `LOCAL_BOOTSTRAP_SCHEDULED_TASK`: instala a tarefa local como `SYSTEM`.
+- `MANUAL_LOCAL_BOOTSTRAP`: instala somente o bootstrap e remove/nao cria a tarefa agendada.
 
 ## Redes
 
-A seleção segue esta ordem:
+A selecao segue: excecao de cluster, IPs ignorados, interface com gateway, prioridade, prefixo mais especifico e desempate integral. Um empate considera `Site`, `GroupSite`, `Proxy`, `ProxyActive`, `Class` e `Area`; destinos diferentes bloqueiam a execucao.
 
-1. exceção explícita de host/cluster;
-2. exclusão de IPs virtuais conhecidos;
-3. interface com gateway padrão;
-4. maior prioridade;
-5. prefixo mais específico;
-6. empate entre destinos diferentes bloqueia a execução.
+CIDRs devem ser canonicos. Proxy e ProxyActive devem conter um unico host ou IP.
 
-CIDRs devem ser canônicos, válidos e possuir prioridade. Sobreposição sem desempate é proibida.
+## Autorregistro
+
+O motor gera hostname e metadata, mas nao chama a API do Zabbix nem cria grupos ou vincula templates. Essas acoes pertencem a `ZABBIX_SERVER_CONFIGURATION`. Templates de aplicacao continuam vinculados manualmente.
+
+## Implantacao
+
+`Deployment.Ring` aceita `LAB`, `CANARY`, `PILOT` ou `PRODUCTION`. `AllowSystemRun` deve corresponder a politica global aprovada do produto.
 
 ## Versionamento
 
-Toda alteração real deve incrementar `ConfigVersion`. A release também usa o SHA-256 do arquivo fonte, portanto uma mudança é detectada mesmo quando a versão textual não for alterada.
+Toda alteracao real deve incrementar `ConfigVersion`. O SHA-256 do arquivo fonte tambem participa da release. `MinimumEngineVersion` impede uso de um cliente que exige motor mais novo.
