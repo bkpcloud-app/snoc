@@ -1,27 +1,31 @@
 # GPO e bootstrap local
 
-## Papel da GPO
+## Modo automatico
 
-A GPO distribui ou chama `INSTALAR-BOOTSTRAP.cmd`. Depois disso, a tarefa local `DDM SNOC Windows - Compliance` mantém o produto.
+Quando `EndpointMode='LOCAL_BOOTSTRAP_SCHEDULED_TASK'`, a GPO distribui ou chama `INSTALAR-BOOTSTRAP.cmd`. A tarefa `DDM SNOC Windows - Compliance` e criada como `SYSTEM` com:
 
-## Tarefa local
-
-- conta `SYSTEM`;
-- disparo no boot com atraso de um minuto;
-- disparo diário às 03:00 com atraso aleatório de até 15 minutos;
+- boot trigger com atraso de cinco minutos;
+- execucao diaria as 03:00 com atraso aleatorio de ate 15 minutos;
 - `MultipleInstancesPolicy=IgnoreNew`;
 - `StartWhenAvailable=true`;
-- três retries com intervalo de 15 minutos;
-- limite de execução de duas horas;
-- sem reboot automático.
+- tres retries de 15 minutos;
+- limite de quatro horas;
+- `AllowHardTerminate=false`;
+- nenhum reboot automatico.
 
-## Operação offline
+A tarefa anterior e exportada antes de ser substituida, e a configuracao criada e relida para validacao.
 
-Se a central estiver indisponível ou uma nova release for rejeitada, o bootstrap usa o último `desired-state.clixml` e runtime local validados. Ele nunca substitui o estado saudável por conteúdo incompleto.
+## Modo manual
 
-## Resultado
+Quando `EndpointMode='MANUAL_LOCAL_BOOTSTRAP'`, o bootstrap e instalado sem tarefa agendada. Uma tarefa anterior com o mesmo nome e removida. O pacote offline manual nao inclui `GPO-DIARIA.cmd`.
 
-- `0`: saudável ou aplicado com sucesso;
-- `10`: diagnóstico encontrou divergência;
-- `3010`: aplicação concluída e reboot requerido; a tarefa registra a pendência e retorna sucesso operacional;
-- `1`: erro ou rollback necessário.
+## Operacao offline
+
+Se a central estiver indisponivel ou uma release for rejeitada, o bootstrap usa o ultimo estado local validado somente enquanto o cache estiver dentro da idade maxima configurada. Manifesto, arquivos extras, reparse points, runtime e ClientId sao revalidados antes da execucao.
+
+## Codigos
+
+- `0`: saudavel ou aplicado com sucesso;
+- `10`: diagnostico encontrou divergencia;
+- `3010`: motor concluiu e requer reboot; o bootstrap grava `reboot.required` e retorna sucesso operacional para a tarefa;
+- `1`: erro ou rollback necessario.
