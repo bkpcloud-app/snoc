@@ -2,21 +2,23 @@
 # Copie para CLIENTE.ps1 na pasta central. O motor nunca cria nem substitui esse arquivo.
 $DDMClient = @{
     SchemaVersion        = 3
-    ConfigVersion        = '3.0.0'
+    ConfigVersion        = '3.0.1'
     ClientId             = 'CLIENTE'
     DisplayName          = 'Cliente de exemplo'
     Status               = 'DRAFT'
     ProductionReady      = $false
-    MinimumEngineVersion = '2.0.2'
+    MinimumEngineVersion = '2.0.3'
     ProductTag           = 'DDMSNOCWIN'
-    Blockers              = @('Preencher e aprovar os dados reais do ambiente.')
+    Blockers             = @('Preencher e aprovar os dados reais do ambiente.')
 
     Update = @{
         CentralUpdateMode = 'GITHUB_RELEASE_LATEST_STABLE_7_0'
         CentralPath       = '\\dominio.exemplo\NETLOGON\SCRIPTS\ZBX'
+        # LOCAL_BOOTSTRAP_SCHEDULED_TASK ou MANUAL_LOCAL_BOOTSTRAP
         EndpointMode      = 'LOCAL_BOOTSTRAP_SCHEDULED_TASK'
         EndpointInternet  = $false
         KeepMotorVersions = 4
+        MaxOfflineCacheDays = 14
     }
 
     Scope = @{
@@ -42,7 +44,7 @@ $DDMClient = @{
     }
 
     Networks = @(
-        @{ Cidr='192.0.2.0/24'; Site='DC'; GroupSite='CLIENTE-DC'; Proxy='192.0.2.10'; Class='SERVER'; Area=''; Priority=100 }
+        @{ Cidr='192.0.2.0/24'; Site='DC'; GroupSite='CLIENTE-DC'; Proxy='192.0.2.10'; ProxyActive='192.0.2.10'; Class='SERVER'; Area=''; Priority=100 }
     )
 
     Exceptions = @{
@@ -52,17 +54,21 @@ $DDMClient = @{
     }
 
     Deployment = @{
-        InstallAllCompatibleModules = $true
-        ModuleDetectionPurpose      = 'METADATA_AND_DIAGNOSTICS_ONLY'
+        Ring                              = 'PILOT'
+        InstallAllCompatibleModules       = $true
+        ModuleDetectionPurpose            = 'METADATA_AND_DIAGNOSTICS_ONLY'
         ApplicationTemplatesLinkedAutomatically = $false
+        AllowSystemRun                    = $true
     }
 
     AutoRegistration = @{
-        Enabled = $true
-        CreateHost = $true
-        AddHostGroups = $true
+        Enabled                              = $true
+        CreateHost                           = $true
+        AddHostGroups                        = $true
         LinkApplicationTemplatesAutomatically = $false
-        ReuseOrRenameLegacyHosts = $false
+        ReuseOrRenameLegacyHosts             = $false
+        ActionOwner                          = 'ZABBIX_SERVER_CONFIGURATION'
+        EngineExecutesServerActions          = $false
     }
 
     Legacy = @{ ManagedFiles=@() }
