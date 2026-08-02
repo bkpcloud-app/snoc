@@ -25,7 +25,13 @@ function FirstLine([string]$Path){if(-not(Test-Path -LiteralPath $Path)){return 
 function AtomicText([string]$Path,[string]$Value){$Temp=$Path+'.new-'+[guid]::NewGuid().ToString('N');try{[System.IO.File]::WriteAllText($Temp,$Value,[System.Text.Encoding]::ASCII);Move-Item -LiteralPath $Temp -Destination $Path -Force}finally{Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue}}
 function AtomicClixml($Object,[string]$Path){$Temp=$Path+'.new-'+[guid]::NewGuid().ToString('N');try{$Object|Export-Clixml -LiteralPath $Temp -Depth 6;Move-Item -LiteralPath $Temp -Destination $Path -Force}finally{Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue}}
 function Enter-Lease{
-    try{$Stream=New-Object System.IO.FileStream($LeasePath,[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::Write,[System.IO.FileShare]::Read);try{$Text="rollback;$env:COMPUTERNAME;$PID;$((Get-Date).ToUniversalTime().ToString('o'))";$Bytes=[System.Text.Encoding]::UTF8.GetBytes($Text);$Stream.Write($Bytes,0,$Bytes.Length)}finally{$Stream.Dispose()};$script:LeaseOwned=$true}catch[System.IO.IOException]{throw "Atualizacao ou rollback central ja esta em execucao: $LeasePath"}
+    try{
+        $Stream=New-Object System.IO.FileStream($LeasePath,[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::Write,[System.IO.FileShare]::Read)
+        try{$Text="rollback;$env:COMPUTERNAME;$PID;$((Get-Date).ToUniversalTime().ToString('o'))";$Bytes=[System.Text.Encoding]::UTF8.GetBytes($Text);$Stream.Write($Bytes,0,$Bytes.Length)}finally{$Stream.Dispose()}
+        $script:LeaseOwned=$true
+    } catch [System.IO.IOException] {
+        throw "Atualizacao ou rollback central ja esta em execucao: $LeasePath"
+    }
 }
 function Exit-Lease{if($script:LeaseOwned){Remove-Item -LiteralPath $LeasePath -Force -ErrorAction SilentlyContinue;$script:LeaseOwned=$false}}
 function SafeCentralPath([string]$Relative){if([string]::IsNullOrWhiteSpace($Relative) -or [System.IO.Path]::IsPathRooted($Relative) -or $Relative -match '(^|[\\/])\.\.([\\/]|$)'){throw 'Caminho relativo invalido na release.'};$Base=$CentralRoot+'\';$Full=[System.IO.Path]::GetFullPath((Join-Path $CentralRoot $Relative));if(-not$Full.ToLowerInvariant().StartsWith($Base.ToLowerInvariant())){throw "Caminho da release escapa da raiz central: $Relative"};return$Full}
