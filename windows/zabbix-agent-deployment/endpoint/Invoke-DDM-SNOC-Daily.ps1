@@ -38,16 +38,16 @@ function Get-ServiceInfo([string]$Name) {
     try { return Get-WmiObject Win32_Service -Filter ("Name='" + $Name.Replace("'","''") + "'") -ErrorAction Stop } catch { return $null }
 }
 
-function Test-DDMTcp([string]$Host,[int]$Port,[int]$TimeoutMs=3000) {
-    if (Test-DDMBlank $Host) { return $false }
-    $Client=New-Object System.Net.Sockets.TcpClient
+function Test-DDMTcp([string]$RemoteHost,[int]$Port,[int]$TimeoutMs=3000) {
+    if (Test-DDMBlank $RemoteHost) { return $false }
+    $TcpClient=New-Object System.Net.Sockets.TcpClient
     try {
-        $Async=$Client.BeginConnect($Host,$Port,$null,$null)
+        $Async=$TcpClient.BeginConnect($RemoteHost,$Port,$null,$null)
         if (-not $Async.AsyncWaitHandle.WaitOne($TimeoutMs,$false)) { return $false }
-        $Client.EndConnect($Async)
+        $TcpClient.EndConnect($Async)
         return $true
     } catch { return $false }
-    finally { $Client.Close() }
+    finally { $TcpClient.Close() }
 }
 
 function Test-PendingReboot {
@@ -137,17 +137,38 @@ function Test-DDMCompliance($Target,$Identity,$Client) {
     return New-Object PSObject -Property @{ Compliant=($Reasons.Count -eq 0); Reasons=@($Reasons | Sort-Object -Unique); ActualVersion=$ActualVersion; Binary=$Binary; Config=$Config }
 }
 
+function ConvertTo-DDMJsonString([string]$Value) {
+    if ($null -eq $Value) { return '' }
+    return $Value.Replace('\','\\').Replace('"','\"').Replace("`r",'\r').Replace("`n",'\n').Replace("`t",'\t')
+}
+
 function Write-ProductStatus($Client,$Identity,$Target,$Compliance,[string]$State,[string]$Message) {
     try {
-        $Payload=New-Object PSObject -Property @{Product=$DDMProduct.ProductCode;State=$State;Message=$Message;ReleaseId=[string]$Desired.ReleaseId;ProductVersion=[string]$Desired.ProductVersion;AgentVersion=[string]$Desired.AgentVersion;ClientId=[string]$Client.ClientId;Hostname=[string]$Identity.Hostname;Proxy=[string]$Identity.Proxy;Family=[string]$Target.Family;Compliant=[bool]$Compliance.Compliant;Reasons=@($Compliance.Reasons);UpdatedAtUtc=(Get-Date).ToUniversalTime().ToString('o')}
-        Write-DDMAtomicText (Join-Path $StateRoot $DDMProduct.ProductStatusFile) (($Payload | ConvertTo-Json -Depth 6)+"`r`n") 'UTF8'
-    } catch {}
+        $ReasonParts=@()
+        foreach ($Reason in @($Compliance.Reasons)) { $ReasonParts += ('"' + (ConvertTo-DDMJsonString ([string]$Reason)) + '"') }
+        $CompliantText=if([bool]$Compliance.Compliant){'true'}else{'false'}
+        $Json='{' +
+            '"product":"' + (ConvertTo-DDMJsonString ([string]$DDMProduct.ProductCode)) + '",' +
+            '"state":"' + (ConvertTo-DDMJsonString $State) + '",' +
+            '"message":"' + (ConvertTo-DDMJsonString $Message) + '",' +
+            '"release_id":"' + (ConvertTo-DDMJsonString ([string]$Desired.ReleaseId)) + '",' +
+            '"product_version":"' + (ConvertTo-DDMJsonString ([string]$Desired.ProductVersion)) + '",' +
+            '"agent_version":"' + (ConvertTo-DDMJsonString ([string]$Desired.AgentVersion)) + '",' +
+            '"client_id":"' + (ConvertTo-DDMJsonString ([string]$Client.ClientId)) + '",' +
+            '"hostname":"' + (ConvertTo-DDMJsonString ([string]$Identity.Hostname)) + '",' +
+            '"proxy":"' + (ConvertTo-DDMJsonString ([string]$Identity.Proxy)) + '",' +
+            '"family":"' + (ConvertTo-DDMJsonString ([string]$Target.Family)) + '",' +
+            '"compliant":' + $CompliantText + ',' +
+            '"reasons":[' + ($ReasonParts -join ',') + '],' +
+            '"updated_at_utc":"' + (Get-Date).ToUniversalTime().ToString('o') + '"}'
+        Write-DDMAtomicText (Join-Path $StateRoot $DDMProduct.ProductStatusFile) ($Json+"`r`n") 'UTF8'
+    } catch { Log ("Falha ao gravar product-status: " + $_.Exception.Message) 'WARN' }
 }
 
 function Remove-OldDailyLogs {
     $Days=if($DDMProduct.KeepLogDays){[int]$DDMProduct.KeepLogDays}else{30}
     $Cutoff=(Get-Date).AddDays(-$Days)
-    foreach ($File in @(Get-ChildItem -LiteralPath $LogRoot -File -ErrorAction SilentlyContinue | Where-Object {$_.LastWriteTime -lt $Cutoff})) { Remove-Item -LiteralPath $File.FullName -Force -ErrorAction SilentlyContinue }
+    foreach ($File in @(Get-ChildItem -LiteralPath $LogRoot -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer -and $_.LastWriteTime -lt $Cutoff })) { Remove-Item -LiteralPath $File.FullName -Force -ErrorAction SilentlyContinue }
 }
 
 try {
