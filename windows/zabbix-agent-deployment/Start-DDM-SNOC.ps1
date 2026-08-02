@@ -1,7 +1,7 @@
 #requires -Version 5.1
 [CmdletBinding()]
 param(
-    [ValidateSet('Diagnose','Apply','Repair','PrepareOffline','UpdateCentral','InstallBootstrap')][string]$Action='Diagnose',
+    [ValidateSet('Diagnose','Apply','Repair','PrepareOffline','UpdateCentral','InstallBootstrap','RemoveBootstrap')][string]$Action='Diagnose',
     [string]$CentralRoot,
     [string]$ClientConfigPath,
     [string]$OutputRoot='C:\temp\DDM-SNOC-PACKAGES',
@@ -30,6 +30,10 @@ switch ($Action) {
     }
     'InstallBootstrap' {
         & (Join-Path $ProductRoot 'bootstrap\Install-DDM-SNOC-Bootstrap.ps1') -CentralRoot $CentralRoot -RunNow
+        exit $LASTEXITCODE
+    }
+    'RemoveBootstrap' {
+        & (Join-Path $ProductRoot 'bootstrap\Install-DDM-SNOC-Bootstrap.ps1') -CentralRoot $CentralRoot -Remove
         exit $LASTEXITCODE
     }
     default {
