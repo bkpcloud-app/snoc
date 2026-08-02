@@ -1,0 +1,45 @@
+name: Debug DDM SNOC Windows
+
+on:
+  pull_request:
+    paths:
+      - 'windows/zabbix-agent-deployment/**'
+      - '.github/workflows/ddm-snoc-windows-debug.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run validation and capture full exception
+        id: validate
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $Log=Join-Path $env:RUNNER_TEMP 'DDM-SNOC-WINDOWS-DEBUG.txt'
+          $ErrorActionPreference='Continue'
+          try {
+            & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product *>&1 | Tee-Object -FilePath $Log
+            $Code=$LASTEXITCODE
+            Add-Content -LiteralPath $Log -Value ("LASTEXITCODE="+$Code)
+          } catch {
+            ($_ | Format-List * -Force | Out-String) | Tee-Object -FilePath $Log -Append
+            if($_.ScriptStackTrace){Add-Content -LiteralPath $Log -Value ("STACK="+$_.ScriptStackTrace)}
+          }
+          if(-not(Test-Path $Log)){Set-Content -LiteralPath $Log -Value 'No diagnostic output was generated.'}
+
+      - name: Upload diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ddm-snoc-windows-debug
+          path: ${{ runner.temp }}\DDM-SNOC-WINDOWS-DEBUG.txt
+          if-no-files-found: error
+          retention-days: 1
