@@ -1,0 +1,52 @@
+name: Expose DDM SNOC Audit Failure
+
+on:
+  pull_request:
+    paths:
+      - 'windows/zabbix-agent-deployment/**'
+      - '.github/workflows/ddm-snoc-debug-message.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ddm-snoc-debug-message-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnostic:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Capture exact failure
+        id: audit
+        shell: powershell
+        run: |
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $Message='SUCCESS'
+          try {
+            & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
+          } catch {
+            $Message=$_.Exception.Message -replace '[\r\n]+',' ' -replace '[^A-Za-z0-9 ._:/\\=-]','?'
+            if($Message.Length -gt 180){$Message=$Message.Substring(0,180)}
+          }
+          "message=$Message" >> $env:GITHUB_OUTPUT
+          Set-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE '.github\ddm-snoc-debug-message.txt') -Value $Message -Encoding UTF8
+
+      - name: Commit exact failure message
+        shell: powershell
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/ddm-snoc-debug-message.txt
+          if((git status --porcelain).Length -gt 0){
+            git commit -m "ci(snoc-windows): DEBUG ${{ steps.audit.outputs.message }}"
+            git push origin HEAD:${{ github.head_ref }}
+          }
