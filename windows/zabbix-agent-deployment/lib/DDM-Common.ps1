@@ -157,7 +157,10 @@ function Expand-DDMTokens {
 function Resolve-DDMClientIdentity {
     param($Client,$Product,$SystemInfo)
     if([int]$Client.SchemaVersion -ne [int]$Product.ClientSchemaVersion){throw "Schema incompatível. Cliente=$($Client.SchemaVersion), motor=$($Product.ClientSchemaVersion)"}
-    if(-not$SystemInfo.PartOfDomain){throw 'A maquina nao pertence a dominio.'};$Accepted=@($Client.Scope.AcceptedDomains|ForEach-Object{([string]$_).ToLowerInvariant()});if($Accepted -notcontains $SystemInfo.Domain.ToLowerInvariant()){throw "Dominio nao permitido: $($SystemInfo.Domain)"}
+    if(-not$SystemInfo.PartOfDomain){throw 'A maquina nao pertence a dominio.'}
+    $ActualDomain=([string]$SystemInfo.Domain).Trim().TrimEnd('.').ToLowerInvariant()
+    $Accepted=@($Client.Scope.AcceptedDomains|ForEach-Object{([string]$_).Trim().TrimEnd('.').ToLowerInvariant()}|Where-Object{$_})
+    if($Accepted -notcontains $ActualDomain){throw "Dominio nao permitido: $($SystemInfo.Domain)"}
     if($SystemInfo.IsServer -and -not[bool]$Client.Scope.ServersAllowed){throw 'Servidores nao permitidos pelo cliente.'};if((-not$SystemInfo.IsServer) -and -not[bool]$Client.Scope.WorkstationsAllowed){throw 'Workstations nao permitidas pelo cliente.'}
     if(-not(Test-DDMBlank $Client.Scope.DomainSid)){try{$Root=[ADSI]'LDAP://RootDSE';$DomainEntry=[ADSI]('LDAP://'+[string]$Root.defaultNamingContext);$SidBytes=$DomainEntry.Properties['objectSid'].Value;$DomainSid=(New-Object System.Security.Principal.SecurityIdentifier($SidBytes,0)).Value;if($DomainSid -ne [string]$Client.Scope.DomainSid){throw "SID de dominio divergente: $DomainSid"}}catch{throw "Nao foi possivel validar DomainSid: $($_.Exception.Message)"}}
     $Cluster='';$ExplicitSite='';$Node=$env:COMPUTERNAME.ToUpperInvariant()
@@ -169,7 +172,8 @@ function Resolve-DDMClientIdentity {
     $Modules=Get-DDMDetectedModules $Product;if($Modules -contains 'ADDS'){$Role='ADDS'}elseif($Modules -contains 'HYPERV'){$Role='HYPERV'}elseif($Modules -contains 'VEEAM'){$Role='VEEAM'}elseif($Modules -contains 'MSSQL'){$Role='MSSQL'}else{$Role=$Class}
     $Base=$env:COMPUTERNAME.ToUpperInvariant();$BaseWithout=$Base;if($BaseWithout.StartsWith('SRV-')){$BaseWithout=$BaseWithout.Substring(4)};$Pattern=[string]$Client.Identity.HostnamePattern
     if($Client.Identity.NormalHostnamePattern){if($Class -eq 'IND' -and $Client.Identity.IndustrialHostnamePattern){$Pattern=[string]$Client.Identity.IndustrialHostnamePattern}else{$Pattern=[string]$Client.Identity.NormalHostnamePattern}}
-    $Tokens=@{SITE=$Site;GROUP_SITE=$GroupSite;ORIGNAME=$env:COMPUTERNAME.ToUpperInvariant();BASE=$BaseWithout;BASE_WITHOUT_SRV_PREFIX=$BaseWithout;OS=$SystemInfo.OsTag;CLASS=$Class;AREA=$Area;ROLE=$Role;GROUP_ROLE=$Role;CLUSTER=$Cluster;PRODUCT_VERSION=$Product.ProductVersion;MODULES=($Modules -join ',')}
+    $ProductTag=if($Client.ProductTag){[string]$Client.ProductTag}else{[string]$Product.ProductCode}
+    $Tokens=@{SITE=$Site;GROUP_SITE=$GroupSite;ORIGNAME=$env:COMPUTERNAME.ToUpperInvariant();BASE=$BaseWithout;BASE_WITHOUT_SRV_PREFIX=$BaseWithout;OS=$SystemInfo.OsTag;CLASS=$Class;AREA=$Area;ROLE=$Role;GROUP_ROLE=$Role;CLUSTER=$Cluster;PRODUCT_TAG=$ProductTag;PRODUCT_VERSION=$Product.ProductVersion;MODULES=($Modules -join ',')}
     $Hostname=(Expand-DDMTokens $Pattern $Tokens).ToUpperInvariant();if($Hostname.Length -gt 128 -or $Hostname -notmatch '^[A-Z0-9._-]+$'){throw "Hostname invalido: $Hostname"};$Metadata=Expand-DDMTokens ([string]$Client.Identity.MetadataTemplate) $Tokens;if($Metadata -match "`r|`n"){throw 'HostMetadata nao pode conter quebra de linha.'};$Bytes=[System.Text.Encoding]::UTF8.GetByteCount($Metadata);$Limit=if($Client.Identity.HostMetadataMaxBytes){[int]$Client.Identity.HostMetadataMaxBytes}else{2034};if($Bytes -gt $Limit){throw "HostMetadata excede $Limit bytes: $Bytes"}
     return New-Object PSObject -Property @{Hostname=$Hostname;Metadata=$Metadata;Proxy=$Proxy;ProxyActive=$ProxyActive;Site=$Site;GroupSite=$GroupSite;Class=$Class;Area=$Area;Role=$Role;Cluster=$Cluster;Modules=$Modules}
 }
