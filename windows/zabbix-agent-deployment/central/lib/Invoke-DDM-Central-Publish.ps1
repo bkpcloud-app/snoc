@@ -16,7 +16,7 @@ function Enter-DDMCentralLease {
             $script:CentralLeaseOwned=$true
             Write-CentralLog ("Lease central adquirido: "+$script:CentralLeasePath) 'OK'
             return
-        }catch[System.IO.IOException]{
+        } catch [System.IO.IOException] {
             if(-not(Test-Path -LiteralPath $script:CentralLeasePath)){continue}
             $Expired=$false
             try{
