@@ -29,7 +29,7 @@ function Copy-Atomic([string]$Source,[string]$Destination) {
 }
 function Get-EndpointMode([string]$Root) {
     $Current=Read-DDMFirstLine (Join-Path $Root $DDMProduct.CurrentVersionFile)
-    if ([string]::IsNullOrWhiteSpace($Current)) { throw 'CURRENT.txt ausente ou vazio; publique a central antes de instalar o bootstrap.' }
+    if (Test-DDMBlank $Current) { throw 'CURRENT.txt ausente ou vazio; publique a central antes de instalar o bootstrap.' }
     $ReleaseRoot=Join-Path (Join-Path $Root $DDMProduct.CentralReleaseFolder) $Current
     $Runtime=Join-Path $ReleaseRoot $DDMProduct.ClientRuntimeFile
     $HashPath=Join-Path $ReleaseRoot $DDMProduct.ClientRuntimeHashFile
@@ -37,7 +37,7 @@ function Get-EndpointMode([string]$Root) {
     $Expected=Read-DDMFirstLine $HashPath
     if ($Expected -notmatch '^[0-9A-Fa-f]{64}$' -or (Get-DDMSha256 $Runtime) -ne $Expected.ToUpperInvariant()) { throw 'Runtime do cliente invalido na release ativa.' }
     $Client=Import-DDMClixmlSafe $Runtime
-    if ([string]$Client.ClientId -eq '') { throw 'ClientId vazio no runtime.' }
+    if (Test-DDMBlank $Client.ClientId) { throw 'ClientId vazio no runtime.' }
     return [string]$Client.Update.EndpointMode
 }
 function Backup-Task([string]$TaskName) {
@@ -48,6 +48,8 @@ function Backup-Task([string]$TaskName) {
         $Path=Join-Path $TaskBackup ('TASK-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.xml')
         [System.IO.File]::WriteAllText($Path,([string]::Join("`r`n",@($Existing))),[System.Text.Encoding]::Unicode)
     }
+    $Backups=@(Get-ChildItem -LiteralPath $TaskBackup -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer } | Sort-Object LastWriteTime -Descending)
+    foreach($Old in @($Backups | Select-Object -Skip 5)) { Remove-Item -LiteralPath $Old.FullName -Force -ErrorAction SilentlyContinue }
 }
 if (-not (Test-Admin)) { throw 'Execute como Administrador ou SYSTEM.' }
 $CentralRoot=[System.IO.Path]::GetFullPath($CentralRoot).TrimEnd('\')
