@@ -1,10 +1,11 @@
 # DDM SNOC Windows - configuracao oficial do cliente BRASANITAS.
 # Catalogo central do produto. O motor baixa este arquivo diretamente do GitHub.
 # Arquivo somente de dados literais para o Schema 3; nao incluir credenciais ou segredos.
+# Redes confirmadas no inventario AD/Zabbix: 10.210.5.0/24 e 10.220.110.0/24.
 
 $DDMClient = @{
     SchemaVersion        = 3
-    ConfigVersion        = '3.1.0'
+    ConfigVersion        = '3.1.1'
     ClientId             = 'BRASANITAS'
     DisplayName          = 'Brasanitas'
     Status               = 'PILOT_READY_AFTER_ACL'
@@ -30,17 +31,15 @@ $DDMClient = @{
         DomainSid           = ''
         ServersAllowed      = $true
         WorkstationsAllowed = $false
-        RequireNetworkMatch = $false
+        RequireNetworkMatch = $true
         BlockOnMismatch     = $true
     }
 
     Communication = @{
         ListenPort         = 10050
         TLSMode            = 'UNENCRYPTED_INTERNAL'
-        ServerSource       = 'FIXED'
-        ServerActiveSource = 'FIXED'
-        Proxy              = '10.210.5.116'
-        ProxyActive        = '10.210.5.116'
+        ServerSource       = 'NETWORK_RULE'
+        ServerActiveSource = 'NETWORK_RULE'
     }
 
     Identity = @{
@@ -49,7 +48,10 @@ $DDMClient = @{
         HostMetadataMaxBytes = 2034
     }
 
-    Networks = @()
+    Networks = @(
+        @{ Cidr='10.210.5.0/24'; Site='BRASANITAS'; GroupSite='BRASANITAS'; Proxy='10.210.5.116'; ProxyActive='10.210.5.116'; Class='SERVER'; Area=''; Priority=100 },
+        @{ Cidr='10.220.110.0/24'; Site='BRASANITAS'; GroupSite='BRASANITAS'; Proxy='10.210.5.116'; ProxyActive='10.210.5.116'; Class='SERVER'; Area=''; Priority=100 }
+    )
 
     Exceptions = @{
         ExplicitHyperVNodes = @{}
