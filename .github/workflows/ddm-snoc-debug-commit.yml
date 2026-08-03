@@ -1,77 +1,34 @@
-name: Finalize DDM SNOC Client Catalog
+name: Clean DDM SNOC Temporary Diagnostics
 
 on:
   pull_request:
     paths:
-      - 'windows/zabbix-agent-deployment/**'
       - '.github/workflows/ddm-snoc-debug-commit.yml'
+      - '.github/workflows/ddm-snoc-debug-message.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
-concurrency:
-  group: ddm-snoc-finalize-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  finalize:
+  cleanup:
     runs-on: windows-latest
-    timeout-minutes: 20
     steps:
       - name: Checkout branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
-
-      - name: Finalize product code and client catalog validation
+      - name: Remove temporary diagnostic workflow
         shell: powershell
         run: |
-          $ErrorActionPreference='Stop'
-          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          foreach($File in @(Get-ChildItem -LiteralPath $Product -Filter '*.ps1' -Recurse)){
-            $Raw=[IO.File]::ReadAllText($File.FullName)
-            if($Raw -notmatch '(?im)^#requires\s+-Version\s+2\.0'){continue}
-            $Fixed=[Text.RegularExpressions.Regex]::Replace($Raw,'\breturn(?=\$)','return ')
-            if($Fixed -ne $Raw){[IO.File]::WriteAllText($File.FullName,$Fixed,(New-Object Text.UTF8Encoding($false)))}
-          }
-          $Validator=Join-Path $Product 'tools\Test-DDM-Repository.ps1'
-          $ValidatorText=[IO.File]::ReadAllText($Validator)
-          $Start=$ValidatorText.IndexOf('$AllText = @(')
-          $End=$ValidatorText.IndexOf("Write-Host '12/12",$Start)
-          if($Start -lt 0 -or $End -lt 0){throw 'Bloco antigo de privacidade nao localizado no validador.'}
-          $Replacement=@(
-            '$CatalogPath = Join-Path $ProductRoot ''clients\catalog.json''',
-            'Assert-DDMTest (Test-Path -LiteralPath $CatalogPath) ''Catalogo oficial de clientes ausente.''',
-            '$CatalogText = [System.IO.File]::ReadAllText($CatalogPath)',
-            'foreach ($ClientId in @(''AGL'',''PLASCAR'',''BRITTA'',''BRASANITAS'')) {',
-            '    $ClientPath = Join-Path $ProductRoot (''clients\'' + $ClientId + ''\CLIENTE.ps1'')',
-            '    Assert-DDMTest (Test-Path -LiteralPath $ClientPath) "CLIENTE.ps1 oficial ausente: $ClientId"',
-            '    Assert-DDMTest ($CatalogText.Contains((''"id": "'' + $ClientId + ''"''))) "Cliente ausente do catalogo: $ClientId"',
-            '}',
-            '$BrasanitasClient = [System.IO.File]::ReadAllText((Join-Path $ProductRoot ''clients\BRASANITAS\CLIENTE.ps1''))',
-            'Assert-DDMTest ($BrasanitasClient.Contains(''10.210.5.0/24'')) ''Rede 10.210.5.0/24 ausente da Brasanitas.''',
-            'Assert-DDMTest ($BrasanitasClient.Contains(''10.220.110.0/24'')) ''Rede 10.220.110.0/24 ausente da Brasanitas.''',
-            'Assert-DDMTest ($BrasanitasClient.Contains(''\\10.210.5.7\snoc'')) ''Central da Brasanitas divergente.''',
-            'Assert-DDMTest ($BrasanitasClient.Contains(''adb01.local'')) ''Dominio da Brasanitas divergente.''',
-            '',
-            ''
-          ) -join [Environment]::NewLine
-          $ValidatorText=$ValidatorText.Substring(0,$Start)+$Replacement+$ValidatorText.Substring($End)
-          [IO.File]::WriteAllText($Validator,$ValidatorText,(New-Object Text.UTF8Encoding($false)))
-          Get-ChildItem (Join-Path $env:GITHUB_WORKSPACE '.github') -Filter 'ddm-snoc-debug*.txt' -ErrorAction SilentlyContinue | Remove-Item -Force
-          & $Validator -ProductRoot $Product
-
-      - name: Commit final product state
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
+          $Path=Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-debug-message.yml'
+          if(Test-Path -LiteralPath $Path){Remove-Item -LiteralPath $Path -Force}
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           if((git status --porcelain).Length -gt 0){
-            git commit -m 'fix(snoc-windows): finalize public client catalog and validation'
+            git commit -m 'chore(snoc-windows): remove temporary diagnostic workflow'
             git pull --rebase origin ${{ github.head_ref }}
             git push origin HEAD:${{ github.head_ref }}
           }
