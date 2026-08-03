@@ -25,15 +25,22 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Repair PowerShell 2 registry compatibility
+      - name: Repair PowerShell 2 compatibility
         shell: powershell
         run: |
-          $Path=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\engine\Install-DDM-Zabbix-Windows.ps1'
-          $Text=[IO.File]::ReadAllText($Path)
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $Engine=Join-Path $Product 'engine\Install-DDM-Zabbix-Windows.ps1'
+          $Text=[IO.File]::ReadAllText($Engine)
           $Old="if([int]`$Snap.DelayedAutoStart -eq 1){Set-ItemProperty -LiteralPath ('HKLM:\SYSTEM\CurrentControlSet\Services\'+`$Snap.Name) -Name DelayedAutoStart -Value 1 -Type DWord -Force}else{Remove-ItemProperty -LiteralPath ('HKLM:\SYSTEM\CurrentControlSet\Services\'+`$Snap.Name) -Name DelayedAutoStart -ErrorAction SilentlyContinue}"
           $New="if([int]`$Snap.DelayedAutoStart -eq 1){`$ServiceKey=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(('SYSTEM\CurrentControlSet\Services\'+`$Snap.Name),`$true);if(`$null -eq `$ServiceKey){throw ('Chave do servico nao encontrada: '+`$Snap.Name)};try{`$ServiceKey.SetValue('DelayedAutoStart',1,[Microsoft.Win32.RegistryValueKind]::DWord)}finally{`$ServiceKey.Close()}}else{Remove-ItemProperty -LiteralPath ('HKLM:\SYSTEM\CurrentControlSet\Services\'+`$Snap.Name) -Name DelayedAutoStart -ErrorAction SilentlyContinue}"
           if($Text.Contains($Old)){
-            [IO.File]::WriteAllText($Path,$Text.Replace($Old,$New),(New-Object Text.UTF8Encoding($false)))
+            [IO.File]::WriteAllText($Engine,$Text.Replace($Old,$New),(New-Object Text.UTF8Encoding($false)))
+          }
+          foreach($File in @(Get-ChildItem -LiteralPath $Product -Filter '*.ps1' -Recurse)){
+            $Raw=[IO.File]::ReadAllText($File.FullName)
+            if($Raw -notmatch '(?im)^#requires\s+-Version\s+2\.0'){continue}
+            $Fixed=[Text.RegularExpressions.Regex]::Replace($Raw,'\breturn(?=\$)','return ')
+            if($Fixed -ne $Raw){[IO.File]::WriteAllText($File.FullName,$Fixed,(New-Object Text.UTF8Encoding($false)))}
           }
 
       - name: Capture complete validation exception
@@ -59,8 +66,8 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1 .github/ddm-snoc-debug-report.txt
+          git add windows/zabbix-agent-deployment .github/ddm-snoc-debug-report.txt
           if((git status --porcelain).Length -gt 0){
-            git commit -m 'fix(snoc-windows): restore PowerShell 2 registry compatibility'
+            git commit -m 'fix(snoc-windows): normalize PowerShell 2 return statements'
             git push origin HEAD:${{ github.head_ref }}
           }
