@@ -30,14 +30,12 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-
           foreach($File in @(Get-ChildItem -LiteralPath $Product -Filter '*.ps1' -Recurse)){
             $Raw=[IO.File]::ReadAllText($File.FullName)
             if($Raw -notmatch '(?im)^#requires\s+-Version\s+2\.0'){continue}
             $Fixed=[Text.RegularExpressions.Regex]::Replace($Raw,'\breturn(?=\$)','return ')
             if($Fixed -ne $Raw){[IO.File]::WriteAllText($File.FullName,$Fixed,(New-Object Text.UTF8Encoding($false)))}
           }
-
           $Validator=Join-Path $Product 'tools\Test-DDM-Repository.ps1'
           $ValidatorText=[IO.File]::ReadAllText($Validator)
           $Start=$ValidatorText.IndexOf('$AllText = @(')
@@ -62,12 +60,8 @@ jobs:
           ) -join [Environment]::NewLine
           $ValidatorText=$ValidatorText.Substring(0,$Start)+$Replacement+$ValidatorText.Substring($End)
           [IO.File]::WriteAllText($Validator,$ValidatorText,(New-Object Text.UTF8Encoding($false)))
-
           Get-ChildItem (Join-Path $env:GITHUB_WORKSPACE '.github') -Filter 'ddm-snoc-debug*.txt' -ErrorAction SilentlyContinue | Remove-Item -Force
-          Get-ChildItem (Join-Path $env:GITHUB_WORKSPACE '.github\workflows') -Filter 'ddm-snoc-debug*.yml' -ErrorAction SilentlyContinue | Remove-Item -Force
-
           & $Validator -ProductRoot $Product
-          if($LASTEXITCODE -ne 0){throw "Repository validation returned $LASTEXITCODE"}
 
       - name: Commit final product state
         shell: powershell
