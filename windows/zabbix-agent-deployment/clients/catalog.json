@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "product": "DDM SNOC Windows",
-  "catalogVersion": "1.0.0",
+  "catalogVersion": "1.0.1",
   "repository": "bkpcloud-app/snoc",
   "branch": "main",
   "clients": [
@@ -32,9 +32,9 @@
     {
       "id": "BRASANITAS",
       "displayName": "Brasanitas",
-      "configVersion": "3.1.0",
+      "configVersion": "3.1.1",
       "path": "windows/zabbix-agent-deployment/clients/BRASANITAS/CLIENTE.ps1",
-      "sha256": "83C0FA0156E5DE89B0E2403E28B3B771DFBC25AD3353305ACA1D7EFD7B0D4B54",
+      "sha256": "4D9D66B269D2A265BAC9A668F9ABAFAA6A09021AABAB22F531087259229DF8E0",
       "enabled": true
     }
   ],
