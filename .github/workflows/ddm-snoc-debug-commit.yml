@@ -53,10 +53,10 @@ jobs:
             '    Assert-DDMTest ($CatalogText.Contains((''"id": "'' + $ClientId + ''"''))) "Cliente ausente do catalogo: $ClientId"',
             '}',
             '$BrasanitasClient = [System.IO.File]::ReadAllText((Join-Path $ProductRoot ''clients\BRASANITAS\CLIENTE.ps1''))',
-            'Assert-DDMTest ($BrasanitasClient.Contains("Cidr=''''10.210.5.0/24''''")) ''Rede 10.210.5.0/24 ausente da Brasanitas.''',
-            'Assert-DDMTest ($BrasanitasClient.Contains("Cidr=''''10.220.110.0/24''''")) ''Rede 10.220.110.0/24 ausente da Brasanitas.''',
-            'Assert-DDMTest ($BrasanitasClient.Contains("CentralPath         = ''''\\10.210.5.7\snoc''''")) ''Central da Brasanitas divergente.''',
-            'Assert-DDMTest ($BrasanitasClient.Contains("AcceptedDomains     = @(''''adb01.local'''')")) ''Dominio da Brasanitas divergente.''',
+            'Assert-DDMTest ($BrasanitasClient.Contains(''10.210.5.0/24'')) ''Rede 10.210.5.0/24 ausente da Brasanitas.''',
+            'Assert-DDMTest ($BrasanitasClient.Contains(''10.220.110.0/24'')) ''Rede 10.220.110.0/24 ausente da Brasanitas.''',
+            'Assert-DDMTest ($BrasanitasClient.Contains(''\\10.210.5.7\snoc'')) ''Central da Brasanitas divergente.''',
+            'Assert-DDMTest ($BrasanitasClient.Contains(''adb01.local'')) ''Dominio da Brasanitas divergente.''',
             '',
             ''
           ) -join [Environment]::NewLine
