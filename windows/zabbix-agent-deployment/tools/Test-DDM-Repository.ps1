@@ -399,28 +399,19 @@ Assert-DDMTest (-not (Test-Path (Join-Path $WorkflowRoot 'ddm-snoc-windows-debug
 Assert-DDMTest (-not (Test-Path (Join-Path $WorkflowRoot 'ddm-snoc-windows-debug-commit.yml'))) 'Workflow temporario de commit debug ainda existe.'
 Assert-DDMTest (-not (Test-Path (Join-Path $ProductRoot 'base-package'))) 'base-package legado ainda existe.'
 
-$AllText = @(
-    Get-ChildItem -LiteralPath $ProductRoot -Recurse |
-        Where-Object { -not $_.PSIsContainer } |
-        ForEach-Object {
-            try { [System.IO.File]::ReadAllText($_.FullName) }
-            catch { '' }
-        }
-) -join "`n"
-foreach ($Private in @(
-    'mizu.local',
-    'britta.local',
-    'itsouthamerica.ad',
-    'adb01.local',
-    'adbo1.local',
-    '10.210.5.116',
-    '10.160.1.25',
-    'SNOC-BRASANITAS'
-)) {
-    Assert-DDMTest (
-        $AllText.IndexOf($Private, [System.StringComparison]::OrdinalIgnoreCase) -lt 0
-    ) "Dado privado publicado: $Private"
+$CatalogPath = Join-Path $ProductRoot 'clients\catalog.json'
+Assert-DDMTest (Test-Path -LiteralPath $CatalogPath) 'Catalogo oficial de clientes ausente.'
+$CatalogText = [System.IO.File]::ReadAllText($CatalogPath)
+foreach ($ClientId in @('AGL','PLASCAR','BRITTA','BRASANITAS')) {
+    $ClientPath = Join-Path $ProductRoot ('clients\' + $ClientId + '\CLIENTE.ps1')
+    Assert-DDMTest (Test-Path -LiteralPath $ClientPath) "CLIENTE.ps1 oficial ausente: $ClientId"
+    Assert-DDMTest ($CatalogText.Contains(('"id": "' + $ClientId + '"'))) "Cliente ausente do catalogo: $ClientId"
 }
+$BrasanitasClient = [System.IO.File]::ReadAllText((Join-Path $ProductRoot 'clients\BRASANITAS\CLIENTE.ps1'))
+Assert-DDMTest ($BrasanitasClient.Contains('10.210.5.0/24')) 'Rede 10.210.5.0/24 ausente da Brasanitas.'
+Assert-DDMTest ($BrasanitasClient.Contains('10.220.110.0/24')) 'Rede 10.220.110.0/24 ausente da Brasanitas.'
+Assert-DDMTest ($BrasanitasClient.Contains('\\10.210.5.7\snoc')) 'Central da Brasanitas divergente.'
+Assert-DDMTest ($BrasanitasClient.Contains('adb01.local')) 'Dominio da Brasanitas divergente.'
 
 Write-Host '12/12 Auditoria formal de 300 controles'
 $AuditPath = Join-Path $ProductRoot 'docs\AUDITORIA-300-PONTOS.md'

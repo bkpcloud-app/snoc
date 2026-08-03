@@ -135,15 +135,15 @@ function Select-DDMNetworkRule {
     if($Rules.Count -eq 0){if([bool]$Client.Scope.RequireNetworkMatch){throw 'O cliente exige rede, mas nao possui regras de rede.'};return $null}
     if(-not(Test-DDMBlank $PreferredSite)){
         $SiteRules=@($Rules|Where-Object{([string]$_.Site).ToUpperInvariant() -eq $PreferredSite.ToUpperInvariant()})
-        if($SiteRules.Count -eq 0){throw "Site explicito sem regra de rede/proxy: $PreferredSite"};if($SiteRules.Count -eq 1){return$SiteRules[0]}
+        if($SiteRules.Count -eq 0){throw "Site explicito sem regra de rede/proxy: $PreferredSite"};if($SiteRules.Count -eq 1){return $SiteRules[0]}
         $TopPriority=($SiteRules|Measure-Object -Property Priority -Maximum).Maximum;$Top=@($SiteRules|Where-Object{[int]$_.Priority -eq [int]$TopPriority});$Destinations=@($Top|ForEach-Object{Get-DDMRuleIdentity $_}|Sort-Object -Unique)
-        if($Destinations.Count -ne 1){throw "Site explicito ambiguo: $PreferredSite ($($Destinations -join '; '))"};return$Top[0]
+        if($Destinations.Count -ne 1){throw "Site explicito ambiguo: $PreferredSite ($($Destinations -join '; '))"};return $Top[0]
     }
     $Ignored=@();if($Client.Exceptions -and $Client.Exceptions.IgnoredIPv4){$Ignored=@($Client.Exceptions.IgnoredIPv4)};$Ips=@(Get-DDMLocalIPv4Info|Where-Object{$Ignored -notcontains $_.Address});$Matches=@()
     foreach($Rule in $Rules){$Prefix=[int](([string]$Rule.Cidr).Split('/')[1]);$Priority=if($null -ne $Rule.Priority){[int]$Rule.Priority}else{0};foreach($Ip in $Ips){if(Test-DDMIPv4InCidr $Ip.Address ([string]$Rule.Cidr)){$Matches+=New-Object PSObject -Property @{Rule=$Rule;Ip=$Ip.Address;Gateway=[bool]$Ip.HasDefaultGateway;Priority=$Priority;Prefix=$Prefix}}}}
     if($Matches.Count -eq 0){if([bool]$Client.Scope.RequireNetworkMatch){throw "Nenhuma rede aprovada corresponde aos IPv4 locais: $(@($Ips.Address) -join ', ')"};return $null}
     $Sorted=@($Matches|Sort-Object @{Expression='Gateway';Descending=$true},@{Expression='Priority';Descending=$true},@{Expression='Prefix';Descending=$true},@{Expression='Ip';Descending=$false});$Best=$Sorted[0];$Ties=@($Sorted|Where-Object{$_.Gateway -eq $Best.Gateway -and $_.Priority -eq $Best.Priority -and $_.Prefix -eq $Best.Prefix});$Identities=@($Ties|ForEach-Object{Get-DDMRuleIdentity $_.Rule}|Sort-Object -Unique)
-    if($Identities.Count -gt 1){throw "Empate de redes com destinos diferentes: $($Identities -join '; ')"};return$Best.Rule
+    if($Identities.Count -gt 1){throw "Empate de redes com destinos diferentes: $($Identities -join '; ')"};return $Best.Rule
 }
 
 function Expand-DDMTokens {
@@ -151,7 +151,7 @@ function Expand-DDMTokens {
     $Result=$Template
     foreach($Key in @($Tokens.Keys)){$Result=$Result.Replace(('{'+[string]$Key+'}'),[string]$Tokens[$Key])}
     if($Result -match '\{[A-Z0-9_]+\}'){throw "Token nao resolvido em: $Result"}
-    return$Result
+    return $Result
 }
 
 function Resolve-DDMClientIdentity {

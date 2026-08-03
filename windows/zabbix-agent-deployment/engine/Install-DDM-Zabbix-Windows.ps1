@@ -41,7 +41,7 @@ function Get-ZabbixProducts {
     return @($Items|Sort-Object ProductCode -Unique)
 }
 function Get-LocalPackage([string]$ProductCode){try{$I=New-Object -ComObject WindowsInstaller.Installer;return[string]$I.ProductInfo($ProductCode,'LocalPackage')}catch{return ''}}
-function Get-NormalizedVersion([string]$Value){if($Value -match '(\d+\.\d+\.\d+)'){return$Matches[1]};return$Value}
+function Get-NormalizedVersion([string]$Value){if($Value -match '(\d+\.\d+\.\d+)'){return $Matches[1]};return $Value}
 
 function Test-ZabbixSignature([string]$Path,[bool]$CheckRevocation=$false){
     $Sig=Get-AuthenticodeSignature $Path
@@ -68,7 +68,7 @@ function Get-Artifact([string]$Role){
     if($Items.Count -ne 1){throw "Artefato nao resolvido para $Role/$DesiredAgentVersion"}
     $Path=Join-Path $ArtifactsRoot ([string]$Items[0].Name)
     if(-not(Test-Path $Path) -or (Get-DDMSha256 $Path) -ne ([string]$Items[0].Sha256).ToUpperInvariant()){throw "Artefato invalido: $Path"}
-    Test-ZabbixSignature $Path $false;return$Path
+    Test-ZabbixSignature $Path $false;return $Path
 }
 
 function Get-ServiceSnapshot([string]$Name){
@@ -86,7 +86,7 @@ function Stop-Agents {
 
 function Get-ApprovedLegacyFiles($Client,[string]$Root){
     $Result=@();if($Client.Legacy -and $Client.Legacy.ManagedFiles){foreach($Rel in @($Client.Legacy.ManagedFiles)){if([System.IO.Path]::IsPathRooted([string]$Rel) -or [string]$Rel -match '(^|[\\/])\.\.([\\/]|$)'){throw "Caminho legado inseguro: $Rel"};$Result+=([System.IO.Path]::GetFullPath((Join-Path $Root ([string]$Rel)))).ToLowerInvariant()}}
-    return$Result
+    return $Result
 }
 
 function Assert-LegacyConfigurationSafe($Client){
@@ -121,10 +121,10 @@ function Backup-State($Products,$Agent1Snapshot,$Agent2Snapshot,[bool]$RequireMs
         $ProductBackups+=New-Object PSObject -Property @{DisplayName=$P.DisplayName;DisplayVersion=$P.DisplayVersion;ProductCode=$P.ProductCode;Family=$P.Family;LocalPackage=$Copy;LocalPackageSha256=$Hash;InstallLocation=$P.InstallLocation}
     }
     $Snapshot=New-Object PSObject -Property @{Products=$ProductBackups;Agent1Service=$Agent1Snapshot;Agent2Service=$Agent2Snapshot;MsiChanged=$RequireMsi;CreatedAt=(Get-Date).ToUniversalTime().ToString('o')}
-    Export-DDMClixmlAtomic $Snapshot (Join-Path $Root 'snapshot.clixml') 8;return$Root
+    Export-DDMClixmlAtomic $Snapshot (Join-Path $Root 'snapshot.clixml') 8;return $Root
 }
 
-function Get-RestoreProperties($Product){$Properties=@('ADDLOCAL=ALL','DONOTSTART=1','SKIP=fw');if(@('AGENT1','AGENT2') -contains [string]$Product.Family){$Properties+='STARTUPTYPE=automatic'};if(-not(Test-DDMBlank $Product.InstallLocation)){$Properties+=('INSTALLFOLDER="'+[string]$Product.InstallLocation+'"')};return$Properties}
+function Get-RestoreProperties($Product){$Properties=@('ADDLOCAL=ALL','DONOTSTART=1','SKIP=fw');if(@('AGENT1','AGENT2') -contains [string]$Product.Family){$Properties+='STARTUPTYPE=automatic'};if(-not(Test-DDMBlank $Product.InstallLocation)){$Properties+=('INSTALLFOLDER="'+[string]$Product.InstallLocation+'"')};return $Properties}
 function Restore-ServiceSnapshot($Snap){
     if(-not[bool]$Snap.Exists){if(Get-Service $Snap.Name -ErrorAction SilentlyContinue){Stop-Service $Snap.Name -Force -ErrorAction SilentlyContinue;& sc.exe delete $Snap.Name|Out-Null};return}
     if(-not(Get-Service $Snap.Name -ErrorAction SilentlyContinue) -and -not(Test-DDMBlank $Snap.PathName)){$StartCode=if([string]$Snap.StartMode -eq 'Auto'){'auto'}elseif([string]$Snap.StartMode -eq 'Disabled'){'disabled'}else{'demand'};& sc.exe create ([string]$Snap.Name) ('binPath= '+[string]$Snap.PathName) ('start= '+$StartCode) ('DisplayName= '+[string]$Snap.DisplayName)|Out-Null;if($LASTEXITCODE -ne 0){throw "Falha ao recriar servico $($Snap.Name)"}}
@@ -163,7 +163,7 @@ function Install-ManagedModules([string]$InstallRoot,[string]$Family){
             }
         }
         $OldInclude=$IncludeRoot+'.previous-'+[guid]::NewGuid().ToString('N');$OldScripts=$ScriptsRoot+'.previous-'+[guid]::NewGuid().ToString('N');if(Test-Path $IncludeRoot){Move-Item $IncludeRoot $OldInclude};if(Test-Path $ScriptsRoot){Move-Item $ScriptsRoot $OldScripts}
-        try{Move-Item $IncludeStage $IncludeRoot;Move-Item $ScriptsStage $ScriptsRoot}catch{if(Test-Path $OldInclude){Move-Item $OldInclude $IncludeRoot -Force};if(Test-Path $OldScripts){Move-Item $OldScripts $ScriptsRoot -Force};throw};Remove-Item $OldInclude,$OldScripts -Recurse -Force -ErrorAction SilentlyContinue;return$Managed
+        try{Move-Item $IncludeStage $IncludeRoot;Move-Item $ScriptsStage $ScriptsRoot}catch{if(Test-Path $OldInclude){Move-Item $OldInclude $IncludeRoot -Force};if(Test-Path $OldScripts){Move-Item $OldScripts $ScriptsRoot -Force};throw};Remove-Item $OldInclude,$OldScripts -Recurse -Force -ErrorAction SilentlyContinue;return $Managed
     }finally{Remove-Item $IncludeStage,$ScriptsStage -Recurse -Force -ErrorAction SilentlyContinue}
 }
 
@@ -183,7 +183,7 @@ function Write-AgentConfig([string]$Family,[string]$InstallRoot,$Identity,$Clien
     $Temp=$Config+'.new-'+[guid]::NewGuid().ToString('N');[System.IO.File]::WriteAllText($Temp,(($Lines -join "`r`n")+"`r`n"),(New-Object System.Text.UTF8Encoding($false)));return New-Object PSObject -Property @{Final=$Config;Temp=$Temp;ListenPort=$ListenPort}
 }
 function Test-AgentConfig([string]$Family,[string]$InstallRoot,$Pair){$Exe=Join-Path $InstallRoot $(if($Family -eq 'AGENT2'){'zabbix_agent2.exe'}else{'zabbix_agentd.exe'});if($Family -eq 'AGENT2'){$Out=@(& $Exe -c $Pair.Temp -T 2>&1);if($LASTEXITCODE -ne 0){throw "Validacao -T falhou: $($Out -join ' ')"}};$Out=@(& $Exe -c $Pair.Temp -t agent.ping 2>&1);if($LASTEXITCODE -ne 0 -or ($Out -join ' ') -notmatch '\[t\|1\]'){throw "agent.ping falhou: $($Out -join ' ')"};Move-Item $Pair.Temp $Pair.Final -Force}
-function Test-PendingReboot{if(Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending'){return$true};if(Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'){return$true};return$false}
+function Test-PendingReboot{if(Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending'){return $true};if(Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'){return $true};return $false}
 function Remove-OldState{$Backups=@(Get-ChildItem $BackupRoot|Where-Object{$_.PSIsContainer}|Sort-Object LastWriteTime -Descending);foreach($Old in @($Backups|Select-Object -Skip ([int]$DDMProduct.KeepBackupSets))){Remove-Item $Old.FullName -Recurse -Force -ErrorAction SilentlyContinue};$Cutoff=(Get-Date).AddDays(-[int]$DDMProduct.KeepLogDays);foreach($Old in @(Get-ChildItem $LogRoot -ErrorAction SilentlyContinue|Where-Object{-not$_.PSIsContainer -and $_.LastWriteTime -lt $Cutoff})){Remove-Item $Old.FullName -Force -ErrorAction SilentlyContinue}}
 
 try{
