@@ -25,6 +25,17 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
+      - name: Repair PowerShell 2 registry compatibility
+        shell: powershell
+        run: |
+          $Path=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\engine\Install-DDM-Zabbix-Windows.ps1'
+          $Text=[IO.File]::ReadAllText($Path)
+          $Old="if([int]`$Snap.DelayedAutoStart -eq 1){Set-ItemProperty -LiteralPath ('HKLM:\SYSTEM\CurrentControlSet\Services\'+`$Snap.Name) -Name DelayedAutoStart -Value 1 -Type DWord -Force}else{Remove-ItemProperty -LiteralPath ('HKLM:\SYSTEM\CurrentControlSet\Services\'+`$Snap.Name) -Name DelayedAutoStart -ErrorAction SilentlyContinue}"
+          $New="if([int]`$Snap.DelayedAutoStart -eq 1){`$ServiceKey=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(('SYSTEM\CurrentControlSet\Services\'+`$Snap.Name),`$true);if(`$null -eq `$ServiceKey){throw ('Chave do servico nao encontrada: '+`$Snap.Name)};try{`$ServiceKey.SetValue('DelayedAutoStart',1,[Microsoft.Win32.RegistryValueKind]::DWord)}finally{`$ServiceKey.Close()}}else{Remove-ItemProperty -LiteralPath ('HKLM:\SYSTEM\CurrentControlSet\Services\'+`$Snap.Name) -Name DelayedAutoStart -ErrorAction SilentlyContinue}"
+          if($Text.Contains($Old)){
+            [IO.File]::WriteAllText($Path,$Text.Replace($Old,$New),(New-Object Text.UTF8Encoding($false)))
+          }
+
       - name: Capture complete validation exception
         shell: powershell
         run: |
@@ -43,13 +54,13 @@ jobs:
           }
           [IO.File]::WriteAllLines($Report,$Lines,[Text.Encoding]::UTF8)
 
-      - name: Commit diagnostic report
+      - name: Commit compatibility repair and diagnostic report
         shell: powershell
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/ddm-snoc-debug-report.txt
+          git add windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1 .github/ddm-snoc-debug-report.txt
           if((git status --porcelain).Length -gt 0){
-            git commit -m 'ci(snoc-windows): persist temporary 300-control diagnostic'
+            git commit -m 'fix(snoc-windows): restore PowerShell 2 registry compatibility'
             git push origin HEAD:${{ github.head_ref }}
           }
