@@ -5,6 +5,10 @@ Data de fechamento: **3 de agosto de 2026**
 Contrato: **CLIENTE.ps1 Schema 3**  
 Motor minimo: **2.0.4**
 
+## Estado da baseline
+
+As configuracoes iniciais de **Mizu/AGL, Plascar, Britta e Brasanitas estao fechadas**. Redes, dominios, caminhos centrais, proxies e regras de identidade ficam versionados diretamente no GitHub. Mudancas futuras devem incrementar `ConfigVersion` e atualizar o SHA-256 no `catalog.json`.
+
 ## Regra do produto
 
 Cada cliente possui exatamente um arquivo oficial chamado `CLIENTE.ps1`. O motor, os modulos, o bootstrap e os scripts centrais sao os mesmos para todos. A atualizacao do produto nunca pode substituir a configuracao do cliente sem alterar `ConfigVersion` e o hash do catalogo.
