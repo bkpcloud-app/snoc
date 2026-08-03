@@ -1,34 +1,20 @@
-name: Clean DDM SNOC Temporary Diagnostics
+name: Validate DDM SNOC Client Catalog
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/ddm-snoc-debug-commit.yml'
-      - '.github/workflows/ddm-snoc-debug-message.yml'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  cleanup:
+  validate-client-catalog:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
-      - name: Checkout branch
+      - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-      - name: Remove temporary diagnostic workflow
+      - name: Validate product and client catalog
         shell: powershell
         run: |
-          $Path=Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-debug-message.yml'
-          if(Test-Path -LiteralPath $Path){Remove-Item -LiteralPath $Path -Force}
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          if((git status --porcelain).Length -gt 0){
-            git commit -m 'chore(snoc-windows): remove temporary diagnostic workflow'
-            git pull --rebase origin ${{ github.head_ref }}
-            git push origin HEAD:${{ github.head_ref }}
-          }
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
