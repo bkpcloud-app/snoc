@@ -1,34 +1,52 @@
 ﻿1/12 Parser de todos os PowerShell
 2/12 Superficie real do PowerShell 2.0
+3/12 Contrato global do produto
+4/12 Funcoes compartilhadas e identidade
+5/12 CLIENTE.ps1, CLIXML e casos negativos
 RESULT=FAILURE
-MESSAGE=PowerShell 2.0 usa superficie moderna em D:\a\snoc\snoc\windows\zabbix-agent-deployment\engine\Install-DDM-Zabbix-Windows.ps1: (?i)Set-ItemProperty[^\r\n]*\s-Type\b
-POSITION=At D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1:22 char:9
-+         throw $Message
-+         ~~~~~~~~~~~~~~
-STACK=at Assert-DDMTest, D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 22
-at <ScriptBlock>, D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 133
-at <ScriptBlock>, D:\a\_temp\6a6310dd-4d3e-4ade-aa2e-2e6d8590115c.ps1: line 6
+MESSAGE=The term 'return$Best.Rule' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+POSITION=At D:\a\_temp\28ac269c-e498-4e9c-aa14-97439f3ddc75.ps1:6 char:3
++   & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot ...
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+STACK=at Select-DDMNetworkRule, D:\a\snoc\snoc\windows\zabbix-agent-deployment\lib\DDM-Common.ps1: line 146
+at Resolve-DDMClientIdentity, D:\a\snoc\snoc\windows\zabbix-agent-deployment\lib\DDM-Common.ps1: line 168
+at <ScriptBlock>, D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 204
+at <ScriptBlock>, D:\a\_temp\28ac269c-e498-4e9c-aa14-97439f3ddc75.ps1: line 6
 at <ScriptBlock>, <No file>: line 1
 
 
 PSMessageDetails      : 
-Exception             : System.Management.Automation.RuntimeException: PowerShell 2.0 usa superficie moderna em 
-                        D:\a\snoc\snoc\windows\zabbix-agent-deployment\engine\Install-DDM-Zabbix-Windows.ps1: 
-                        (?i)Set-ItemProperty[^\r\n]*\s-Type\b
-TargetObject          : PowerShell 2.0 usa superficie moderna em 
-                        D:\a\snoc\snoc\windows\zabbix-agent-deployment\engine\Install-DDM-Zabbix-Windows.ps1: 
-                        (?i)Set-ItemProperty[^\r\n]*\s-Type\b
-CategoryInfo          : OperationStopped: (PowerShell 2.0 ...\r\n]*\s-Type\b:String) [], RuntimeException
-FullyQualifiedErrorId : PowerShell 2.0 usa superficie moderna em 
-                        D:\a\snoc\snoc\windows\zabbix-agent-deployment\engine\Install-DDM-Zabbix-Windows.ps1: 
-                        (?i)Set-ItemProperty[^\r\n]*\s-Type\b
+Exception             : System.Management.Automation.CommandNotFoundException: The term 'return$Best.Rule' is not 
+                        recognized as the name of a cmdlet, function, script file, or operable program. Check the 
+                        spelling of the name, or if a path was included, verify that the path is correct and try again.
+                           at System.Management.Automation.ExceptionHandlingOps.CheckActionPreference(FunctionContext 
+                        funcContext, Exception exception)
+                           at System.Management.Automation.Interpreter.ActionCallInstruction`2.Run(InterpretedFrame 
+                        frame)
+                           at 
+                        System.Management.Automation.Interpreter.EnterTryCatchFinallyInstruction.Run(InterpretedFrame 
+                        frame)
+                           at 
+                        System.Management.Automation.Interpreter.EnterTryCatchFinallyInstruction.Run(InterpretedFrame 
+                        frame)
+                           at System.Management.Automation.Interpreter.Interpreter.Run(InterpretedFrame frame)
+                           at System.Management.Automation.Interpreter.LightLambda.RunVoid1[T0](T0 arg0)
+                           at System.Management.Automation.PSScriptCmdlet.RunClause(Action`1 clause, Object 
+                        dollarUnderbar, Object inputToProcess)
+                           at System.Management.Automation.PSScriptCmdlet.DoEndProcessing()
+                           at System.Management.Automation.CommandProcessorBase.Complete()
+TargetObject          : return$Best.Rule
+CategoryInfo          : ObjectNotFound: (return$Best.Rule:String) [Test-DDM-Repository.ps1], CommandNotFoundException
+FullyQualifiedErrorId : CommandNotFoundException,Test-DDM-Repository.ps1
 ErrorDetails          : 
 InvocationInfo        : System.Management.Automation.InvocationInfo
-ScriptStackTrace      : at Assert-DDMTest, 
-                        D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 22
+ScriptStackTrace      : at Select-DDMNetworkRule, D:\a\snoc\snoc\windows\zabbix-agent-deployment\lib\DDM-Common.ps1: 
+                        line 146
+                        at Resolve-DDMClientIdentity, 
+                        D:\a\snoc\snoc\windows\zabbix-agent-deployment\lib\DDM-Common.ps1: line 168
                         at <ScriptBlock>, 
-                        D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 133
-                        at <ScriptBlock>, D:\a\_temp\6a6310dd-4d3e-4ade-aa2e-2e6d8590115c.ps1: line 6
+                        D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1: line 204
+                        at <ScriptBlock>, D:\a\_temp\28ac269c-e498-4e9c-aa14-97439f3ddc75.ps1: line 6
                         at <ScriptBlock>, <No file>: line 1
 PipelineIterationInfo : {}
 

@@ -130,7 +130,7 @@ function Restore-ServiceSnapshot($Snap){
     if(-not(Get-Service $Snap.Name -ErrorAction SilentlyContinue) -and -not(Test-DDMBlank $Snap.PathName)){$StartCode=if([string]$Snap.StartMode -eq 'Auto'){'auto'}elseif([string]$Snap.StartMode -eq 'Disabled'){'disabled'}else{'demand'};& sc.exe create ([string]$Snap.Name) ('binPath= '+[string]$Snap.PathName) ('start= '+$StartCode) ('DisplayName= '+[string]$Snap.DisplayName)|Out-Null;if($LASTEXITCODE -ne 0){throw "Falha ao recriar servico $($Snap.Name)"}}
     $Startup=if([string]$Snap.StartMode -eq 'Auto'){'Automatic'}elseif([string]$Snap.StartMode -eq 'Disabled'){'Disabled'}else{'Manual'};Set-Service $Snap.Name -StartupType $Startup
     if(-not(Test-DDMBlank $Snap.Sddl)){& sc.exe sdset $Snap.Name ([string]$Snap.Sddl)|Out-Null}
-    if([int]$Snap.DelayedAutoStart -eq 1){Set-ItemProperty -LiteralPath ('HKLM:\SYSTEM\CurrentControlSet\Services\'+$Snap.Name) -Name DelayedAutoStart -Value 1 -Type DWord -Force}else{Remove-ItemProperty -LiteralPath ('HKLM:\SYSTEM\CurrentControlSet\Services\'+$Snap.Name) -Name DelayedAutoStart -ErrorAction SilentlyContinue}
+    if([int]$Snap.DelayedAutoStart -eq 1){$ServiceKey=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(('SYSTEM\CurrentControlSet\Services\'+$Snap.Name),$true);if($null -eq $ServiceKey){throw ('Chave do servico nao encontrada: '+$Snap.Name)};try{$ServiceKey.SetValue('DelayedAutoStart',1,[Microsoft.Win32.RegistryValueKind]::DWord)}finally{$ServiceKey.Close()}}else{Remove-ItemProperty -LiteralPath ('HKLM:\SYSTEM\CurrentControlSet\Services\'+$Snap.Name) -Name DelayedAutoStart -ErrorAction SilentlyContinue}
     if([string]$Snap.Status -eq 'Running'){Start-Service $Snap.Name}else{Stop-Service $Snap.Name -Force -ErrorAction SilentlyContinue}
 }
 
