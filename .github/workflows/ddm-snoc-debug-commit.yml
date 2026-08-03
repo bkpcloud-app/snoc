@@ -43,22 +43,23 @@ jobs:
           $Start=$ValidatorText.IndexOf('$AllText = @(')
           $End=$ValidatorText.IndexOf("Write-Host '12/12",$Start)
           if($Start -lt 0 -or $End -lt 0){throw 'Bloco antigo de privacidade nao localizado no validador.'}
-          $Replacement=@'
-$CatalogPath = Join-Path $ProductRoot 'clients\catalog.json'
-Assert-DDMTest (Test-Path -LiteralPath $CatalogPath) 'Catalogo oficial de clientes ausente.'
-$CatalogText = [System.IO.File]::ReadAllText($CatalogPath)
-foreach ($ClientId in @('AGL','PLASCAR','BRITTA','BRASANITAS')) {
-    $ClientPath = Join-Path $ProductRoot ('clients\' + $ClientId + '\CLIENTE.ps1')
-    Assert-DDMTest (Test-Path -LiteralPath $ClientPath) "CLIENTE.ps1 oficial ausente: $ClientId"
-    Assert-DDMTest ($CatalogText.Contains(('"id": "' + $ClientId + '"'))) "Cliente ausente do catalogo: $ClientId"
-}
-$BrasanitasClient = [System.IO.File]::ReadAllText((Join-Path $ProductRoot 'clients\BRASANITAS\CLIENTE.ps1'))
-Assert-DDMTest ($BrasanitasClient.Contains("Cidr='10.210.5.0/24'")) 'Rede 10.210.5.0/24 ausente da Brasanitas.'
-Assert-DDMTest ($BrasanitasClient.Contains("Cidr='10.220.110.0/24'")) 'Rede 10.220.110.0/24 ausente da Brasanitas.'
-Assert-DDMTest ($BrasanitasClient.Contains("CentralPath         = '\\10.210.5.7\snoc'")) 'Central da Brasanitas divergente.'
-Assert-DDMTest ($BrasanitasClient.Contains("AcceptedDomains     = @('adb01.local')")) 'Dominio da Brasanitas divergente.'
-
-'@
+          $Replacement=@(
+            '$CatalogPath = Join-Path $ProductRoot ''clients\catalog.json''',
+            'Assert-DDMTest (Test-Path -LiteralPath $CatalogPath) ''Catalogo oficial de clientes ausente.''',
+            '$CatalogText = [System.IO.File]::ReadAllText($CatalogPath)',
+            'foreach ($ClientId in @(''AGL'',''PLASCAR'',''BRITTA'',''BRASANITAS'')) {',
+            '    $ClientPath = Join-Path $ProductRoot (''clients\'' + $ClientId + ''\CLIENTE.ps1'')',
+            '    Assert-DDMTest (Test-Path -LiteralPath $ClientPath) "CLIENTE.ps1 oficial ausente: $ClientId"',
+            '    Assert-DDMTest ($CatalogText.Contains((''"id": "'' + $ClientId + ''"''))) "Cliente ausente do catalogo: $ClientId"',
+            '}',
+            '$BrasanitasClient = [System.IO.File]::ReadAllText((Join-Path $ProductRoot ''clients\BRASANITAS\CLIENTE.ps1''))',
+            'Assert-DDMTest ($BrasanitasClient.Contains("Cidr=''''10.210.5.0/24''''")) ''Rede 10.210.5.0/24 ausente da Brasanitas.''',
+            'Assert-DDMTest ($BrasanitasClient.Contains("Cidr=''''10.220.110.0/24''''")) ''Rede 10.220.110.0/24 ausente da Brasanitas.''',
+            'Assert-DDMTest ($BrasanitasClient.Contains("CentralPath         = ''''\\10.210.5.7\snoc''''")) ''Central da Brasanitas divergente.''',
+            'Assert-DDMTest ($BrasanitasClient.Contains("AcceptedDomains     = @(''''adb01.local'''')")) ''Dominio da Brasanitas divergente.''',
+            '',
+            ''
+          ) -join [Environment]::NewLine
           $ValidatorText=$ValidatorText.Substring(0,$Start)+$Replacement+$ValidatorText.Substring($End)
           [IO.File]::WriteAllText($Validator,$ValidatorText,(New-Object Text.UTF8Encoding($false)))
 
