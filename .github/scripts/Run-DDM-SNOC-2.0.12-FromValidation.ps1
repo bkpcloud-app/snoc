@@ -4,15 +4,13 @@ $Repo=$env:GITHUB_WORKSPACE
 $Utf8=New-Object System.Text.UTF8Encoding($false)
 $ValidationPath=Join-Path $Repo '.github\workflows\ddm-snoc-windows-validation.yml'
 $Text=[IO.File]::ReadAllText($ValidationPath)
-$PushBlock=@'
-  push:
-    paths:
-      - 'release-status/.trigger-ddm-snoc-2.0.12-official'
-      - '.github/workflows/ddm-snoc-windows-validation.yml'
+$EventBlock=@'
+  issues:
+    types: [opened]
 '@
 $PromoteJob=@'
   promote_2012:
-    if: github.event_name == 'push'
+    if: github.event_name == 'issues' && github.event.issue.title == 'DDM-SNOC-2.0.12-PROMOTE'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -29,10 +27,10 @@ $PromoteJob=@'
           & (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\Run-DDM-SNOC-2.0.12-FromValidation.ps1')
 
 '@
-$Text=$Text.Replace($PushBlock,'')
+$Text=$Text.Replace($EventBlock,'')
 $Text=$Text.Replace($PromoteJob,'')
-$Text=$Text.Replace("  validate:`r`n    if: github.event_name != 'push'`r`n","  validate:`r`n")
-$Text=$Text.Replace("  validate:`n    if: github.event_name != 'push'`n","  validate:`n")
+$Text=$Text.Replace("  validate:`r`n    if: github.event_name != 'issues'`r`n","  validate:`r`n")
+$Text=$Text.Replace("  validate:`n    if: github.event_name != 'issues'`n","  validate:`n")
 [IO.File]::WriteAllText($ValidationPath,$Text,$Utf8)
 Remove-Item -LiteralPath (Join-Path $Repo 'release-status\.trigger-ddm-snoc-2.0.12-official') -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $MyInvocation.MyCommand.Definition -Force -ErrorAction SilentlyContinue
