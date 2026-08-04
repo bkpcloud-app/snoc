@@ -1,0 +1,1 @@
+﻿State=READY Tag=ddm-snoc-windows-v2.0.11 Commit=941c16f3c3478a0b46bfb043c6a8cde834d15a71 Assets=6 AllSevenUncCmds=PASS FullCentralPilot=PASS VerifiedAtUtc=2026-08-04T20:13:49.4859807Z
