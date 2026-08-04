@@ -1,10 +1,8 @@
 name: Validate DDM SNOC Windows
 
 on:
-  push:
-    paths:
-      - 'release-status/.trigger-ddm-snoc-2.0.12-official'
-      - '.github/workflows/ddm-snoc-windows-validation.yml'
+  issues:
+    types: [opened]
   pull_request:
     paths:
       - 'windows/zabbix-agent-deployment/**'
@@ -21,7 +19,7 @@ concurrency:
 
 jobs:
   promote_2012:
-    if: github.event_name == 'push'
+    if: github.event_name == 'issues' && github.event.issue.title == 'DDM-SNOC-2.0.12-PROMOTE'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -38,7 +36,7 @@ jobs:
           & (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\Run-DDM-SNOC-2.0.12-FromValidation.ps1')
 
   validate:
-    if: github.event_name != 'push'
+    if: github.event_name != 'issues'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
