@@ -1,0 +1,114 @@
+name: Publish validated DDM SNOC Windows 2.0.8 v2
+
+on:
+  push:
+    paths:
+      - '.github/workflows/_tmp-ddm-snoc-publish-2.0.8-v2.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ddm-snoc-windows-publish-2.0.8-v2
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      SOURCE_COMMIT: 5d6ebad482b933a76bf2ccfcefffcdea43e1bb4a
+      RELEASE_TAG: ddm-snoc-windows-v2.0.8
+
+    steps:
+      - name: Checkout validated source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 5d6ebad482b933a76bf2ccfcefffcdea43e1bb4a
+          fetch-depth: 0
+
+      - name: Build, tag, publish and verify
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Repo=$env:GITHUB_WORKSPACE
+          $TemplateText=git show origin/main:.github/workflows/_tmp-ddm-snoc-publish-2.0.8.yml
+          if($LASTEXITCODE -ne 0){throw 'Workflow de build anterior nao foi localizado em origin/main.'}
+          $TemplatePath=Join-Path $env:RUNNER_TEMP 'publish-template.yml'
+          [IO.File]::WriteAllLines($TemplatePath,@($TemplateText),(New-Object Text.UTF8Encoding($false)))
+
+          function Get-StepScript([string]$Name){
+              $Lines=@(Get-Content -LiteralPath $TemplatePath)
+              $Start=-1
+              for($I=0;$I -lt $Lines.Count;$I++){if($Lines[$I].Trim() -eq ('- name: '+$Name)){$Start=$I;break}}
+              if($Start -lt 0){throw "Etapa ausente: $Name"}
+              $Run=-1
+              for($I=$Start+1;$I -lt $Lines.Count;$I++){if($Lines[$I].Trim() -eq 'run: |'){$Run=$I;break};if($Lines[$I] -match '^      - name:'){break}}
+              if($Run -lt 0){throw "run ausente: $Name"}
+              $Body=@()
+              for($I=$Run+1;$I -lt $Lines.Count;$I++){if($Lines[$I] -match '^      - name:'){break};$Line=$Lines[$I];if($Line.StartsWith('          ')){$Line=$Line.Substring(10)};$Body+=$Line}
+              return ($Body -join "`r`n")
+          }
+
+          $BuildScript=Get-StepScript 'Revalidate and build assets'
+          $BuildPath=Join-Path $env:RUNNER_TEMP 'build-2.0.8.ps1'
+          [IO.File]::WriteAllText($BuildPath,$BuildScript,(New-Object Text.UTF8Encoding($false)))
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $BuildPath
+          if($LASTEXITCODE -ne 0){throw "Build retornou $LASTEXITCODE"}
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if(-not [string]::IsNullOrWhiteSpace([string](git ls-remote --tags origin "refs/tags/$env:RELEASE_TAG"))){throw "Tag ja existe: $env:RELEASE_TAG"}
+          git tag -a $env:RELEASE_TAG $env:SOURCE_COMMIT -m 'DDM SNOC Windows 2.0.8'
+          git push origin $env:RELEASE_TAG
+
+          $D=Join-Path $Repo 'dist'
+          $M=Join-Path $D 'DDM-SNOC-WINDOWS-MOTOR-2.0.8.zip'
+          $S=Join-Path $D 'DDM-SNOC-WINDOWS-AD-SEED-2.0.8.zip'
+          $J=Join-Path $D 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json'
+          & gh release create $env:RELEASE_TAG $M ($M+'.sha256') $S ($S+'.sha256') $J ($J+'.sha256') --verify-tag --target $env:SOURCE_COMMIT --title 'DDM SNOC Windows 2.0.8' --notes 'Corrige falso positivo ACL Synchronize; auditoria Mizu em 40 pontos.'
+          if($LASTEXITCODE -ne 0){throw "gh release create retornou $LASTEXITCODE"}
+
+          $R=(& gh release view $env:RELEASE_TAG --json tagName,isDraft,isPrerelease,targetCommitish,assets)|ConvertFrom-Json
+          if($R.tagName -ne $env:RELEASE_TAG -or $R.isDraft -or $R.isPrerelease){throw 'Metadados da release divergentes.'}
+          if(@($R.assets).Count -ne 6){throw "Quantidade de assets divergente: $(@($R.assets).Count)"}
+          $Names=@($R.assets|ForEach-Object{[string]$_.name})
+          foreach($Required in @('DDM-SNOC-WINDOWS-MOTOR-2.0.8.zip','DDM-SNOC-WINDOWS-MOTOR-2.0.8.zip.sha256','DDM-SNOC-WINDOWS-AD-SEED-2.0.8.zip','DDM-SNOC-WINDOWS-AD-SEED-2.0.8.zip.sha256','DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json','DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json.sha256')){if($Names -notcontains $Required){throw "Asset ausente: $Required"}}
+
+      - name: Record READY and clean temporary files
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin main
+          git checkout -B status origin/main
+          Remove-Item '.github\workflows\_tmp-ddm-snoc-publish-2.0.8.yml' -Force -ErrorAction SilentlyContinue
+          Remove-Item '.github\workflows\_tmp-ddm-snoc-publish-2.0.8-v2.yml' -Force -ErrorAction SilentlyContinue
+          Remove-Item 'release-status\ddm-snoc-windows-v2.0.8-publish-attempt.txt' -Force -ErrorAction SilentlyContinue
+          $Status='release-status\ddm-snoc-windows-v2.0.8.txt'
+          Set-Content -LiteralPath $Status -Value ('State=READY Tag='+$env:RELEASE_TAG+' Commit='+$env:SOURCE_COMMIT+' Assets=6 AuditPoints=40 VerifiedAtUtc='+(Get-Date).ToUniversalTime().ToString('o')) -Encoding UTF8
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'chore(snoc-windows): registra release 2.0.8 READY'
+          git push origin HEAD:main
+
+      - name: Record FAILED
+        if: failure()
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Continue'
+          & gh release delete $env:RELEASE_TAG --yes 2>$null
+          git push --delete origin $env:RELEASE_TAG 2>$null
+          git fetch origin main
+          git checkout -B failure origin/main
+          $Status='release-status\ddm-snoc-windows-v2.0.8-publish-v2-attempt.txt'
+          Set-Content -LiteralPath $Status -Value ('State=FAILED RunId=${{ github.run_id }} SourceCommit='+$env:SOURCE_COMMIT+' FailedAtUtc='+(Get-Date).ToUniversalTime().ToString('o')) -Encoding UTF8
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $Status
+          git commit -m 'chore(snoc-windows): registra falha de publicacao v2 2.0.8'
+          git push origin HEAD:main
