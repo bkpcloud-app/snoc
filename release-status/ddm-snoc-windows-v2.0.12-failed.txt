@@ -1,1 +1,1 @@
-﻿State=FAILED RunId=30951177827 Error=Recuperacao parcial pelo GPO-DIARIA.cmd retornou 1. FailedAtUtc=2026-08-04T21:10:59.5526418Z
+﻿State=FAILED RunId=30951556502 Error=Recuperacao parcial pelo GPO-DIARIA.cmd retornou 1. FailedAtUtc=2026-08-04T21:16:04.9900270Z
