@@ -1,0 +1,31 @@
+name: Promote DDM SNOC Windows 2.0.12 V4
+
+on:
+  push:
+    paths:
+      - '.github/workflows/_promote-ddm-snoc-2.0.12-v4.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-ddm-snoc-windows-2.0.12
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Execute direct promotion
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\Promote-DDM-SNOC-2.0.12-V4.ps1')
