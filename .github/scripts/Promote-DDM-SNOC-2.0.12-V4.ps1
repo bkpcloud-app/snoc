@@ -29,19 +29,22 @@ function Commit-Push([string]$Message) {
 }
 function Remove-TemporaryPromotionFiles {
     foreach($Relative in @(
-        '.github\workflows\_promote-ddm-snoc-2.0.12-v3.yml',
-        '.github\workflows\_promote-ddm-snoc-2.0.12-v4.yml',
-        '.github\workflows\_run-ddm-snoc-2.0.12.yml',
-        '.github\workflows\_run-ddm-snoc-2.0.12-v2.yml',
-        '.github\scripts\Promote-DDM-SNOC-2.0.12.ps1',
-        '.github\scripts\Promote-DDM-SNOC-2.0.12-V4.ps1',
         'release-status\.trigger-ddm-snoc-2.0.12',
-        'release-status\.trigger-ddm-snoc-2.0.12-v2'
+        'release-status\.trigger-ddm-snoc-2.0.12-v2',
+        'release-status\.trigger-ddm-snoc-2.0.12-official',
+        'release-status\.issue-trigger-ready-2.0.12',
+        'release-status\.pr-trigger-ddm-snoc-2.0.12',
+        'release-status\.noop',
+        'release-status\.noop2',
+        'release-status\.noop3',
+        'release-status\.noop4',
+        'release-status\.noop5',
+        'release-status\.noop6',
+        'release-status\.noop7'
     )){
         Remove-Item -LiteralPath (Join-Path $Repo $Relative) -Force -ErrorAction SilentlyContinue
     }
-}
-function Assert-Contains([string]$Text,[string]$Needle,[string]$Message){
+}function Assert-Contains([string]$Text,[string]$Needle,[string]$Message){
     if(-not $Text.Contains($Needle)){throw $Message}
 }
 
@@ -93,37 +96,6 @@ $Endpoint = Read-DDMRaw 'endpoint\Invoke-DDM-SNOC-Daily.ps1'
         $RepositoryTest=$RepositoryTest.Replace($Marker.Trim(),$Insert.Trim())
     }
     Save-Text $RepositoryTestPath $RepositoryTest
-
-    $ValidationPath=Join-Path $Repo '.github\workflows\ddm-snoc-windows-validation.yml'
-    $Validation=Read-Text $ValidationPath
-    if($Validation -notmatch 'Test-DDM-BootstrapFirstInstall'){
-        $Marker='      - name: Build and inspect motor asset'
-        $Step=@'
-      - name: Validate UNC commands and first bootstrap installation
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
-          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          & (Join-Path $Product 'tools\Test-DDM-UncCmd.ps1') -ProductRoot $Product
-          & (Join-Path $Product 'tools\Test-DDM-BootstrapFirstInstall.ps1') -ProductRoot $Product
-
-'@
-        if(-not $Validation.Contains($Marker)){throw 'Marcador do workflow de validacao nao encontrado.'}
-        Save-Text $ValidationPath ($Validation.Replace($Marker,$Step+$Marker))
-    }
-
-    $ReleasePath=Join-Path $Repo '.github\workflows\ddm-snoc-windows-release.yml'
-    $Release=Read-Text $ReleasePath
-    if($Release -notmatch 'Test-DDM-BootstrapFirstInstall'){
-        $Marker="          & (Join-Path `$Product 'tools\Test-DDM-Repository.ps1') -ProductRoot `$Product"
-        $Replacement=@'
-          & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
-          & (Join-Path $Product 'tools\Test-DDM-UncCmd.ps1') -ProductRoot $Product
-          & (Join-Path $Product 'tools\Test-DDM-BootstrapFirstInstall.ps1') -ProductRoot $Product
-'@
-        if(-not $Release.Contains($Marker)){throw 'Marcador do workflow de release nao encontrado.'}
-        Save-Text $ReleasePath ($Release.Replace($Marker,$Replacement.TrimEnd()))
-    }
 
     $ChangePath=Join-Path $Product 'CHANGELOG.md'
     $Change=Read-Text $ChangePath

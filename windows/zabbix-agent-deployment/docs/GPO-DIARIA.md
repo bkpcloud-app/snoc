@@ -1,3 +1,7 @@
+## Recuperacao de instalacao parcial
+
+O GPO-DIARIA.cmd valida o bootstrap local e a tarefa DDM SNOC Windows - Compliance. Se a tarefa estiver ausente, o instalador e executado novamente e registra a tarefa como SYSTEM antes da conformidade.
+
 ## Cobertura integral dos CMDs por UNC
 
 O pipeline executa os sete CMDs centrais diretamente por SMB: instalacao do bootstrap, GPO diaria, instalacao, reparo, diagnostico, update do AD e rollback.

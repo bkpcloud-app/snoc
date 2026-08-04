@@ -1,3 +1,9 @@
+## 2.0.12 - 2026-08-04
+- Corrige a primeira instalacao quando a tarefa de compliance ainda nao existe.
+- Captura stderr e ExitCode do schtasks sem falhar quando a tarefa esta ausente.
+- Remove LogonType invalido do XML e registra a tarefa explicitamente com /RU SYSTEM.
+- Recupera instalacao parcial com bootstrap local presente e tarefa ausente.
+
 ## 2.0.11 - 2026-08-04
 - Normaliza todos os sete CMDs centrais executados por caminho UNC.
 - Inclui update central, instalacao, reparo, diagnostico e rollback no teste SMB integral.
