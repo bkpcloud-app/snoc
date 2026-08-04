@@ -1,0 +1,59 @@
+name: Run DDM SNOC Windows 2.0.12 Promotion V2
+
+on:
+  push:
+    paths:
+      - 'release-status/.trigger-ddm-snoc-2.0.12-v2'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: run-ddm-snoc-windows-2.0.12
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Patch SYSTEM task XML and execute promotion
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Repo=$env:GITHUB_WORKSPACE
+          $Product=Join-Path $Repo 'windows\zabbix-agent-deployment'
+          $Utf8=New-Object System.Text.UTF8Encoding($false)
+
+          $InstallerPath=Join-Path $Product 'bootstrap\Install-DDM-SNOC-Bootstrap.ps1'
+          $Installer=[IO.File]::ReadAllText($InstallerPath)
+          $OldPrincipal='<Principals><Principal id="Author"><UserId>S-1-5-18</UserId><LogonType>ServiceAccount</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>'
+          $NewPrincipal='<Principals><Principal id="Author"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>'
+          if(-not $Installer.Contains($OldPrincipal)){throw 'Principal XML antigo nao encontrado.'}
+          $Installer=$Installer.Replace($OldPrincipal,$NewPrincipal)
+          $OldCreate="`$Create=Invoke-DDMSchtasks -SchtasksArguments @('/Create','/TN',`$TaskName,'/XML',`$TaskXml,'/F')"
+          $NewCreate="`$Create=Invoke-DDMSchtasks -SchtasksArguments @('/Create','/TN',`$TaskName,'/XML',`$TaskXml,'/RU','SYSTEM','/F')"
+          if(-not $Installer.Contains($OldCreate)){throw 'Criacao de tarefa antiga nao encontrada.'}
+          $Installer=$Installer.Replace($OldCreate,$NewCreate)
+          [IO.File]::WriteAllText($InstallerPath,$Installer,$Utf8)
+
+          $PromotionPath=Join-Path $Repo '.github\scripts\Promote-DDM-SNOC-2.0.12.ps1'
+          $Promotion=[IO.File]::ReadAllText($PromotionPath)
+          $CleanupMarker="    Remove-Item -LiteralPath (Join-Path `$Repo '.github\workflows\_run-ddm-snoc-2.0.12.yml') -Force -ErrorAction SilentlyContinue"
+          $CleanupInsert=@'
+    Remove-Item -LiteralPath (Join-Path $Repo '.github\workflows\_run-ddm-snoc-2.0.12.yml') -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $Repo '.github\workflows\_run-ddm-snoc-2.0.12-v2.yml') -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $Repo 'release-status\.trigger-ddm-snoc-2.0.12-v2') -Force -ErrorAction SilentlyContinue
+'@
+          if(-not $Promotion.Contains($CleanupMarker)){throw 'Marcador de limpeza da promocao nao encontrado.'}
+          $Promotion=$Promotion.Replace($CleanupMarker,$CleanupInsert.TrimEnd())
+          [IO.File]::WriteAllText($PromotionPath,$Promotion,$Utf8)
+
+          & $PromotionPath
