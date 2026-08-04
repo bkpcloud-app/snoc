@@ -1,0 +1,132 @@
+name: DDM SNOC Windows ACL Hotfix 2.0.8 v4
+
+on:
+  push:
+    paths:
+      - '.github/workflows/_tmp-ddm-snoc-acl-hotfix-2.0.8-v4.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ddm-snoc-windows-acl-hotfix-2.0.8-v4
+  cancel-in-progress: false
+
+jobs:
+  hotfix:
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Execute corrected source, validation, build and release pipeline
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Repo=$env:GITHUB_WORKSPACE
+          $TemplatePath=Join-Path $Repo '.github\workflows\_tmp-ddm-snoc-acl-hotfix-2.0.8-v3.yml'
+          $Tag='ddm-snoc-windows-v2.0.8'
+          $TagCreated=$false
+
+          function Get-StepScript([string]$Name){
+              $Lines=@(Get-Content -LiteralPath $TemplatePath)
+              $StepLine='- name: '+$Name
+              $Start=-1
+              for($I=0;$I -lt $Lines.Count;$I++){
+                  if($Lines[$I].Trim() -eq $StepLine){$Start=$I;break}
+              }
+              if($Start -lt 0){throw "Etapa nao encontrada: $Name"}
+              $Run=-1
+              for($I=$Start+1;$I -lt $Lines.Count;$I++){
+                  if($Lines[$I].Trim() -eq 'run: |'){$Run=$I;break}
+                  if($Lines[$I] -match '^      - name:'){break}
+              }
+              if($Run -lt 0){throw "Bloco run ausente: $Name"}
+              $Body=@()
+              for($I=$Run+1;$I -lt $Lines.Count;$I++){
+                  if($Lines[$I] -match '^      - name:'){break}
+                  $Line=$Lines[$I]
+                  if($Line.StartsWith('          ')){$Line=$Line.Substring(10)}
+                  $Body+=$Line
+              }
+              return ($Body -join "`r`n")
+          }
+
+          function Invoke-StepText([string]$Name,[string]$Text){
+              $Path=Join-Path $env:RUNNER_TEMP (($Name -replace '[^A-Za-z0-9_-]','_')+'.ps1')
+              [IO.File]::WriteAllText($Path,$Text,(New-Object Text.UTF8Encoding($false)))
+              & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Path
+              if($LASTEXITCODE -ne 0){throw "$Name retornou $LASTEXITCODE"}
+          }
+
+          try{
+              $Patch=Get-StepScript 'Patch source'
+              $Patch=$Patch.Replace("From-U32 ([uint32]0xA0000000)","From-U32 ([Convert]::ToUInt32('A0000000',16))")
+              Invoke-StepText 'Patch-source-corrigido' $Patch
+
+              Remove-Item (Join-Path $Repo '.github\workflows\_tmp-ddm-snoc-acl-hotfix-2.0.8-v4.yml') -Force
+
+              $Validate=Get-StepScript 'Validate source'
+              Invoke-StepText 'Validate-source' $Validate
+
+              $Build=Get-StepScript 'Build assets'
+              $Build=$Build.Replace('${{ steps.source.outputs.commit }}','PENDING-COMMIT')
+              Invoke-StepText 'Build-assets' $Build
+
+              git config user.name 'github-actions[bot]'
+              git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+              git add -A
+              git commit -m 'fix(snoc-windows): corrige ACL Synchronize e promove 2.0.8'
+              git push origin HEAD:main
+              $Commit=(git rev-parse HEAD).Trim()
+
+              if(-not [string]::IsNullOrWhiteSpace([string](git ls-remote --tags origin "refs/tags/$Tag"))){throw "Tag ja existe: $Tag"}
+              git tag -a $Tag -m 'DDM SNOC Windows 2.0.8'
+              git push origin $Tag
+              $TagCreated=$true
+
+              $ManifestPath=Join-Path $Repo 'dist\DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json'
+              $Manifest=Get-Content -LiteralPath $ManifestPath -Raw|ConvertFrom-Json
+              $Manifest.GitCommit=$Commit
+              $Manifest|ConvertTo-Json -Depth 6|Set-Content -LiteralPath $ManifestPath -Encoding UTF8
+              $ManifestHash=(Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash
+              Set-Content -LiteralPath ($ManifestPath+'.sha256') -Value ($ManifestHash+' *'+(Split-Path -Leaf $ManifestPath)) -Encoding ASCII
+
+              $Publish=Get-StepScript 'Publish release'
+              Invoke-StepText 'Publish-release' $Publish
+
+              $Release=(& gh release view $Tag --json isDraft,isPrerelease,assets,targetCommitish)|ConvertFrom-Json
+              if($Release.isDraft -or $Release.isPrerelease){throw 'Release nao ficou estavel.'}
+              if(@($Release.assets).Count -ne 6){throw "Release possui $(@($Release.assets).Count) assets."}
+
+              $StatusPath=Join-Path $Repo 'release-status\ddm-snoc-windows-v2.0.8.txt'
+              New-Item (Split-Path -Parent $StatusPath) -ItemType Directory -Force|Out-Null
+              Set-Content -LiteralPath $StatusPath -Value ('State=READY Tag='+$Tag+' Commit='+$Commit+' Assets=6 AuditPoints=40 VerifiedAtUtc='+(Get-Date).ToUniversalTime().ToString('o')) -Encoding UTF8
+              git add $StatusPath
+              git commit -m 'chore(snoc-windows): registra 2.0.8 READY'
+              git push origin HEAD:main
+          }
+          catch{
+              $Message=$_.Exception.Message -replace '[\r\n]+',' '
+              if($TagCreated){
+                  & gh release delete $Tag --yes 2>$null
+                  git push --delete origin $Tag 2>$null
+              }
+              git fetch origin main
+              git reset --hard origin/main
+              $FailurePath=Join-Path $Repo 'release-status\ddm-snoc-windows-v2.0.8-v4-attempt.txt'
+              New-Item (Split-Path -Parent $FailurePath) -ItemType Directory -Force|Out-Null
+              Set-Content -LiteralPath $FailurePath -Value ('State=FAILED RunId=${{ github.run_id }} Commit=${{ github.sha }} Message='+$Message+' FailedAtUtc='+(Get-Date).ToUniversalTime().ToString('o')) -Encoding UTF8
+              git config user.name 'github-actions[bot]'
+              git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+              git add $FailurePath
+              git commit -m 'chore(snoc-windows): registra falha v4 ACL 2.0.8'
+              git push origin HEAD:main
+              throw
+          }
