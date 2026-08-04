@@ -1,0 +1,93 @@
+name: Verify DDM SNOC Windows 2.0.5 release
+
+on:
+  push:
+    paths:
+      - '.github/workflows/ddm-snoc-verify-release-2.0.5.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Verify and record release state
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+          $Tag = 'ddm-snoc-windows-v2.0.5'
+          $Expected = @(
+              'DDM-SNOC-WINDOWS-MOTOR-2.0.5.zip',
+              'DDM-SNOC-WINDOWS-MOTOR-2.0.5.zip.sha256',
+              'DDM-SNOC-WINDOWS-AD-SEED-2.0.5.zip',
+              'DDM-SNOC-WINDOWS-AD-SEED-2.0.5.zip.sha256',
+              'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.5.json',
+              'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.5.json.sha256'
+          )
+
+          $State = 'NOT_READY'
+          $Message = ''
+          $Assets = @()
+          try {
+              $Headers = @{
+                  Authorization = 'Bearer ' + $env:GH_TOKEN
+                  Accept = 'application/vnd.github+json'
+                  'User-Agent' = 'DDM-SNOC-Windows-Verify'
+              }
+              $Release = Invoke-RestMethod `
+                  -Uri ('https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/' + $Tag) `
+                  -Headers $Headers `
+                  -TimeoutSec 60 `
+                  -ErrorAction Stop
+
+              $Assets = @($Release.assets | ForEach-Object { [string]$_.name } | Sort-Object)
+              $Missing = @($Expected | Where-Object { $Assets -notcontains $_ })
+              $Extra = @($Assets | Where-Object { $Expected -notcontains $_ })
+
+              if ([bool]$Release.draft -or [bool]$Release.prerelease) {
+                  throw 'Release esta como draft ou prerelease.'
+              }
+              if ($Missing.Count -gt 0) {
+                  throw ('Assets ausentes: ' + ($Missing -join ', '))
+              }
+              if ($Extra.Count -gt 0) {
+                  throw ('Assets extras inesperados: ' + ($Extra -join ', '))
+              }
+
+              $State = 'READY'
+              $Message = 'Release estavel com os seis assets oficiais.'
+          }
+          catch {
+              $Message = $_.Exception.Message
+          }
+
+          $StatusRoot = Join-Path $env:GITHUB_WORKSPACE 'release-status'
+          New-Item -Path $StatusRoot -ItemType Directory -Force | Out-Null
+          $StatusPath = Join-Path $StatusRoot 'ddm-snoc-windows-v2.0.5.txt'
+          @(
+              'Tag=' + $Tag,
+              'State=' + $State,
+              'Message=' + $Message,
+              'VerifiedAtUtc=' + (Get-Date).ToUniversalTime().ToString('o'),
+              'Assets=' + ($Assets -join '|')
+          ) | Set-Content -LiteralPath $StatusPath -Encoding ASCII
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- $StatusPath
+          git commit -m ('chore(snoc-windows): registra release 2.0.5 ' + $State)
+          git pull --rebase origin main
+          git push origin HEAD:main
