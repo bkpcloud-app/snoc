@@ -20,12 +20,37 @@ function Copy-Atomic([string]$Source,[string]$Destination) {
     if (-not (Test-Path -LiteralPath $Source)) { throw "Arquivo de bootstrap ausente: $Source" }
     $Parent=Split-Path -Parent $Destination
     if (-not (Test-Path -LiteralPath $Parent)) { New-Item -Path $Parent -ItemType Directory -Force | Out-Null }
-    $Temp=$Destination + '.new-' + [guid]::NewGuid().ToString('N')
+    $Suffix=[guid]::NewGuid().ToString('N')
+    $Temp=$Destination + '.new-' + $Suffix
+    $Backup=$Destination + '.previous-' + $Suffix
+    $HadDestination=Test-Path -LiteralPath $Destination
     try {
         Copy-Item -LiteralPath $Source -Destination $Temp -Force
-        if ((Get-DDMSha256 $Source) -ne (Get-DDMSha256 $Temp)) { throw "Falha de integridade ao copiar $Source" }
-        Move-Item -LiteralPath $Temp -Destination $Destination -Force
-    } finally { Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue }
+        $SourceHash=Get-DDMSha256 $Source
+        if ($SourceHash -ne (Get-DDMSha256 $Temp)) { throw "Falha de integridade ao copiar $Source" }
+        if ($HadDestination) {
+            [System.IO.File]::Replace($Temp,$Destination,$Backup,$true)
+        }
+        else {
+            [System.IO.File]::Move($Temp,$Destination)
+        }
+        if ($SourceHash -ne (Get-DDMSha256 $Destination)) { throw "Falha de integridade ao ativar $Destination" }
+        Remove-Item -LiteralPath $Backup -Force -ErrorAction SilentlyContinue
+    }
+    catch {
+        if ($HadDestination -and (Test-Path -LiteralPath $Backup)) {
+            Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+            [System.IO.File]::Move($Backup,$Destination)
+        }
+        elseif (-not $HadDestination) {
+            Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+        }
+        throw
+    }
+    finally {
+        Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $Backup -Force -ErrorAction SilentlyContinue
+    }
 }
 function Get-EndpointMode([string]$Root) {
     $Current=Read-DDMFirstLine (Join-Path $Root $DDMProduct.CurrentVersionFile)
@@ -129,7 +154,7 @@ $Xml=@"
     <BootTrigger><Enabled>true</Enabled><Delay>PT5M</Delay></BootTrigger>
     <CalendarTrigger><StartBoundary>2026-01-01T03:00:00</StartBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay><RandomDelay>PT15M</RandomDelay></CalendarTrigger>
   </Triggers>
-  <Principals><Principal id="Author"><UserId>S-1-5-18</UserId><LogonType>ServiceAccount</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+  <Principals><Principal id="Author"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
@@ -152,7 +177,7 @@ $Xml=@"
 "@
 try {
     [System.IO.File]::WriteAllText($TaskXml,$Xml,[System.Text.Encoding]::Unicode)
-    $Create=Invoke-DDMSchtasks -SchtasksArguments @('/Create','/TN',$TaskName,'/XML',$TaskXml,'/F')
+    $Create=Invoke-DDMSchtasks -SchtasksArguments @('/Create','/TN',$TaskName,'/XML',$TaskXml,'/RU','SYSTEM','/F')
     if ([int]$Create.ExitCode -ne 0) { throw ("Falha ao criar tarefa $TaskName. ExitCode=$($Create.ExitCode); " + (Get-DDMSchtasksOutputText $Create)) }
     $Created=Invoke-DDMSchtasks -SchtasksArguments @('/Query','/TN',$TaskName,'/XML')
     if ([int]$Created.ExitCode -ne 0) { throw ('Tarefa criada, mas nao pode ser relida: ' + (Get-DDMSchtasksOutputText $Created)) }
