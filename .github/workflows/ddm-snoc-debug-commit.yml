@@ -1,0 +1,20 @@
+name: Validate DDM SNOC Client Catalog
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-client-catalog:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Validate product and client catalog
+        shell: powershell
+        run: |
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product

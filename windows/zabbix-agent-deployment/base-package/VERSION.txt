@@ -1,2 +1,0 @@
-BKPCloud Zabbix Windows 1.0.7
-Agent 7.0.28
