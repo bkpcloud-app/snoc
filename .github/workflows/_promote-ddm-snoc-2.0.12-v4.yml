@@ -28,4 +28,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference='Stop'
+          Write-Host 'Starting DDM SNOC Windows 2.0.12 direct promotion V4.'
           & (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\Promote-DDM-SNOC-2.0.12-V4.ps1')
