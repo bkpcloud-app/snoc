@@ -138,7 +138,7 @@ Write-Host '3/12 Contrato global do produto'
 . (Join-Path $ProductRoot 'config\DDM-Product.ps1')
 Assert-DDMTest ($DDMProduct.ProductName -eq 'DDM SNOC Windows') 'ProductName invalido.'
 Assert-DDMTest ($DDMProduct.ProductCode -eq 'DDM-SNOC-WINDOWS') 'ProductCode invalido.'
-Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.8') 'ProductVersion deve ser 2.0.8.'
+Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.9') 'ProductVersion deve ser 2.0.9.'
 Assert-DDMTest ($DDMProduct.ClientSchemaVersion -eq 3) 'Schema deve ser 3.'
 Assert-DDMTest ([bool]$DDMProduct.AllowAgent2OnServer2012) 'Server 2012 deve permanecer habilitado para Agent 2.'
 Assert-DDMTest ([bool]$DDMProduct.InstallAgent2Plugins) 'Plugins Agent 2 devem permanecer habilitados.'
@@ -193,6 +193,53 @@ try {
     $Client | Export-Clixml -LiteralPath $RuntimePath -Depth 12
     $RoundTrip = Import-Clixml -LiteralPath $RuntimePath
     Assert-DDMClient $RoundTrip $DDMProduct
+
+    # Regressao: duas redes distintas em hashtables nao podem ser agrupadas como CIDR vazio.
+    $NetworkA = $Client.Networks[0].Clone()
+    $NetworkB = $Client.Networks[0].Clone()
+    $NetworkA.Cidr = '192.0.2.0/24'
+    $NetworkB.Cidr = '198.51.100.0/24'
+    $DistinctNetworksClient = $Client.Clone()
+    $DistinctNetworksClient.Networks = @($NetworkA, $NetworkB)
+    Assert-DDMClient $DistinctNetworksClient $DDMProduct
+
+    # Regressao negativa: duplicidade real deve continuar bloqueada e informar o CIDR.
+    $DuplicateA = $Client.Networks[0].Clone()
+    $DuplicateB = $Client.Networks[0].Clone()
+    $DuplicateA.Cidr = '192.0.2.0/24'
+    $DuplicateB.Cidr = '192.0.2.0/24'
+    $DuplicateNetworksClient = $Client.Clone()
+    $DuplicateNetworksClient.Networks = @($DuplicateA, $DuplicateB)
+    $DuplicateMessage = ''
+    try {
+        Assert-DDMClient $DuplicateNetworksClient $DDMProduct
+    }
+    catch {
+        $DuplicateMessage = $_.Exception.Message
+    }
+    Assert-DDMTest ($DuplicateMessage -eq 'CIDRs duplicados: 192.0.2.0/24') 'Duplicidade real de CIDR nao foi diagnosticada corretamente.'
+
+    # Todos os CLIENTE.ps1 oficiais precisam passar no mesmo Windows PowerShell usado pelo AD.
+    $OfficialClientFiles = @(
+        Get-ChildItem -LiteralPath (Join-Path $ProductRoot 'clients') -Filter 'CLIENTE.ps1' -Recurse
+    )
+    Assert-DDMTest ($OfficialClientFiles.Count -gt 0) 'Nenhum CLIENTE.ps1 oficial encontrado.'
+    foreach ($OfficialClientFile in $OfficialClientFiles) {
+        $OfficialRaw = [System.IO.File]::ReadAllText($OfficialClientFile.FullName)
+        $OfficialMatch = [regex]::Match(
+            $OfficialRaw,
+            '(?ms)^\s*(?:#.*\r?\n\s*)*\$DDMClient\s*=\s*(?<data>@\{.*\})\s*$'
+        )
+        Assert-DDMTest $OfficialMatch.Success "CLIENTE.ps1 oficial contem codigo executavel: $($OfficialClientFile.FullName)"
+        $OfficialDataPath = Join-Path $script:RunRoot (($OfficialClientFile.Directory.Name) + '.psd1')
+        [System.IO.File]::WriteAllText(
+            $OfficialDataPath,
+            $OfficialMatch.Groups['data'].Value,
+            (New-Object System.Text.UTF8Encoding($false))
+        )
+        $OfficialClient = Import-PowerShellDataFile -LiteralPath $OfficialDataPath
+        Assert-DDMClient $OfficialClient $DDMProduct
+    }
 
     $System = New-Object PSObject -Property @{
         PartOfDomain = $true

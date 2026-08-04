@@ -116,8 +116,22 @@ function Assert-DDMClient([hashtable]$Client,$Product) {
         if ($Rule.ProxyActive) { Assert-DDMHostOrIp ([string]$Rule.ProxyActive) ("ProxyActive da rede " + [string]$Rule.Cidr) }
         if ($null -eq $Rule.Priority -or [int]$Rule.Priority -lt 0 -or [int]$Rule.Priority -gt 10000) { throw "Priority invalida: $($Rule.Cidr)" }
     }
-    $Duplicates=@($Rules | Group-Object Cidr | Where-Object Count -gt 1)
-    if ($Duplicates.Count -gt 0) { throw "CIDRs duplicados: $(@($Duplicates.Name) -join ', ')" }
+    $CidrCounts=@{}
+    foreach ($Rule in $Rules) {
+        $Cidr=[string]$Rule.Cidr
+        if ($CidrCounts.ContainsKey($Cidr)) {
+            $CidrCounts[$Cidr]=[int]$CidrCounts[$Cidr]+1
+        } else {
+            $CidrCounts[$Cidr]=1
+        }
+    }
+    $DuplicateCidrs=@(
+        $CidrCounts.GetEnumerator() |
+            Where-Object { [int]$_.Value -gt 1 } |
+            Sort-Object Key |
+            ForEach-Object { [string]$_.Key }
+    )
+    if ($DuplicateCidrs.Count -gt 0) { throw "CIDRs duplicados: $($DuplicateCidrs -join ', ')" }
     for ($I=0;$I -lt $Rules.Count;$I++) {
         for ($J=$I+1;$J -lt $Rules.Count;$J++) {
             if (Test-DDMCidrOverlap ([string]$Rules[$I].Cidr) ([string]$Rules[$J].Cidr)) {

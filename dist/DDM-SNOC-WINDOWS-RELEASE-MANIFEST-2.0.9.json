@@ -1,0 +1,29 @@
+﻿{
+    "GitCommit":  "722abdfc9a95f1e070cca00a5ae6b4f639a031f3",
+    "Validation":  [
+                       "repository",
+                       "runtime-lexing",
+                       "bootstrap-load",
+                       "acl",
+                       "all-official-clients",
+                       "expanded-motor",
+                       "full-central-pilot"
+                   ],
+    "ProductVersion":  "2.0.9",
+    "Assets":  [
+                   {
+                       "Sha256":  "18DDD8F90C80901058C82307C0931E71A9634CF19577A6DB21EB6BDD0C6F9465",
+                       "Name":  "DDM-SNOC-WINDOWS-MOTOR-2.0.9.zip",
+                       "Size":  153227
+                   },
+                   {
+                       "Sha256":  "FB3714B3BE7BF5DA296B490CAE41B4A056DC61DDA004F1546CE194E3340FB09F",
+                       "Name":  "DDM-SNOC-WINDOWS-AD-SEED-2.0.9.zip",
+                       "Size":  42162
+                   }
+               ],
+    "ExternalPilotsRequired":  false,
+    "GeneratedAtUtc":  "2026-08-04T18:49:41.2660586Z",
+    "Product":  "DDM SNOC Windows",
+    "GitTag":  "ddm-snoc-windows-v2.0.9"
+}

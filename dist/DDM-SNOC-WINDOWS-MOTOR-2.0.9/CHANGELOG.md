@@ -1,3 +1,8 @@
+## 2.0.9 - 2026-08-04
+- Corrige falso positivo de CIDRs duplicados em Networks representadas por hashtables no Windows PowerShell 5.1.
+- Valida todos os CLIENTE.ps1 oficiais no pipeline e adiciona piloto integral do atualizador central.
+- Atualiza o recuperador para a release corrente e remove mensagens com quantidade fixa de arquivos.
+
 ## 2.0.8 - 2026-08-04
 - Corrige falso positivo ACL causado por Synchronize em ReadAndExecute.
 - Adiciona regressao ACL e auditoria Mizu em 40 pontos.
