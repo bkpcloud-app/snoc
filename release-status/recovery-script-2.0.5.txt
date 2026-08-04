@@ -1,0 +1,1 @@
+State=FAILED Message=line=351 column=52 text=$Version: message=Variable reference is not valid. ':' was not followed by a valid variable name character. Consider using ${} to delimit the name.   Commit=d9a3de8ebc6cee1789549ed42c1d0fd99e7b8b45 VerifiedAtUtc=2026-08-04T15:31:05.1919406Z
