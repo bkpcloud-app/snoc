@@ -1,0 +1,73 @@
+name: Verify DDM SNOC Windows 2.0.4 release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/ddm-snoc-verify-release-2.0.4.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Wait for official assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG='ddm-snoc-windows-v2.0.4'
+          EXPECTED=(
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.4.zip'
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.4.zip.sha256'
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.4.zip'
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.4.zip.sha256'
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.4.json'
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.4.json.sha256'
+          )
+          ok=0
+          for attempt in $(seq 1 60); do
+            json=$(curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>/dev/null || true)
+            if [ -n "$json" ]; then
+              names=$(printf '%s' "$json" | python -c "import json,sys; print('\\n'.join(a['name'] for a in json.load(sys.stdin).get('assets',[])))")
+              ok=1
+              for asset in "${EXPECTED[@]}"; do
+                if ! grep -Fxq "$asset" <<<"$names"; then
+                  ok=0
+                  break
+                fi
+              done
+              if [ "$ok" -eq 1 ]; then
+                break
+              fi
+            fi
+            sleep 10
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo 'Release or required assets were not published in time.' >&2
+            exit 1
+          fi
+          mkdir -p release-status
+          {
+            echo 'Tag=ddm-snoc-windows-v2.0.4'
+            echo 'ProductVersion=2.0.4'
+            echo 'State=READY'
+            printf 'VerifiedAtUtc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf '%s\n' "${EXPECTED[@]}"
+          } > release-status/ddm-snoc-windows-v2.0.4.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add release-status/ddm-snoc-windows-v2.0.4.txt
+          git commit -m 'chore(snoc-windows): confirma release 2.0.4 pronta'
+          git push origin HEAD:main
