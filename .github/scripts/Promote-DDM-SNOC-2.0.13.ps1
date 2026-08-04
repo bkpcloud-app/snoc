@@ -51,8 +51,10 @@ function Set-DDMLocalSecureAcl {
 
     # Descendentes voltam a herdar a ACL canonica da raiz; nao remover heranca recursivamente.
     foreach($Child in @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue)){
-        & icacls.exe $Child.FullName /inheritance:e /reset /T /C /Q | Out-Null
-        if($LASTEXITCODE -ne 0){throw "Falha ao normalizar ACL local: $($Child.FullName) (ExitCode=$LASTEXITCODE)"}
+        & icacls.exe $Child.FullName /inheritance:e /T /C /Q | Out-Null
+        if($LASTEXITCODE -ne 0){throw "Falha ao habilitar heranca ACL local: $($Child.FullName) (ExitCode=$LASTEXITCODE)"}
+        & icacls.exe $Child.FullName /reset /T /C /Q | Out-Null
+        if($LASTEXITCODE -ne 0){throw "Falha ao resetar ACL local: $($Child.FullName) (ExitCode=$LASTEXITCODE)"}
     }
 }
 '@
@@ -148,6 +150,8 @@ exit /b %ERRORLEVEL%
     $RepoTest=$RepoTest.Replace("Assert-DDMTest (`$GpoDaily.Contains('schtasks.exe`" /Query /TN `"%TASK%`" >nul 2>&1')) 'GPO-DIARIA nao verifica a tarefa local.'",'')
     $RepoTest=$RepoTest.Replace("Assert-DDMTest ([regex]::Matches(`$GpoDaily,'INSTALAR-BOOTSTRAP\.cmd').Count -eq 2) 'GPO-DIARIA nao recupera instalacao parcial.'",'')
     # remove-controles-legados-gpo-2013
+    $RepoTest=$RepoTest.Replace("Assert-DDMTest (`$CommonAcl.Contains('/inheritance:e /reset /T /C /Q')) 'ACL local ainda remove heranca recursivamente.'","Assert-DDMTest (`$CommonAcl.Contains('/inheritance:e /T /C /Q')) 'ACL local nao habilita heranca nos descendentes.'`r`nAssert-DDMTest (`$CommonAcl.Contains('/reset /T /C /Q')) 'ACL local nao reseta descendentes para heranca canonica.'")
+    # split-acl-assertions-2013
     $RepoTest=$RepoTest.Replace("ProductVersion -eq '2.0.12'","ProductVersion -eq '2.0.13'")
     $RepoTest=$RepoTest.Replace('ProductVersion deve ser 2.0.12.','ProductVersion deve ser 2.0.13.')
     if($RepoTest -notmatch 'ACL-FULL-STATE-RECOVERY-2\.0\.13'){

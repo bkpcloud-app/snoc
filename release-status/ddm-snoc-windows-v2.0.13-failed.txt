@@ -1,1 +1,1 @@
-﻿State=FAILED RunId=30955168591 Error=Recuperacao ACL pelo GPO-DIARIA.cmd retornou 1. FailedAtUtc=2026-08-04T22:08:18.0829616Z
+﻿State=FAILED RunId=30955477430 Error=Reparo de heranca ACL nao foi aplicado. FailedAtUtc=2026-08-04T22:12:26.8165716Z
