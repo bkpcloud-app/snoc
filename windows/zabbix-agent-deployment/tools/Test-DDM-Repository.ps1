@@ -138,7 +138,7 @@ Write-Host '3/12 Contrato global do produto'
 . (Join-Path $ProductRoot 'config\DDM-Product.ps1')
 Assert-DDMTest ($DDMProduct.ProductName -eq 'DDM SNOC Windows') 'ProductName invalido.'
 Assert-DDMTest ($DDMProduct.ProductCode -eq 'DDM-SNOC-WINDOWS') 'ProductCode invalido.'
-Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.7') 'ProductVersion deve ser 2.0.7.'
+Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.8') 'ProductVersion deve ser 2.0.8.'
 Assert-DDMTest ($DDMProduct.ClientSchemaVersion -eq 3) 'Schema deve ser 3.'
 Assert-DDMTest ([bool]$DDMProduct.AllowAgent2OnServer2012) 'Server 2012 deve permanecer habilitado para Agent 2.'
 Assert-DDMTest ([bool]$DDMProduct.InstallAgent2Plugins) 'Plugins Agent 2 devem permanecer habilitados.'
@@ -261,6 +261,10 @@ foreach ($Required in @(
 Assert-DDMTest ($Publisher.Contains('${BlockPath}:')) 'Interpolacao segura de BlockPath ausente.'
 Assert-DDMTest ($CentralClient.Contains('EndpointInternet deve permanecer false')) 'Contrato nao bloqueia internet no endpoint.'
 Assert-DDMTest ($CentralClient.Contains('Deployment.Ring=PRODUCTION exige ProductionReady=true')) 'Contrato nao fecha ring de producao.'
+
+$AclTestPath = Join-Path $ProductRoot 'tools\Test-DDM-AclValidation.ps1'
+Assert-DDMTest (Test-Path -LiteralPath $AclTestPath) 'Teste dedicado de ACL ausente.'
+& $AclTestPath -ProductRoot $ProductRoot
 
 Write-Host '7/12 Bootstrap, cache e conformidade'
 $Bootstrap = Read-DDMRaw 'bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1'

@@ -271,7 +271,7 @@ try {
     if ($ProductRaw -notmatch ("ProductVersion\s*=\s*'" + [regex]::Escape($Version) + "'")) {
         throw 'Versao interna do AD-SEED diverge da tag.'
     }
-    Write-Host "AD-SEED $Version validado e sem return 120." -ForegroundColor Green
+    Write-Host "AD-SEED $Version validado." -ForegroundColor Green
 
     Write-Step "4/9 - Baixando e validando CLIENTE.ps1 oficial: $ClientId"
     $RawRoot = "https://raw.githubusercontent.com/$Repository/$ExpectedTag"
@@ -306,7 +306,7 @@ try {
         throw 'SHA-256 do CLIENTE.ps1 divergente do catalogo.'
     }
 
-    Write-Step '5/9 - Preservando os nove itens da publicacao parcial para auditoria...'
+    Write-Step '5/9 - Preservando o estado atual da pasta central para auditoria...'
     Invoke-RobocopyChecked $CentralRoot $PartialContent
     Write-Host "Estado parcial preservado em: $PartialBackupRoot" -ForegroundColor Green
 

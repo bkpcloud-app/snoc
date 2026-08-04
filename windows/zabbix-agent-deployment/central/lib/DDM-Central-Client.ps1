@@ -141,20 +141,47 @@ function Assert-DDMClient([hashtable]$Client,$Product) {
     }
 }
 
+function Convert-DDMFileSystemRightsToUInt32 {
+    param([System.Security.AccessControl.FileSystemRights]$Rights)
+    $Bytes=[System.BitConverter]::GetBytes([int]$Rights)
+    return [System.BitConverter]::ToUInt32($Bytes,0)
+}
+
+function Test-DDMFileSystemRightsWriteCapable {
+    param([System.Security.AccessControl.FileSystemRights]$Rights)
+    [uint32]$Value=Convert-DDMFileSystemRightsToUInt32 $Rights
+    [uint32]$WriteMask=0
+    foreach($Right in @(
+        [System.Security.AccessControl.FileSystemRights]::WriteData,
+        [System.Security.AccessControl.FileSystemRights]::AppendData,
+        [System.Security.AccessControl.FileSystemRights]::WriteExtendedAttributes,
+        [System.Security.AccessControl.FileSystemRights]::WriteAttributes,
+        [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles,
+        [System.Security.AccessControl.FileSystemRights]::Delete,
+        [System.Security.AccessControl.FileSystemRights]::ChangePermissions,
+        [System.Security.AccessControl.FileSystemRights]::TakeOwnership
+    )){
+        $WriteMask=$WriteMask -bor (Convert-DDMFileSystemRightsToUInt32 $Right)
+    }
+    $WriteMask=$WriteMask -bor [Convert]::ToUInt32('40000000',16)
+    $WriteMask=$WriteMask -bor [Convert]::ToUInt32('10000000',16)
+    return (($Value -band $WriteMask) -ne 0)
+}
+
 function Assert-DDMCentralAcl([string]$Path) {
     $Acl=Get-Acl -LiteralPath $Path
     $Broad=@('S-1-1-0','S-1-5-11','S-1-5-32-545')
-    foreach ($Rule in @($Acl.Access)) {
-        if ([string]$Rule.AccessControlType -ne 'Allow') { continue }
-        try { $Sid=$Rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } catch { continue }
+    foreach($Rule in @($Acl.Access)){
+        if([string]$Rule.AccessControlType -ne 'Allow'){continue}
+        try{$Sid=$Rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value}catch{continue}
         $IsBroad=($Broad -contains $Sid -or $Sid -match '-513$' -or $Sid -match '-515$')
-        if (-not $IsBroad) { continue }
+        if(-not $IsBroad){continue}
         $Rights=[System.Security.AccessControl.FileSystemRights]$Rule.FileSystemRights
-        $WriteMask=[System.Security.AccessControl.FileSystemRights]::Write -bor [System.Security.AccessControl.FileSystemRights]::Modify -bor [System.Security.AccessControl.FileSystemRights]::FullControl -bor [System.Security.AccessControl.FileSystemRights]::CreateFiles -bor [System.Security.AccessControl.FileSystemRights]::CreateDirectories -bor [System.Security.AccessControl.FileSystemRights]::Delete
-        if (($Rights -band $WriteMask) -ne 0) { throw "ACL insegura: $Sid possui escrita em $Path ($Rights). Contas de computador e usuarios amplos devem ter somente leitura." }
+        if(Test-DDMFileSystemRightsWriteCapable $Rights){
+            throw "ACL insegura: $Sid possui escrita em $Path ($Rights). Contas de computador e usuarios amplos devem ter somente leitura."
+        }
     }
 }
-
 function Assert-DDMShareAcl([string]$Path) {
     if ($Path -notmatch '^\\\\(?<server>[^\\]+)\\(?<share>[^\\]+)') { return }
     $Server=$Matches['server']; $Share=$Matches['share']

@@ -1,3 +1,7 @@
+## 2.0.8 - 2026-08-04
+- Corrige falso positivo ACL causado por Synchronize em ReadAndExecute.
+- Adiciona regressao ACL e auditoria Mizu em 40 pontos.
+
 ## 2.0.5
 
 - corrige falha real do atualizador central causada por eturn120 em Get-DDMHttpTimeoutSeconds;
