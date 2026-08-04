@@ -1,1 +1,1 @@
-﻿State=FAILED RunId=30955009989 Error=Bloco de recuperacao parcial do teste nao encontrado. FailedAtUtc=2026-08-04T22:05:54.9250874Z
+﻿State=FAILED RunId=30955168591 Error=Recuperacao ACL pelo GPO-DIARIA.cmd retornou 1. FailedAtUtc=2026-08-04T22:08:18.0829616Z

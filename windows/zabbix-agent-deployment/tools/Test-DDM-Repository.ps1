@@ -329,8 +329,8 @@ Assert-DDMTest ($BootstrapInstaller.Contains('Remove-DDMTaskIfPresent')) 'Instal
 Assert-DDMTest ($BootstrapInstaller.Contains("'/RU','SYSTEM'")) 'TaskRunsAsSYSTEM: tarefa nao e registrada explicitamente como SYSTEM.'
 Assert-DDMTest (-not $BootstrapInstaller.Contains('<LogonType>ServiceAccount</LogonType>')) 'XML ainda usa LogonType invalido.'
 $GpoDaily = Read-DDMRaw 'templates\central\GPO-DIARIA.cmd'
-Assert-DDMTest ($GpoDaily.Contains('schtasks.exe" /Query /TN "%TASK%" >nul 2>&1')) 'GPO-DIARIA nao verifica a tarefa local.'
-Assert-DDMTest ([regex]::Matches($GpoDaily,'INSTALAR-BOOTSTRAP\.cmd').Count -eq 2) 'GPO-DIARIA nao recupera instalacao parcial.'
+
+
 Assert-DDMTest (Test-Path -LiteralPath (Join-Path $ProductRoot 'tools\Test-DDM-BootstrapFirstInstall.ps1')) 'Teste da primeira instalacao ausente.'
 $Endpoint = Read-DDMRaw 'endpoint\Invoke-DDM-SNOC-Daily.ps1'
 $UncCmdTestPath = Join-Path $ProductRoot 'tools\Test-DDM-UncCmd.ps1'

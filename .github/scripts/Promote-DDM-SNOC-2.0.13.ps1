@@ -136,8 +136,10 @@ exit /b %ERRORLEVEL%
     [IO.File]::WriteAllText($LockedDesired,'ACL-DESIRED-AFTER')
     Assert-DDMFirstInstallTest ([IO.File]::ReadAllText($LockedDesired) -eq 'ACL-DESIRED-AFTER') 'desired-state.clixml continuou sem escrita apos reparo ACL.'
 '@
-    if(-not $FirstTest.Contains($OldBlock.Trim())){throw 'Bloco de recuperacao parcial do teste nao encontrado.'}
-    $FirstTest=$FirstTest.Replace($OldBlock.Trim(),$NewBlock.Trim())
+    if($FirstTest -notmatch 'ACL-CONFIG-BEFORE'){
+        if(-not $FirstTest.Contains($OldBlock.Trim())){throw 'Bloco de recuperacao parcial do teste nao encontrado.'}
+        $FirstTest=$FirstTest.Replace($OldBlock.Trim(),$NewBlock.Trim())
+    }
     $FirstTest=$FirstTest.Replace("Write-Host 'BOOTSTRAP_FIRST_INSTALL_AND_PARTIAL_RECOVERY_OK'","Write-Host 'BOOTSTRAP_FIRST_INSTALL_PARTIAL_AND_FULL_STATE_ACL_RECOVERY_OK'")
     Save-Text $FirstTestPath $FirstTest
 
