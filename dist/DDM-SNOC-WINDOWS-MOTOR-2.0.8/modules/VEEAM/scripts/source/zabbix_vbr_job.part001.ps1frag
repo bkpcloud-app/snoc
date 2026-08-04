@@ -1,0 +1,157 @@
+# Script: zabbix_vbr_job
+# Author: Romainsi
+# Description: Query Veeam job information
+# This script is intended for use with Zabbix > 3.X
+#
+# USAGE:
+#
+#   as a script:    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent\scripts\zabbix_vbr_job.ps1" <ITEM_TO_QUERY> <JOBID>or<JOBNAME> <TRIGGERLEVEL>
+#   as an item:     vbr[<ITEM_TO_QUERY>,<JOBID>or<JOBNAME>,<TRIGGERLEVEL>]
+#
+#
+# ITEMS availables (Switch) :
+# - DiscoveryBackupJobs
+# - DiscoveryBackupSyncJobs
+# - DiscoveryTapeJobs
+# - DiscoveryEndpointJobs
+# - DiscoveryReplicaJobs
+# - DiscoveryRepo
+# - DiscoveryBackupVmsByJobs
+# - ExportXml
+# - JobsCount
+# - RunningJob
+#
+# Examples:
+# powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent\scripts\zabbix_vbr_job.ps1" DiscoveryBackupJobs
+# Return a Json Value with all Backups Name and JobID 
+# Xml must be present in 'C:\Program Files\Zabbix Agent\scripts\TempXmlVeeam\*.xml', if not, you can launch manually : powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent\scripts\zabbix_vbr_job.ps1" ExportXml
+#
+# ITEMS availables (Switch) with JOBID Mandatory :
+# - ResultBackup
+# - ResultBackupSync
+# - ResultTape
+# - ResultEndpoint
+# - ResultReplica
+# - VmResultBackup
+# - VmResultBackupSync
+# - RepoCapacity
+# - RepoFree
+# - RunStatus
+# - VmCount
+# - VmCountResultBackup
+# - VmCountResultBackupSync
+# - Type
+# - NextRunTime
+#
+# Examples:
+# powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent\scripts\zabbix_vbr_job.ps1" ResultBackup "2fd246be-b32a-4c65-be3e-1ca5546ef225"
+# Return the value of result (see the VeeamStatusReplace function for correspondence)
+# or
+# powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent\scripts\zabbix_vbr_job.ps1" VmCountResultBackup "BackupJob1" "Warning"
+#
+# Xml must be present in 'C:\Program Files\Zabbix Agent\scripts\TempXmlVeeam\*.xml', if not, you can launch manually : powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent\scripts\zabbix_vbr_job.ps1" ExportXml
+#
+#
+#
+# Add to Zabbix Agent
+#   UserParameter=vbr[*],powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent\scripts\zabbix_vbr_job.ps1" "$1" "$2" "$3"
+
+
+# If you change the pathxml modify also the item Result Export XML with the new location in zabbix template
+$pathxml = 'C:\Program Files\Zabbix Agent\scripts'
+
+# ONLY FOR VMs RESULTS :
+# Ajust the start date for retrieve backup vms history
+#
+# Example : If you have a backup job that runs every 30 days this value must be at least '-31' days
+# but if you have only daily job ajust to '-2' days.
+# ! This request can consume a lot of cpu resources, adjust carefully !
+# 
+$days = '-31'
+
+$ITEM = [string]$args[0]
+$ID = [string]$args[1]
+$ID0 = [string]$args[2]
+
+# Load Veeam Module
+Add-PSSnapin -Name VeeamPSSnapIn -ErrorAction SilentlyContinue
+
+# Function Multiprocess ExportXml
+function ExportXml
+{
+	[CmdletBinding()]
+	Param (
+		[Parameter(Mandatory = $true)]
+		[string]$switch,
+		[Parameter(Mandatory = $true)]
+		[string]$name,
+		[Parameter(Mandatory = $false)]
+		[string]$command,
+		[Parameter(Mandatory = $false)]
+		[string]$type,
+		[Parameter(Mandatory = $false)]
+		[string]$options
+	)
+	
+	PROCESS
+	{
+		$path = "$pathxml\$name" + "temp.xml"
+		$newpath = "$pathxml\$name" + ".xml"
+		
+		if ($switch -like "normal")
+		{
+			[System.DateTime]$Date = (Get-Date).adddays($days) #.ToString('dd/MM/yyyy HH:mm:ss')
+			if ($options -like "true")
+			{
+				$commandnew = "$command " + "| Where-Object { `$_.CreationTime -ge `"$Date`" }"
+				$command = $commandnew
+			}
+			Start-Job -Name $name -ScriptBlock {
+				Add-PSSnapin -Name VeeamPSSnapIn -ErrorAction SilentlyContinue
+				$connectVeeam = Connect-VBRServer
+				Invoke-Expression $args[0] | Export-Clixml $args[1]
+				$disconnectVeeam = Disconnect-VBRServer
+				Copy-Item -Path $args[1] -Destination $args[3]
+				Remove-Item $args[1]
+			} -ArgumentList "$command", "$path", "$name", "$newpath"
+		}
+		
+		if ($switch -like "byvm")
+		{
+			$commandnew = "$command " + "| Where-Object { `$_.JobType -eq `"$type`" }"
+			Start-Job -Name $name -ScriptBlock {
+				Add-PSSnapin -Name VeeamPSSnapIn -ErrorAction SilentlyContinue
+				$connectVeeam = Connect-VBRServer
+				$BackupVmByJob = Invoke-Expression $args[0] | ForEach-Object {
+					$JobName = $_.Name
+					$_ | Get-VBRJobObject | Where-Object { $_.Object.Type -eq "VM" } | Select-Object @{ L = "Job"; E = { $JobName } }, Name | Sort-Object -Property Job, Name
+				}
+				$BackupVmByJob | Export-Clixml $args[1]
+				$disconnectVeeam = Disconnect-VBRServer
+				Copy-Item -Path $args[1] -Destination $args[3]
+				Remove-Item $args[1]
+			} -ArgumentList "$commandnew", "$path", "$name", "$newpath"
+		}
+		
+		if ($switch -like "bytaskswithretry")
+		{
+			Start-Job -Name $name -ScriptBlock {
+				Add-PSSnapin -Name VeeamPSSnapIn -ErrorAction SilentlyContinue
+				$connectVeeam = Connect-VBRServer
+				$StartDate = (Get-Date).adddays($args[4])
+				$BackupSessions = [Veeam.Backup.Core.CBackupSession]::GetAll() | Where-Object { $_.CreationTime -ge $StartDate } | Sort-Object JobName, CreationTime
+				$Result = & {
+					ForEach ($BackupSession in ($BackupSessions | Where-Object { $_.IsRetryMode -eq $false }))
+					{
+						[System.Collections.ArrayList]$TaskSessions = @($BackupSession | Get-VBRTaskSession)
+						If ($BackupSession.Result -eq "Failed")
+						{
+							$RetrySessions = $BackupSessions | Where-Object { ($_.IsRetryMode -eq $true) -and ($_.OriginalSessionId -eq $BackupSession.Id) }
+							ForEach ($RetrySession in $RetrySessions)
+							{
+								[System.Collections.ArrayList]$RetryTaskSessions = @($RetrySession | Get-VBRTaskSession)
+								ForEach ($RetryTaskSession in $RetryTaskSessions)
+								{
+									$PriorTaskSession = $TaskSessions | Where-Object { $_.Name -eq $RetryTaskSession.Name }
+									If ($PriorTaskSession) { $TaskSessions.Remove($PriorTaskSession) }
+									$TaskSessions.Add($RetryT

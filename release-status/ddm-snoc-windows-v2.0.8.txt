@@ -1,0 +1,1 @@
+﻿State=READY Tag=ddm-snoc-windows-v2.0.8 Commit=5d6ebad482b933a76bf2ccfcefffcdea43e1bb4a Assets=6 AuditPoints=40 VerifiedAtUtc=2026-08-04T17:12:23.7649037Z
