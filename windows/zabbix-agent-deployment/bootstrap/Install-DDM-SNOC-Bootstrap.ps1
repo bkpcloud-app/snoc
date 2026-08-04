@@ -18,6 +18,13 @@ function Test-Admin {
 }
 function Copy-Atomic([string]$Source,[string]$Destination) {
     if (-not (Test-Path -LiteralPath $Source)) { throw "Arquivo de bootstrap ausente: $Source" }
+    $SourceHash=Get-DDMSha256 $Source
+    if (Test-Path -LiteralPath $Destination) {
+        try {
+            if ($SourceHash -eq (Get-DDMSha256 $Destination)) { return }
+        }
+        catch {}
+    }
     $Parent=Split-Path -Parent $Destination
     if (-not (Test-Path -LiteralPath $Parent)) { New-Item -Path $Parent -ItemType Directory -Force | Out-Null }
     $Suffix=[guid]::NewGuid().ToString('N')
@@ -26,7 +33,6 @@ function Copy-Atomic([string]$Source,[string]$Destination) {
     $HadDestination=Test-Path -LiteralPath $Destination
     try {
         Copy-Item -LiteralPath $Source -Destination $Temp -Force
-        $SourceHash=Get-DDMSha256 $Source
         if ($SourceHash -ne (Get-DDMSha256 $Temp)) { throw "Falha de integridade ao preparar $Source" }
         if ($HadDestination) {
             Copy-Item -LiteralPath $Destination -Destination $Backup -Force
