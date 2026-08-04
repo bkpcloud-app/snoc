@@ -1,0 +1,1 @@
+﻿State=FAILED RunId=30955606532 Error=Release oficial 2.0.13 nao ficou pronta com seis assets. FailedAtUtc=2026-08-04T22:25:11.8394695Z
