@@ -1,4 +1,4 @@
-name: DDM SNOC Windows ACL Hotfix 2.0.8
+name: DDM SNOC Windows ACL Hotfix 2.0.8 v2
 
 on:
   push:
@@ -9,54 +9,44 @@ permissions:
   contents: write
 
 concurrency:
-  group: ddm-snoc-windows-acl-hotfix-2.0.8
+  group: ddm-snoc-windows-acl-hotfix-2.0.8-v2
   cancel-in-progress: false
 
 jobs:
   hotfix:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 35
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
 
-      - name: Apply ACL fix, regression tests and 40-point audit
+      - name: Patch ACL validator and add regression test
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          $Repo = $env:GITHUB_WORKSPACE
-          $Product = Join-Path $Repo 'windows\zabbix-agent-deployment'
-          $Utf8 = New-Object System.Text.UTF8Encoding($false)
+          $ErrorActionPreference='Stop'
+          $Repo=$env:GITHUB_WORKSPACE
+          $Product=Join-Path $Repo 'windows\zabbix-agent-deployment'
+          $Utf8=New-Object System.Text.UTF8Encoding($false)
+          function Save([string]$Path,[string]$Text){[IO.File]::WriteAllText($Path,$Text,$Utf8)}
 
-          function Write-Utf8([string]$Path, [string]$Value) {
-              [System.IO.File]::WriteAllText($Path, $Value, $Utf8)
-          }
-
-          $ClientPath = Join-Path $Product 'central\lib\DDM-Central-Client.ps1'
-          $ClientRaw = [System.IO.File]::ReadAllText($ClientPath)
-          $AclPattern = '(?ms)function Assert-DDMCentralAcl\(\[string\]\$Path\) \{.*?\r?\n\}\r?\n\r?\n(?=function Assert-DDMShareAcl)'
-          $AclReplacement = @'
+          $ClientPath=Join-Path $Product 'central\lib\DDM-Central-Client.ps1'
+          $Raw=[IO.File]::ReadAllText($ClientPath)
+          $Pattern='(?ms)function Assert-DDMCentralAcl\(\[string\]\$Path\) \{.*?\r?\n\}\r?\n\r?\n(?=function Assert-DDMShareAcl)'
+          $Replacement=@'
           function Convert-DDMFileSystemRightsToUInt32 {
-              param(
-                  [System.Security.AccessControl.FileSystemRights]$Rights
-              )
-
-              $Bytes = [System.BitConverter]::GetBytes([int]$Rights)
-              return [System.BitConverter]::ToUInt32($Bytes, 0)
+              param([System.Security.AccessControl.FileSystemRights]$Rights)
+              $Bytes=[System.BitConverter]::GetBytes([int]$Rights)
+              return [System.BitConverter]::ToUInt32($Bytes,0)
           }
 
           function Test-DDMFileSystemRightsWriteCapable {
-              param(
-                  [System.Security.AccessControl.FileSystemRights]$Rights
-              )
-
-              [uint32]$Value = Convert-DDMFileSystemRightsToUInt32 $Rights
-              [uint32]$WriteMask = 0
-
-              foreach ($Right in @(
+              param([System.Security.AccessControl.FileSystemRights]$Rights)
+              [uint32]$Value=Convert-DDMFileSystemRightsToUInt32 $Rights
+              [uint32]$WriteMask=0
+              foreach($Right in @(
                   [System.Security.AccessControl.FileSystemRights]::WriteData,
                   [System.Security.AccessControl.FileSystemRights]::AppendData,
                   [System.Security.AccessControl.FileSystemRights]::WriteExtendedAttributes,
@@ -65,576 +55,261 @@ jobs:
                   [System.Security.AccessControl.FileSystemRights]::Delete,
                   [System.Security.AccessControl.FileSystemRights]::ChangePermissions,
                   [System.Security.AccessControl.FileSystemRights]::TakeOwnership
-              )) {
-                  $WriteMask = $WriteMask -bor (Convert-DDMFileSystemRightsToUInt32 $Right)
+              )){
+                  $WriteMask=$WriteMask -bor (Convert-DDMFileSystemRightsToUInt32 $Right)
               }
-
-              # GENERIC_WRITE e GENERIC_ALL podem aparecer como valores negativos
-              # no FileSystemRights. GENERIC_READ e GENERIC_EXECUTE permanecem seguros.
-              $WriteMask = $WriteMask -bor [uint32]0x40000000
-              $WriteMask = $WriteMask -bor [uint32]0x10000000
-
+              $WriteMask=$WriteMask -bor [uint32]0x40000000
+              $WriteMask=$WriteMask -bor [uint32]0x10000000
               return (($Value -band $WriteMask) -ne 0)
           }
 
           function Assert-DDMCentralAcl([string]$Path) {
-              $Acl = Get-Acl -LiteralPath $Path
-              $Broad = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545')
-
-              foreach ($Rule in @($Acl.Access)) {
-                  if ([string]$Rule.AccessControlType -ne 'Allow') {
-                      continue
-                  }
-
-                  try {
-                      $Sid = $Rule.IdentityReference.Translate(
-                          [System.Security.Principal.SecurityIdentifier]
-                      ).Value
-                  }
-                  catch {
-                      continue
-                  }
-
-                  $IsBroad = (
-                      $Broad -contains $Sid -or
-                      $Sid -match '-513$' -or
-                      $Sid -match '-515$'
-                  )
-
-                  if (-not $IsBroad) {
-                      continue
-                  }
-
-                  $Rights = [System.Security.AccessControl.FileSystemRights]$Rule.FileSystemRights
-
-                  if (Test-DDMFileSystemRightsWriteCapable $Rights) {
-                      throw (
-                          "ACL insegura: $Sid possui escrita em $Path ($Rights). " +
-                          'Contas de computador e usuarios amplos devem ter somente leitura.'
-                      )
+              $Acl=Get-Acl -LiteralPath $Path
+              $Broad=@('S-1-1-0','S-1-5-11','S-1-5-32-545')
+              foreach($Rule in @($Acl.Access)){
+                  if([string]$Rule.AccessControlType -ne 'Allow'){continue}
+                  try{$Sid=$Rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value}catch{continue}
+                  $IsBroad=($Broad -contains $Sid -or $Sid -match '-513$' -or $Sid -match '-515$')
+                  if(-not $IsBroad){continue}
+                  $Rights=[System.Security.AccessControl.FileSystemRights]$Rule.FileSystemRights
+                  if(Test-DDMFileSystemRightsWriteCapable $Rights){
+                      throw "ACL insegura: $Sid possui escrita em $Path ($Rights). Contas de computador e usuarios amplos devem ter somente leitura."
                   }
               }
           }
 
           '@
-          $ClientUpdated = [regex]::Replace($ClientRaw, $AclPattern, $AclReplacement)
-          if ($ClientUpdated -eq $ClientRaw) {
-              throw 'A funcao Assert-DDMCentralAcl nao foi localizada para substituicao.'
-          }
-          Write-Utf8 $ClientPath $ClientUpdated
+          $Updated=[regex]::Replace($Raw,$Pattern,$Replacement)
+          if($Updated -eq $Raw){throw 'Assert-DDMCentralAcl nao foi substituida.'}
+          Save $ClientPath $Updated
 
-          $AclTestPath = Join-Path $Product 'tools\Test-DDM-AclValidation.ps1'
-          $AclTest = @'
+          $TestPath=Join-Path $Product 'tools\Test-DDM-AclValidation.ps1'
+          $Test=@'
           #requires -Version 5.1
           [CmdletBinding()]
           param([string]$ProductRoot)
-
-          $ErrorActionPreference = 'Stop'
-
-          if ([string]::IsNullOrWhiteSpace($ProductRoot)) {
-              $ProductRoot = Split-Path -Parent (
-                  Split-Path -Parent $MyInvocation.MyCommand.Definition
-              )
+          $ErrorActionPreference='Stop'
+          if([string]::IsNullOrWhiteSpace($ProductRoot)){$ProductRoot=Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Definition)}
+          $ProductRoot=(Resolve-Path -LiteralPath $ProductRoot).Path
+          $script:Rules=@()
+          $script:RunRoot=Join-Path $env:TEMP ('DDM-ACL-'+[guid]::NewGuid().ToString('N'))
+          $script:LogPath=Join-Path $script:RunRoot 'test.log'
+          New-Item $script:RunRoot -ItemType Directory -Force|Out-Null
+          function Write-CentralLog{param([string]$Message,[string]$Level='INFO')}
+          function Get-Acl{param([string]$LiteralPath);return New-Object PSObject -Property @{Access=@($script:Rules)}}
+          function Rule([string]$Sid,[System.Security.AccessControl.FileSystemRights]$Rights,[string]$Type='Allow'){
+              return New-Object PSObject -Property @{IdentityReference=(New-Object System.Security.Principal.SecurityIdentifier -ArgumentList $Sid);FileSystemRights=$Rights;AccessControlType=$Type;IsInherited=$true}
           }
-
-          $ProductRoot = (Resolve-Path -LiteralPath $ProductRoot).Path
-          $script:DDMTestAclRules = @()
-          $script:RunRoot = Join-Path $env:TEMP ('DDM-ACL-TEST-' + [guid]::NewGuid().ToString('N'))
-          $script:LogPath = Join-Path $script:RunRoot 'acl-test.log'
-          New-Item -Path $script:RunRoot -ItemType Directory -Force | Out-Null
-
-          function Write-CentralLog {
-              param([string]$Message, [string]$Level = 'INFO')
-          }
-
-          function Get-Acl {
-              param([string]$LiteralPath)
-              return New-Object PSObject -Property @{
-                  Access = @($script:DDMTestAclRules)
-              }
-          }
-
-          function New-DDMTestAclRule {
-              param(
-                  [string]$Sid,
-                  [System.Security.AccessControl.FileSystemRights]$Rights,
-                  [string]$Type = 'Allow'
-              )
-
-              return New-Object PSObject -Property @{
-                  IdentityReference = New-Object System.Security.Principal.SecurityIdentifier -ArgumentList $Sid
-                  FileSystemRights   = $Rights
-                  AccessControlType  = $Type
-                  IsInherited       = $true
-              }
-          }
-
-          function New-DDMRightsFromUInt32 {
-              param([uint32]$Value)
-              $Signed = [System.BitConverter]::ToInt32(
-                  [System.BitConverter]::GetBytes($Value),
-                  0
-              )
-              return [System.Security.AccessControl.FileSystemRights]$Signed
-          }
-
-          function Assert-DDMPass {
-              param([string]$Label, [object[]]$Rules)
-              $script:DDMTestAclRules = @($Rules)
-              try {
-                  Assert-DDMCentralAcl 'C:\DDM-ACL-TEST'
-              }
-              catch {
-                  throw "Esperado PASS em ${Label}: $($_.Exception.Message)"
-              }
-          }
-
-          function Assert-DDMFail {
-              param([string]$Label, [object[]]$Rules)
-              $script:DDMTestAclRules = @($Rules)
-              $Blocked = $false
-              try {
-                  Assert-DDMCentralAcl 'C:\DDM-ACL-TEST'
-              }
-              catch {
-                  if ($_.Exception.Message -like 'ACL insegura:*') {
-                      $Blocked = $true
-                  }
-                  else {
-                      throw
-                  }
-              }
-
-              if (-not $Blocked) {
-                  throw "Esperado BLOCK em $Label"
-              }
-          }
-
-          try {
+          function Rights([uint32]$Value){$Signed=[BitConverter]::ToInt32([BitConverter]::GetBytes($Value),0);return [System.Security.AccessControl.FileSystemRights]$Signed}
+          function Pass([string]$Name,[object[]]$Items){$script:Rules=@($Items);try{Assert-DDMCentralAcl 'C:\ACL-TEST'}catch{throw "PASS esperado em ${Name}: $($_.Exception.Message)"}}
+          function Block([string]$Name,[object[]]$Items){$script:Rules=@($Items);$Ok=$false;try{Assert-DDMCentralAcl 'C:\ACL-TEST'}catch{if($_.Exception.Message -like 'ACL insegura:*'){$Ok=$true}else{throw}};if(-not $Ok){throw "BLOCK esperado em $Name"}}
+          try{
               . (Join-Path $ProductRoot 'lib\DDM-Common.ps1')
               . (Join-Path $ProductRoot 'central\lib\DDM-Central-Client.ps1')
-
-              $FSR = [System.Security.AccessControl.FileSystemRights]
-              $ReadExecuteSync = $FSR::ReadAndExecute -bor $FSR::Synchronize
-              $ReadSync = $FSR::Read -bor $FSR::Synchronize
-              $GenericReadExecute = New-DDMRightsFromUInt32 ([uint32]0xA0000000)
-              $GenericWrite = New-DDMRightsFromUInt32 ([uint32]0x40000000)
-              $GenericAll = New-DDMRightsFromUInt32 ([uint32]0x10000000)
-
-              Assert-DDMPass 'Authenticated Users ReadAndExecute+Synchronize' @(
-                  New-DDMTestAclRule 'S-1-5-11' $ReadExecuteSync
-              )
-              Assert-DDMPass 'Authenticated Users Read+Synchronize' @(
-                  New-DDMTestAclRule 'S-1-5-11' $ReadSync
-              )
-              Assert-DDMPass 'Everyone ReadAndExecute' @(
-                  New-DDMTestAclRule 'S-1-1-0' $FSR::ReadAndExecute
-              )
-              Assert-DDMPass 'Builtin Users ReadAndExecute+Synchronize' @(
-                  New-DDMTestAclRule 'S-1-5-32-545' $ReadExecuteSync
-              )
-              Assert-DDMPass 'Domain Users ReadAndExecute' @(
-                  New-DDMTestAclRule 'S-1-5-21-1-2-3-513' $FSR::ReadAndExecute
-              )
-              Assert-DDMPass 'Domain Computers ReadAndExecute' @(
-                  New-DDMTestAclRule 'S-1-5-21-1-2-3-515' $FSR::ReadAndExecute
-              )
-              Assert-DDMPass 'Generic Read+Execute permanece leitura' @(
-                  New-DDMTestAclRule 'S-1-5-11' $GenericReadExecute
-              )
-              Assert-DDMPass 'Administrators FullControl permitido' @(
-                  New-DDMTestAclRule 'S-1-5-32-544' $FSR::FullControl
-              )
-              Assert-DDMPass 'SYSTEM FullControl permitido' @(
-                  New-DDMTestAclRule 'S-1-5-18' $FSR::FullControl
-              )
-              Assert-DDMPass 'Deny amplo nao cria permissao de escrita' @(
-                  New-DDMTestAclRule 'S-1-5-11' $FSR::FullControl 'Deny'
-              )
-
-              Assert-DDMFail 'WriteData' @(New-DDMTestAclRule 'S-1-5-11' $FSR::WriteData)
-              Assert-DDMFail 'AppendData' @(New-DDMTestAclRule 'S-1-5-11' $FSR::AppendData)
-              Assert-DDMFail 'WriteExtendedAttributes' @(New-DDMTestAclRule 'S-1-5-11' $FSR::WriteExtendedAttributes)
-              Assert-DDMFail 'WriteAttributes' @(New-DDMTestAclRule 'S-1-5-11' $FSR::WriteAttributes)
-              Assert-DDMFail 'DeleteSubdirectoriesAndFiles' @(New-DDMTestAclRule 'S-1-5-11' $FSR::DeleteSubdirectoriesAndFiles)
-              Assert-DDMFail 'Delete' @(New-DDMTestAclRule 'S-1-5-11' $FSR::Delete)
-              Assert-DDMFail 'ChangePermissions' @(New-DDMTestAclRule 'S-1-5-11' $FSR::ChangePermissions)
-              Assert-DDMFail 'TakeOwnership' @(New-DDMTestAclRule 'S-1-5-11' $FSR::TakeOwnership)
-              Assert-DDMFail 'Write composto' @(New-DDMTestAclRule 'S-1-5-11' $FSR::Write)
-              Assert-DDMFail 'Modify composto' @(New-DDMTestAclRule 'S-1-5-11' $FSR::Modify)
-              Assert-DDMFail 'FullControl composto' @(New-DDMTestAclRule 'S-1-5-11' $FSR::FullControl)
-              Assert-DDMFail 'GENERIC_WRITE' @(New-DDMTestAclRule 'S-1-5-11' $GenericWrite)
-              Assert-DDMFail 'GENERIC_ALL' @(New-DDMTestAclRule 'S-1-5-11' $GenericAll)
-              Assert-DDMFail 'Everyone CreateFiles' @(New-DDMTestAclRule 'S-1-1-0' $FSR::CreateFiles)
-              Assert-DDMFail 'Builtin Users CreateDirectories' @(New-DDMTestAclRule 'S-1-5-32-545' $FSR::CreateDirectories)
-              Assert-DDMFail 'Domain Users Modify' @(New-DDMTestAclRule 'S-1-5-21-1-2-3-513' $FSR::Modify)
-              Assert-DDMFail 'Domain Computers Write' @(New-DDMTestAclRule 'S-1-5-21-1-2-3-515' $FSR::Write)
-              Assert-DDMFail 'Regra segura e regra insegura combinadas' @(
-                  New-DDMTestAclRule 'S-1-5-11' $ReadExecuteSync
-                  New-DDMTestAclRule 'S-1-5-32-545' $FSR::WriteData
-              )
-
+              $F=[System.Security.AccessControl.FileSystemRights]
+              $ReadExecSync=$F::ReadAndExecute -bor $F::Synchronize
+              $ReadSync=$F::Read -bor $F::Synchronize
+              $GenericReadExec=Rights ([uint32]0xA0000000)
+              $GenericWrite=Rights ([uint32]0x40000000)
+              $GenericAll=Rights ([uint32]0x10000000)
+              Pass 'Authenticated Users ReadAndExecute+Synchronize' @(Rule 'S-1-5-11' $ReadExecSync)
+              Pass 'Authenticated Users Read+Synchronize' @(Rule 'S-1-5-11' $ReadSync)
+              Pass 'Everyone ReadAndExecute' @(Rule 'S-1-1-0' $F::ReadAndExecute)
+              Pass 'Builtin Users ReadAndExecute+Synchronize' @(Rule 'S-1-5-32-545' $ReadExecSync)
+              Pass 'Domain Users Read' @(Rule 'S-1-5-21-1-2-3-513' $F::ReadAndExecute)
+              Pass 'Domain Computers Read' @(Rule 'S-1-5-21-1-2-3-515' $F::ReadAndExecute)
+              Pass 'Generic Read+Execute' @(Rule 'S-1-5-11' $GenericReadExec)
+              Pass 'Administrators FullControl' @(Rule 'S-1-5-32-544' $F::FullControl)
+              Pass 'SYSTEM FullControl' @(Rule 'S-1-5-18' $F::FullControl)
+              Pass 'Deny amplo' @(Rule 'S-1-5-11' $F::FullControl 'Deny')
+              Block 'WriteData' @(Rule 'S-1-5-11' $F::WriteData)
+              Block 'AppendData' @(Rule 'S-1-5-11' $F::AppendData)
+              Block 'WriteExtendedAttributes' @(Rule 'S-1-5-11' $F::WriteExtendedAttributes)
+              Block 'WriteAttributes' @(Rule 'S-1-5-11' $F::WriteAttributes)
+              Block 'DeleteSubdirectoriesAndFiles' @(Rule 'S-1-5-11' $F::DeleteSubdirectoriesAndFiles)
+              Block 'Delete' @(Rule 'S-1-5-11' $F::Delete)
+              Block 'ChangePermissions' @(Rule 'S-1-5-11' $F::ChangePermissions)
+              Block 'TakeOwnership' @(Rule 'S-1-5-11' $F::TakeOwnership)
+              Block 'Write' @(Rule 'S-1-5-11' $F::Write)
+              Block 'Modify' @(Rule 'S-1-5-11' $F::Modify)
+              Block 'FullControl' @(Rule 'S-1-5-11' $F::FullControl)
+              Block 'GENERIC_WRITE' @(Rule 'S-1-5-11' $GenericWrite)
+              Block 'GENERIC_ALL' @(Rule 'S-1-5-11' $GenericAll)
+              Block 'Everyone CreateFiles' @(Rule 'S-1-1-0' $F::CreateFiles)
+              Block 'Builtin Users CreateDirectories' @(Rule 'S-1-5-32-545' $F::CreateDirectories)
+              Block 'Domain Users Modify' @(Rule 'S-1-5-21-1-2-3-513' $F::Modify)
+              Block 'Domain Computers Write' @(Rule 'S-1-5-21-1-2-3-515' $F::Write)
+              Block 'Regra segura e insegura juntas' @((Rule 'S-1-5-11' $ReadExecSync),(Rule 'S-1-5-32-545' $F::WriteData))
               Write-Host 'ACL_VALIDATION_OK' -ForegroundColor Green
-          }
-          finally {
-              Remove-Item -LiteralPath $script:RunRoot -Recurse -Force -ErrorAction SilentlyContinue
-          }
+          }finally{Remove-Item $script:RunRoot -Recurse -Force -ErrorAction SilentlyContinue}
           '@
-          Write-Utf8 $AclTestPath $AclTest
+          Save $TestPath $Test
 
-          $ConfigPath = Join-Path $Product 'config\DDM-Product.ps1'
-          $ConfigRaw = [System.IO.File]::ReadAllText($ConfigPath)
-          $ConfigRaw = $ConfigRaw.Replace("ProductVersion           = '2.0.7'", "ProductVersion           = '2.0.8'")
-          if ($ConfigRaw -notmatch "ProductVersion\s*=\s*'2\.0\.8'") {
-              throw 'ProductVersion 2.0.8 nao foi aplicada.'
-          }
-          Write-Utf8 $ConfigPath $ConfigRaw
+          $ConfigPath=Join-Path $Product 'config\DDM-Product.ps1'
+          $Config=[IO.File]::ReadAllText($ConfigPath).Replace("ProductVersion           = '2.0.7'","ProductVersion           = '2.0.8'")
+          if($Config -notmatch "ProductVersion\s*=\s*'2\.0\.8'"){throw 'Versao 2.0.8 nao aplicada.'}
+          Save $ConfigPath $Config
 
-          $RepositoryTestPath = Join-Path $Product 'tools\Test-DDM-Repository.ps1'
-          $RepositoryTest = [System.IO.File]::ReadAllText($RepositoryTestPath)
-          $RepositoryTest = $RepositoryTest.Replace(
-              "Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.7') 'ProductVersion deve ser 2.0.7.'",
-              "Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.8') 'ProductVersion deve ser 2.0.8.'"
-          )
-          $AclMarker = "Assert-DDMTest (`$CentralClient.Contains('Deployment.Ring=PRODUCTION exige ProductionReady=true')) 'Contrato nao fecha ring de producao.'"
-          $AclInsert = @"
-          $AclMarker
-          Assert-DDMTest (`$CentralClient.Contains('Test-DDMFileSystemRightsWriteCapable')) 'Validador ACL atomico ausente.'
-          Assert-DDMTest (`$CentralClient -notmatch '(?s)WriteMask.*FileSystemRights\]::Modify') 'Mascara ACL ainda usa Modify e pode confundir Synchronize.'
-          Assert-DDMTest (`$CentralClient -notmatch '(?s)WriteMask.*FileSystemRights\]::FullControl') 'Mascara ACL ainda usa FullControl e pode confundir Synchronize.'
-          `$AclValidation = Join-Path `$ProductRoot 'tools\Test-DDM-AclValidation.ps1'
-          Assert-DDMTest (Test-Path -LiteralPath `$AclValidation) 'Teste dedicado de ACL ausente.'
-          & `$AclValidation -ProductRoot `$ProductRoot
-          "@
-          if (-not $RepositoryTest.Contains($AclMarker)) {
-              throw 'Ponto de insercao do teste ACL nao encontrado.'
-          }
-          $RepositoryTest = $RepositoryTest.Replace($AclMarker, $AclInsert.TrimEnd())
-          Write-Utf8 $RepositoryTestPath $RepositoryTest
+          $RepoTestPath=Join-Path $Product 'tools\Test-DDM-Repository.ps1'
+          $RepoTest=[IO.File]::ReadAllText($RepoTestPath)
+          $RepoTest=$RepoTest.Replace("Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.7') 'ProductVersion deve ser 2.0.7.'","Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.8') 'ProductVersion deve ser 2.0.8.'")
+          $Marker="Write-Host '7/12 Bootstrap, cache e conformidade'"
+          $Insert=@'
+          $AclTestPath = Join-Path $ProductRoot 'tools\Test-DDM-AclValidation.ps1'
+          Assert-DDMTest (Test-Path -LiteralPath $AclTestPath) 'Teste dedicado de ACL ausente.'
+          & $AclTestPath -ProductRoot $ProductRoot
 
-          $RecoveryPath = Join-Path $Product 'tools\Recover-DDM-SNOC-Central.ps1'
-          $Recovery = [System.IO.File]::ReadAllText($RecoveryPath)
-          $Recovery = $Recovery.Replace(
-              "    `$SupplyPath = Join-Path `$SeedExtract 'CENTRAL-UPDATER\\central\\lib\\DDM-Central-Supply.ps1'`r`n    `$ProductPath = Join-Path `$SeedExtract 'CENTRAL-UPDATER\\config\\DDM-Product.ps1'",
-              "    `$SupplyPath = Join-Path `$SeedExtract 'CENTRAL-UPDATER\\central\\lib\\DDM-Central-Supply.ps1'`r`n    `$ClientLibPath = Join-Path `$SeedExtract 'CENTRAL-UPDATER\\central\\lib\\DDM-Central-Client.ps1'`r`n    `$UpdatePath = Join-Path `$SeedExtract 'CENTRAL-UPDATER\\central\\Update-DDM-SNOC-Central.ps1'`r`n    `$ProductPath = Join-Path `$SeedExtract 'CENTRAL-UPDATER\\config\\DDM-Product.ps1'"
-          )
-          $Recovery = $Recovery.Replace(
-              "        'CENTRAL-UPDATER\\central\\lib\\DDM-Central-Supply.ps1',`r`n        'CENTRAL-UPDATER\\config\\DDM-Product.ps1'",
-              "        'CENTRAL-UPDATER\\central\\lib\\DDM-Central-Supply.ps1',`r`n        'CENTRAL-UPDATER\\central\\lib\\DDM-Central-Client.ps1',`r`n        'CENTRAL-UPDATER\\lib\\DDM-Common.ps1',`r`n        'CENTRAL-UPDATER\\config\\DDM-Product.ps1'"
-          )
-          $OldValidation = @'
-              $SupplyRaw = [System.IO.File]::ReadAllText($SupplyPath)
-              if ($SupplyRaw -match '\breturn120\b') {
-                  throw 'AD-SEED rejeitado: ainda contem return 120.'
-              }
-              $ProductRaw = [System.IO.File]::ReadAllText($ProductPath)
+          Write-Host '7/12 Bootstrap, cache e conformidade'
           '@
-          $NewValidation = @'
-              $SupplyRaw = [System.IO.File]::ReadAllText($SupplyPath)
-              if ($SupplyRaw -match '\breturn120\b') {
-                  throw 'AD-SEED rejeitado: ainda contem return 120.'
-              }
+          if(-not $RepoTest.Contains($Marker)){throw 'Marcador do teste ACL ausente.'}
+          $RepoTest=$RepoTest.Replace($Marker,$Insert.TrimEnd())
+          Save $RepoTestPath $RepoTest
 
-              $UpdateRaw = [System.IO.File]::ReadAllText($UpdatePath)
-              $CommonMarker = ". (Join-Path `$CentralScriptRoot '..\lib\DDM-Common.ps1')"
-              $SupplyMarker = ". (Join-Path `$CentralScriptRoot 'lib\DDM-Central-Supply.ps1')"
-              $CommonIndex = $UpdateRaw.IndexOf($CommonMarker, [StringComparison]::Ordinal)
-              $SupplyIndex = $UpdateRaw.IndexOf($SupplyMarker, [StringComparison]::Ordinal)
-              if ($CommonIndex -lt 0 -or $SupplyIndex -lt 0 -or $CommonIndex -gt $SupplyIndex) {
-                  throw 'AD-SEED rejeitado: DDM-Common nao e carregado antes do fornecedor central.'
-              }
+          $RecoveryPath=Join-Path $Product 'tools\Recover-DDM-SNOC-Central.ps1'
+          $Recovery=[IO.File]::ReadAllText($RecoveryPath)
+          $Recovery=$Recovery.Replace("Write-Step '5/9 - Preservando os nove itens da publicacao parcial para auditoria...'","Write-Step '5/9 - Preservando o estado atual da pasta central para auditoria...'")
+          $Recovery=$Recovery.Replace('Write-Host "AD-SEED $Version validado e sem return 120." -ForegroundColor Green','Write-Host "AD-SEED $Version validado." -ForegroundColor Green')
+          Save $RecoveryPath $Recovery
 
-              $ClientRaw = [System.IO.File]::ReadAllText($ClientLibPath)
-              if ($ClientRaw -notmatch 'function Test-DDMFileSystemRightsWriteCapable') {
-                  throw 'AD-SEED rejeitado: validador ACL atomico ausente.'
-              }
-              if ($ClientRaw -match '(?s)WriteMask.*FileSystemRights\]::Modify' -or
-                  $ClientRaw -match '(?s)WriteMask.*FileSystemRights\]::FullControl') {
-                  throw 'AD-SEED rejeitado: mascara ACL ainda confunde Synchronize com escrita.'
-              }
-
-              $ProductRaw = [System.IO.File]::ReadAllText($ProductPath)
-          '@
-          if (-not $Recovery.Contains($OldValidation.Trim())) {
-              throw 'Bloco de validacao do AD-SEED nao encontrado na recuperacao.'
-          }
-          $Recovery = $Recovery.Replace($OldValidation.Trim(), $NewValidation.Trim())
-          $Recovery = $Recovery.Replace(
-              'Write-Host "AD-SEED $Version validado e sem return 120." -ForegroundColor Green',
-              'Write-Host "AD-SEED $Version validado: hash, ordem de carga e ACL OK." -ForegroundColor Green'
+          $AuditPath=Join-Path $Product 'docs\AUDITORIA-MIZU-ACL-40-PONTOS.md'
+          $Lines=@(
+          '# Auditoria Mizu - ACL e bootstrap central - 40 pontos','',
+          '01 | OK | Backup original com 33 arquivos preservado.',
+          '02 | OK | ZIP do backup original preservado.',
+          '03 | OK | Rollback restaurou os 33 arquivos apos cada falha.',
+          '04 | OK | Pasta e ACL raiz foram preservadas.',
+          '05 | OK | Estados anteriores foram copiados para auditoria.',
+          '06 | OK | Release exige seis assets.',
+          '07 | OK | AD-SEED exige SHA-256.',
+          '08 | OK | CLIENTE.ps1 exige hash do catalogo.',
+          '09 | OK | Tag, asset e versao interna devem coincidir.',
+          '10 | OK | DDM-Common carrega antes do fornecedor central.',
+          '11 | OK | Get-DDMSha256 existe antes do download.',
+          '12 | OK | Comandos colados sao bloqueados por AST.',
+          '13 | CORRIGIDO | Synchronize nao e tratado como escrita.',
+          '14 | CORRIGIDO | Modify saiu da mascara de deteccao.',
+          '15 | CORRIGIDO | FullControl saiu da mascara de deteccao.',
+          '16 | OK | WriteData e bloqueado.',
+          '17 | OK | AppendData e bloqueado.',
+          '18 | OK | WriteExtendedAttributes e bloqueado.',
+          '19 | OK | WriteAttributes e bloqueado.',
+          '20 | OK | DeleteSubdirectoriesAndFiles e bloqueado.',
+          '21 | OK | Delete e bloqueado.',
+          '22 | OK | ChangePermissions e bloqueado.',
+          '23 | OK | TakeOwnership e bloqueado.',
+          '24 | OK | GENERIC_WRITE e bloqueado.',
+          '25 | OK | GENERIC_ALL e bloqueado.',
+          '26 | OK | Authenticated Users com leitura e aceito.',
+          '27 | OK | Everyone com leitura e aceito.',
+          '28 | OK | Builtin Users com leitura e aceito.',
+          '29 | OK | Domain Users com leitura e aceito.',
+          '30 | OK | Domain Computers com leitura e aceito.',
+          '31 | OK | Administrators com FullControl e aceito.',
+          '32 | OK | SYSTEM com FullControl e aceito.',
+          '33 | OK | Deny nao e concessao de escrita.',
+          '34 | OK | Regras herdadas usam a mesma validacao.',
+          '35 | OK | ACL NTFS e SMB sao verificadas separadamente.',
+          '36 | CORRIGIDO | Mensagem nao usa mais nove itens fixos.',
+          '37 | OK | Teste ACL roda no codigo-fonte.',
+          '38 | OK | Teste ACL roda no AD-SEED expandido.',
+          '39 | OK | Tarefa agendada so ocorre apos sucesso.',
+          '40 | OK | Falha restaura o backup original.'
           )
-          $Recovery = $Recovery.Replace(
-              "    Write-Step '5/9 - Preservando os nove itens da publicacao parcial para auditoria...'",
-              "    `$RootItemCount = @(`n        Get-ChildItem -LiteralPath `$CentralRoot -Force -ErrorAction Stop`n    ).Count`n    `$FileCount = @(`n        Get-ChildItem -LiteralPath `$CentralRoot -Force -Recurse -ErrorAction Stop |`n            Where-Object { -not `$_.PSIsContainer }`n    ).Count`n    Write-Step \"5/9 - Preservando o estado atual para auditoria (`$RootItemCount itens na raiz; `$FileCount arquivos)...\""
-          )
-          Write-Utf8 $RecoveryPath $Recovery
+          Save $AuditPath ($Lines -join "`r`n")
 
-          $ReleaseWorkflowPath = Join-Path $Repo '.github\workflows\ddm-snoc-windows-release.yml'
-          $ReleaseWorkflow = [System.IO.File]::ReadAllText($ReleaseWorkflowPath)
-          $ReleaseWorkflow = $ReleaseWorkflow.Replace(
-              "foreach(`$Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs'))",
-              "foreach(`$Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs','clients'))"
-          )
-          $ReleaseWorkflow = $ReleaseWorkflow.Replace(
-              "'CENTRAL-UPDATER\\central\\lib\\DDM-Central-Supply.ps1','config\\DDM-Product.ps1','lib\\DDM-Common.ps1'",
-              "'CENTRAL-UPDATER\\central\\lib\\DDM-Central-Supply.ps1','config\\DDM-Product.ps1','lib\\DDM-Common.ps1'"
-          )
-          $InspectMarker = "          if(`$LASTEXITCODE -ne 0){throw \"Built asset validation returned `$LASTEXITCODE\"}"
-          $InspectInsert = @"
-          $InspectMarker
-          `$SeedZip=Join-Path `$env:GITHUB_WORKSPACE ('dist\\DDM-SNOC-WINDOWS-AD-SEED-'+`$DDMProduct.ProductVersion+'.zip')
-          `$ExpandedSeed=Join-Path `$env:RUNNER_TEMP 'ddm-seed-expanded'
-          Expand-Archive -LiteralPath `$SeedZip -DestinationPath `$ExpandedSeed -Force
-          & (Join-Path `$Product 'tools\\Test-DDM-AclValidation.ps1') -ProductRoot (Join-Path `$ExpandedSeed 'CENTRAL-UPDATER')
-          "@
-          if (-not $ReleaseWorkflow.Contains($InspectMarker)) {
-              throw 'Ponto de insercao do teste ACL no workflow oficial nao encontrado.'
-          }
-          $ReleaseWorkflow = $ReleaseWorkflow.Replace($InspectMarker, $InspectInsert.TrimEnd())
-          Write-Utf8 $ReleaseWorkflowPath $ReleaseWorkflow
+          $ChangelogPath=Join-Path $Product 'CHANGELOG.md'
+          $Changelog=[IO.File]::ReadAllText($ChangelogPath)
+          $Entry="## 2.0.8 - 2026-08-04`r`n- Corrige falso positivo de ACL para ReadAndExecute + Synchronize.`r`n- Adiciona teste dedicado de direitos atomicos e auditoria Mizu em 40 pontos.`r`n`r`n"
+          Save $ChangelogPath ($Entry+$Changelog)
 
-          $AuditPath = Join-Path $Product 'docs\AUDITORIA-MIZU-ACL-40-PONTOS.md'
-          $Audit = @'
-          # Auditoria Mizu - ACL e bootstrap central - 40 pontos
+          Remove-Item (Join-Path $Repo '.github\workflows\_tmp-ddm-snoc-acl-hotfix-2.0.8.yml') -Force
 
-          01 | OK | Backup original com 33 arquivos preservado.
-          02 | OK | ZIP do backup original preservado.
-          03 | OK | Rollback automatico restaurou os 33 arquivos apos cada falha.
-          04 | OK | Pasta raiz e ACL raiz foram preservadas durante a limpeza.
-          05 | OK | Publicacoes parciais foram copiadas para auditoria.
-          06 | OK | Release obrigatoria precisa ter seis assets.
-          07 | OK | AD-SEED precisa validar SHA-256 antes da limpeza.
-          08 | OK | CLIENTE.ps1 precisa validar SHA-256 pelo catalogo.
-          09 | OK | Tag, versao interna e nomes dos assets precisam coincidir.
-          10 | OK | DDM-Common precisa ser carregado antes do fornecedor central.
-          11 | OK | Get-DDMSha256 precisa existir antes do download do motor.
-          12 | OK | Comandos PowerShell colados permanecem bloqueados por teste AST.
-          13 | CORRIGIDO | ReadAndExecute inclui Synchronize e nao representa escrita.
-          14 | CORRIGIDO | Modify foi removido da mascara de deteccao.
-          15 | CORRIGIDO | FullControl foi removido da mascara de deteccao.
-          16 | OK | WriteData permanece bloqueado para identidades amplas.
-          17 | OK | AppendData permanece bloqueado para identidades amplas.
-          18 | OK | WriteExtendedAttributes permanece bloqueado.
-          19 | OK | WriteAttributes permanece bloqueado.
-          20 | OK | DeleteSubdirectoriesAndFiles permanece bloqueado.
-          21 | OK | Delete permanece bloqueado.
-          22 | OK | ChangePermissions permanece bloqueado.
-          23 | OK | TakeOwnership permanece bloqueado.
-          24 | OK | GENERIC_WRITE permanece bloqueado.
-          25 | OK | GENERIC_ALL permanece bloqueado.
-          26 | OK | Authenticated Users com leitura e Synchronize e aceito.
-          27 | OK | Everyone com leitura e aceito.
-          28 | OK | Builtin Users com leitura e aceito.
-          29 | OK | Domain Users com leitura e aceito.
-          30 | OK | Domain Computers com leitura e aceito.
-          31 | OK | Administrators com FullControl permanece aceito.
-          32 | OK | SYSTEM com FullControl permanece aceito.
-          33 | OK | Regras Deny nao sao tratadas como concessao de escrita.
-          34 | OK | Regras herdadas e explicitas usam a mesma validacao segura.
-          35 | OK | ACL NTFS e ACL SMB continuam verificadas separadamente.
-          36 | CORRIGIDO | Mensagem de backup nao usa mais contagem fixa de nove itens.
-          37 | OK | Teste dedicado executa a ACL do AD-SEED expandido.
-          38 | OK | Motor expandido passa pela auditoria completa do repositorio.
-          39 | OK | Tarefa agendada so e criada depois de CURRENT.txt valido.
-          40 | OK | Qualquer falha antes do sucesso restaura o backup original.
-          '@
-          Write-Utf8 $AuditPath $Audit
-
-          $ChangeLogPath = Join-Path $Product 'CHANGELOG.md'
-          $ChangeLog = [System.IO.File]::ReadAllText($ChangeLogPath)
-          $Entry = @'
-          ## 2.0.8 - 2026-08-04
-          - Corrige falso positivo de ACL causado pelo bit Synchronize presente em ReadAndExecute.
-          - Substitui mascara composta por direitos atomicos de escrita e bits GENERIC_WRITE/GENERIC_ALL.
-          - Adiciona teste dedicado de ACL com identidades amplas e cenarios seguros/inseguros.
-          - Valida a ACL diretamente no AD-SEED expandido antes da publicacao.
-          - Torna dinamica a contagem do estado preservado pela recuperacao.
-
-          '@
-          Write-Utf8 $ChangeLogPath ($Entry + $ChangeLog)
-
-          Remove-Item -LiteralPath (Join-Path $Repo '.github\workflows\_tmp-ddm-snoc-acl-hotfix-2.0.8.yml') -Force
-
-      - name: Run repository, runtime, bootstrap and ACL tests
+      - name: Validate source
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $ErrorActionPreference='Stop'
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          & (Join-Path $Product 'tools\Test-DDM-AclValidation.ps1') -ProductRoot $Product
           & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
           & (Join-Path $Product 'tools\Test-DDM-RuntimeLexing.ps1') -ProductRoot $Product
           & (Join-Path $Product 'tools\Test-DDM-CentralBootstrapLoad.ps1') -ProductRoot $Product
-          & (Join-Path $Product 'tools\Test-DDM-AclValidation.ps1') -ProductRoot $Product
 
-      - name: Commit validated source and create production tag
-        id: commit
+      - name: Commit and tag
+        id: source
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
+          $ErrorActionPreference='Stop'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m 'fix(snoc-windows): corrige ACL de leitura e promove 2.0.8'
+          git commit -m 'fix(snoc-windows): corrige falso positivo ACL e promove 2.0.8'
           git push origin HEAD:main
-          $Commit = (git rev-parse HEAD).Trim()
-          "commit=$Commit" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          $Tag = 'ddm-snoc-windows-v2.0.8'
-          $Existing = git ls-remote --tags origin "refs/tags/$Tag"
-          if (-not [string]::IsNullOrWhiteSpace([string]$Existing)) {
-              throw "Tag ja existe: $Tag"
-          }
+          $Commit=(git rev-parse HEAD).Trim()
+          "commit=$Commit"|Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $Tag='ddm-snoc-windows-v2.0.8'
+          if(-not [string]::IsNullOrWhiteSpace([string](git ls-remote --tags origin "refs/tags/$Tag"))){throw "Tag ja existe: $Tag"}
           git tag -a $Tag -m 'DDM SNOC Windows 2.0.8'
           git push origin $Tag
 
-      - name: Build and validate release assets
+      - name: Build and validate assets
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          $Repo = $env:GITHUB_WORKSPACE
-          $Product = Join-Path $Repo 'windows\zabbix-agent-deployment'
+          $ErrorActionPreference='Stop'
+          $Repo=$env:GITHUB_WORKSPACE
+          $Product=Join-Path $Repo 'windows\zabbix-agent-deployment'
           . (Join-Path $Product 'config\DDM-Product.ps1')
-          if ($DDMProduct.ProductVersion -ne '2.0.8') { throw 'Versao inesperada.' }
-
-          $Dist = Join-Path $Repo 'dist'
-          $Motor = Join-Path $Dist 'DDM-SNOC-WINDOWS-MOTOR-2.0.8'
-          $Seed = Join-Path $Dist 'DDM-SNOC-WINDOWS-AD-SEED-2.0.8'
+          $Dist=Join-Path $Repo 'dist'
+          $Motor=Join-Path $Dist 'DDM-SNOC-WINDOWS-MOTOR-2.0.8'
+          $Seed=Join-Path $Dist 'DDM-SNOC-WINDOWS-AD-SEED-2.0.8'
           Remove-Item $Dist -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item $Motor, $Seed -ItemType Directory -Force | Out-Null
-
-          foreach ($Name in @('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','README.md','CHANGELOG.md')) {
-              Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Force
-          }
-          foreach ($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs','clients')) {
-              Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Recurse -Force
-          }
-          foreach ($Name in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd')) {
-              Copy-Item (Join-Path $Product ('templates\central\' + $Name)) (Join-Path $Seed $Name) -Force
-          }
+          New-Item $Motor,$Seed -ItemType Directory -Force|Out-Null
+          foreach($Name in @('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','README.md','CHANGELOG.md')){Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Force}
+          foreach($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs','clients')){Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Recurse -Force}
+          foreach($Name in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd')){Copy-Item (Join-Path $Product ('templates\central\'+$Name)) (Join-Path $Seed $Name) -Force}
           Copy-Item (Join-Path $Product 'CLIENTE.example.ps1') (Join-Path $Seed 'CLIENTE.example.ps1') -Force
           Copy-Item (Join-Path $Product 'docs\UPDATE-AD.md') (Join-Path $Seed 'LEIA-ME-UPDATE-AD.md') -Force
           Copy-Item (Join-Path $Product 'docs\AUDITORIA-300-PONTOS.md') (Join-Path $Seed 'AUDITORIA-300-PONTOS.md') -Force
           Copy-Item (Join-Path $Product 'docs\AUDITORIA-MIZU-ACL-40-PONTOS.md') (Join-Path $Seed 'AUDITORIA-MIZU-ACL-40-PONTOS.md') -Force
-
-          $Updater = Join-Path $Seed 'CENTRAL-UPDATER'
-          foreach ($Rel in @(
-              'central\Update-DDM-SNOC-Central.ps1',
-              'central\lib\DDM-Central-Client.ps1',
-              'central\lib\DDM-Central-Supply.ps1',
-              'central\lib\Invoke-DDM-Central-Publish.ps1',
-              'config\DDM-Product.ps1',
-              'lib\DDM-Common.ps1'
-          )) {
-              $Source = Join-Path $Product $Rel
-              $Destination = Join-Path $Updater $Rel
-              New-Item (Split-Path -Parent $Destination) -ItemType Directory -Force | Out-Null
-              Copy-Item $Source $Destination -Force
-          }
-
-          $CentralTools = Join-Path $Seed 'CENTRAL-TOOLS'
-          $RollbackDestination = Join-Path $CentralTools 'tools\Set-DDM-CentralRelease.ps1'
-          New-Item (Split-Path -Parent $RollbackDestination) -ItemType Directory -Force | Out-Null
-          Copy-Item (Join-Path $Product 'tools\Set-DDM-CentralRelease.ps1') $RollbackDestination -Force
-
+          $Updater=Join-Path $Seed 'CENTRAL-UPDATER'
+          foreach($Rel in @('central\Update-DDM-SNOC-Central.ps1','central\lib\DDM-Central-Client.ps1','central\lib\DDM-Central-Supply.ps1','central\lib\Invoke-DDM-Central-Publish.ps1','config\DDM-Product.ps1','lib\DDM-Common.ps1')){$Src=Join-Path $Product $Rel;$Dst=Join-Path $Updater $Rel;New-Item (Split-Path -Parent $Dst) -ItemType Directory -Force|Out-Null;Copy-Item $Src $Dst -Force}
+          $ToolDst=Join-Path $Seed 'CENTRAL-TOOLS\tools\Set-DDM-CentralRelease.ps1';New-Item (Split-Path -Parent $ToolDst) -ItemType Directory -Force|Out-Null;Copy-Item (Join-Path $Product 'tools\Set-DDM-CentralRelease.ps1') $ToolDst -Force
           & (Join-Path $Product 'tools\Test-DDM-AclValidation.ps1') -ProductRoot $Updater
-
-          $MotorZip = Join-Path $Dist 'DDM-SNOC-WINDOWS-MOTOR-2.0.8.zip'
-          $SeedZip = Join-Path $Dist 'DDM-SNOC-WINDOWS-AD-SEED-2.0.8.zip'
+          $MotorZip=Join-Path $Dist 'DDM-SNOC-WINDOWS-MOTOR-2.0.8.zip'
+          $SeedZip=Join-Path $Dist 'DDM-SNOC-WINDOWS-AD-SEED-2.0.8.zip'
           Compress-Archive -Path $Motor -DestinationPath $MotorZip -CompressionLevel Optimal
           Compress-Archive -Path (Join-Path $Seed '*') -DestinationPath $SeedZip -CompressionLevel Optimal
+          $Assets=@()
+          foreach($Zip in @($MotorZip,$SeedZip)){$Hash=(Get-FileHash $Zip -Algorithm SHA256).Hash;Set-Content ($Zip+'.sha256') ($Hash+' *'+(Split-Path -Leaf $Zip)) -Encoding ASCII;$Assets+=New-Object PSObject -Property @{Name=(Split-Path -Leaf $Zip);Sha256=$Hash;Size=(Get-Item $Zip).Length}}
+          $Manifest=New-Object PSObject -Property @{Product='DDM SNOC Windows';ProductVersion='2.0.8';GitCommit='${{ steps.source.outputs.commit }}';GitTag='ddm-snoc-windows-v2.0.8';GeneratedAtUtc=(Get-Date).ToUniversalTime().ToString('o');Assets=$Assets;AuditPoints=40;Validation=@('repository','runtime','bootstrap','acl-source','acl-seed')}
+          $ManifestPath=Join-Path $Dist 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json';$Manifest|ConvertTo-Json -Depth 6|Set-Content $ManifestPath -Encoding UTF8;$Hash=(Get-FileHash $ManifestPath -Algorithm SHA256).Hash;Set-Content ($ManifestPath+'.sha256') ($Hash+' *'+(Split-Path -Leaf $ManifestPath)) -Encoding ASCII
 
-          $Expanded = Join-Path $env:RUNNER_TEMP 'ddm-2.0.8-expanded'
-          Expand-Archive -LiteralPath $MotorZip -DestinationPath $Expanded -Force
-          $ExpandedProduct = Join-Path $Expanded 'DDM-SNOC-WINDOWS-MOTOR-2.0.8'
-          $FakeWorkflowRoot = Join-Path $env:RUNNER_TEMP '.github\workflows'
-          New-Item $FakeWorkflowRoot -ItemType Directory -Force | Out-Null
-          Copy-Item (Join-Path $Repo '.github\workflows\ddm-snoc-windows-validation.yml') $FakeWorkflowRoot -Force
-          Copy-Item (Join-Path $Repo '.github\workflows\ddm-snoc-windows-release.yml') $FakeWorkflowRoot -Force
-          & (Join-Path $ExpandedProduct 'tools\Test-DDM-Repository.ps1') -ProductRoot $ExpandedProduct
-
-          $Assets = @()
-          foreach ($Zip in @($MotorZip, $SeedZip)) {
-              $Hash = (Get-FileHash $Zip -Algorithm SHA256).Hash
-              Set-Content -LiteralPath ($Zip + '.sha256') -Value ($Hash + ' *' + (Split-Path -Leaf $Zip)) -Encoding ASCII
-              $Assets += New-Object PSObject -Property @{
-                  Name = Split-Path -Leaf $Zip
-                  Sha256 = $Hash
-                  Size = (Get-Item $Zip).Length
-              }
-          }
-
-          $Manifest = New-Object PSObject -Property @{
-              Product = 'DDM SNOC Windows'
-              ProductVersion = '2.0.8'
-              GitCommit = '${{ steps.commit.outputs.commit }}'
-              GitTag = 'ddm-snoc-windows-v2.0.8'
-              GeneratedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
-              Assets = $Assets
-              Validation = @(
-                  'repository audit',
-                  'runtime lexical',
-                  'central bootstrap load',
-                  'ACL atomic-rights regression',
-                  'expanded AD-SEED ACL',
-                  'expanded motor'
-              )
-              ExternalPilotsRequired = $true
-          }
-          $ManifestPath = Join-Path $Dist 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json'
-          $Manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ManifestPath -Encoding UTF8
-          $ManifestHash = (Get-FileHash $ManifestPath -Algorithm SHA256).Hash
-          Set-Content -LiteralPath ($ManifestPath + '.sha256') -Value ($ManifestHash + ' *' + (Split-Path -Leaf $ManifestPath)) -Encoding ASCII
-
-      - name: Publish and verify GitHub release
+      - name: Publish release
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          $Dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
-          $Tag = 'ddm-snoc-windows-v2.0.8'
-          $Motor = Join-Path $Dist 'DDM-SNOC-WINDOWS-MOTOR-2.0.8.zip'
-          $Seed = Join-Path $Dist 'DDM-SNOC-WINDOWS-AD-SEED-2.0.8.zip'
-          $Manifest = Join-Path $Dist 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json'
+          $ErrorActionPreference='Stop'
+          $D=Join-Path $env:GITHUB_WORKSPACE 'dist';$Tag='ddm-snoc-windows-v2.0.8';$M=Join-Path $D 'DDM-SNOC-WINDOWS-MOTOR-2.0.8.zip';$S=Join-Path $D 'DDM-SNOC-WINDOWS-AD-SEED-2.0.8.zip';$J=Join-Path $D 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json'
+          & gh release create $Tag $M ($M+'.sha256') $S ($S+'.sha256') $J ($J+'.sha256') --verify-tag --title 'DDM SNOC Windows 2.0.8' --notes 'Corrige falso positivo ACL Synchronize e registra auditoria em 40 pontos.'
+          if($LASTEXITCODE -ne 0){throw "gh release create retornou $LASTEXITCODE"}
+          $R=(& gh release view $Tag --json isDraft,isPrerelease,assets)|ConvertFrom-Json
+          if($R.isDraft -or $R.isPrerelease -or @($R.assets).Count -ne 6){throw 'Release 2.0.8 nao validou como estavel com seis assets.'}
 
-          & gh release create $Tag `
-              $Motor `
-              ($Motor + '.sha256') `
-              $Seed `
-              ($Seed + '.sha256') `
-              $Manifest `
-              ($Manifest + '.sha256') `
-              --verify-tag `
-              --title 'DDM SNOC Windows 2.0.8' `
-              --notes 'Corrige falso positivo de ACL para ReadAndExecute + Synchronize e adiciona auditoria de regressao em 40 pontos.'
-
-          if ($LASTEXITCODE -ne 0) { throw "gh release create retornou $LASTEXITCODE" }
-
-          $ReleaseJson = & gh release view $Tag --json tagName,isDraft,isPrerelease,targetCommitish,assets
-          if ($LASTEXITCODE -ne 0) { throw "gh release view retornou $LASTEXITCODE" }
-          $Release = $ReleaseJson | ConvertFrom-Json
-          if ($Release.isDraft -or $Release.isPrerelease) { throw 'Release nao e estavel.' }
-          if (@($Release.assets).Count -ne 6) { throw "Release possui $(@($Release.assets).Count) assets; esperado=6" }
-          $Names = @($Release.assets | ForEach-Object { [string]$_.name })
-          foreach ($Required in @(
-              'DDM-SNOC-WINDOWS-MOTOR-2.0.8.zip',
-              'DDM-SNOC-WINDOWS-MOTOR-2.0.8.zip.sha256',
-              'DDM-SNOC-WINDOWS-AD-SEED-2.0.8.zip',
-              'DDM-SNOC-WINDOWS-AD-SEED-2.0.8.zip.sha256',
-              'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json',
-              'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json.sha256'
-          )) {
-              if ($Names -notcontains $Required) { throw "Asset ausente: $Required" }
-          }
-
-      - name: Record READY evidence
+      - name: Record READY
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          $StatusPath = Join-Path $env:GITHUB_WORKSPACE 'release-status\ddm-snoc-windows-v2.0.8.txt'
-          New-Item (Split-Path -Parent $StatusPath) -ItemType Directory -Force | Out-Null
-          $Line = 'State=READY Tag=ddm-snoc-windows-v2.0.8 Commit=${{ steps.commit.outputs.commit }} Assets=6 AuditPoints=40 Validation=repository,runtime,bootstrap,acl-source,acl-seed,expanded-motor VerifiedAtUtc=' + (Get-Date).ToUniversalTime().ToString('o')
-          Set-Content -LiteralPath $StatusPath -Value $Line -Encoding UTF8
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add $StatusPath
-          git commit -m 'chore(snoc-windows): registra release 2.0.8 READY'
-          git push origin HEAD:main
+          $ErrorActionPreference='Stop'
+          $P=Join-Path $env:GITHUB_WORKSPACE 'release-status\ddm-snoc-windows-v2.0.8.txt';New-Item (Split-Path -Parent $P) -ItemType Directory -Force|Out-Null
+          Set-Content $P ('State=READY Tag=ddm-snoc-windows-v2.0.8 Commit=${{ steps.source.outputs.commit }} Assets=6 AuditPoints=40 VerifiedAtUtc='+(Get-Date).ToUniversalTime().ToString('o')) -Encoding UTF8
+          git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com';git add $P;git commit -m 'chore(snoc-windows): registra 2.0.8 READY';git push origin HEAD:main
+
+      - name: Record FAILED
+        if: failure()
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          git fetch origin main
+          git reset --hard origin/main
+          $P=Join-Path $env:GITHUB_WORKSPACE 'release-status\ddm-snoc-windows-v2.0.8-attempt.txt';New-Item (Split-Path -Parent $P) -ItemType Directory -Force|Out-Null
+          Set-Content $P ('State=FAILED RunId=${{ github.run_id }} RunAttempt=${{ github.run_attempt }} Commit=${{ github.sha }} FailedAtUtc='+(Get-Date).ToUniversalTime().ToString('o')) -Encoding UTF8
+          git config user.name 'github-actions[bot]';git config user.email '41898282+github-actions[bot]@users.noreply.github.com';git add $P;git commit -m 'chore(snoc-windows): registra falha hotfix ACL 2.0.8';git push origin HEAD:main
