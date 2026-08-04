@@ -8,6 +8,7 @@ $PushBlock=@'
   push:
     paths:
       - 'release-status/.trigger-ddm-snoc-2.0.12-official'
+      - '.github/workflows/ddm-snoc-windows-validation.yml'
 '@
 $PromoteJob=@'
   promote_2012:
