@@ -23,12 +23,33 @@ endpoints pela rede interna
 
 ## Primeira implantacao
 
-1. Extraia o asset oficial `DDM-SNOC-WINDOWS-AD-SEED-<versao>.zip` na raiz central do cliente.
-2. Coloque o `CLIENTE.ps1` real na mesma raiz.
-3. Execute `ATUALIZAR-AD.cmd` manualmente uma vez como administrador.
-4. Cadastre o mesmo CMD no Agendador de Tarefas.
+A primeira implantacao e transacional. A pasta central nunca deve ser recusada apenas porque ja possui arquivos.
 
-O pacote AD-SEED nao contem dados reais de cliente e nunca substitui `CLIENTE.ps1`.
+Se a raiz central ja possuir conteudo, o bootstrap deve obrigatoriamente:
+
+1. inventariar todos os arquivos e diretorios existentes;
+2. registrar tamanho, data e SHA-256 dos arquivos em um manifesto;
+3. copiar todo o conteudo para um backup fora da raiz central;
+4. registrar as ACLs atuais da raiz e do conteudo;
+5. validar o backup comparando quantidade, tamanho total e hashes;
+6. somente depois da validacao, remover o conteudo antigo preservando a propria pasta central e suas ACLs;
+7. abortar sem apagar nada se o backup ou a validacao falhar.
+
+Padrao recomendado para backup local:
+
+```text
+C:\temp\DDM-SNOC-BACKUP-<CLIENTE>-AAAAMMDD-HHMMSS
+C:\temp\DDM-SNOC-BACKUP-<CLIENTE>-AAAAMMDD-HHMMSS.zip
+```
+
+Depois do backup validado e da limpeza controlada:
+
+1. extraia o asset oficial `DDM-SNOC-WINDOWS-AD-SEED-<versao>.zip` na raiz central do cliente;
+2. coloque o `CLIENTE.ps1` real na mesma raiz;
+3. execute `ATUALIZAR-AD.cmd` manualmente uma vez como administrador;
+4. cadastre o mesmo CMD no Agendador de Tarefas.
+
+O pacote AD-SEED nao contem dados reais de cliente e nunca substitui `CLIENTE.ps1` sem que a copia anterior tenha sido preservada no backup da implantacao.
 
 ## Agendador de Tarefas
 
