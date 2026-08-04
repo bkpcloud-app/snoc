@@ -202,29 +202,11 @@ Assert-DDMTest ($GpoAcl.Contains('if /I "%~1"=="NOW"')) 'GPO-DIARIA nao possui m
     $SourceCommit=[string](git rev-parse HEAD)
     if([string]::IsNullOrWhiteSpace($SourceCommit)){throw 'Commit fonte vazio.'}
 
-    Write-Host '4/7 - Criando tag e aguardando release oficial'
-    $ErrorActionPreference='Continue'
-    & gh release delete $Tag --yes 2>$null
-    git push --delete origin $Tag 2>$null
-    $ErrorActionPreference='Stop'
-    git tag -a $Tag $SourceCommit -m "DDM SNOC Windows $Version"
-    git push origin $Tag
-    if($LASTEXITCODE -ne 0){throw "Falha ao publicar tag $Tag"}
-
-    $Release=$null
-    for($Attempt=1;$Attempt -le 60;$Attempt++){
-        Start-Sleep -Seconds 10
-        $ErrorActionPreference='Continue'
-        $Json=& gh release view $Tag --json tagName,isDraft,isPrerelease,assets 2>$null
-        $Code=$LASTEXITCODE
-        $ErrorActionPreference='Stop'
-        if($Code -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$Json)){
-            $Candidate=$Json|ConvertFrom-Json
-            if(-not $Candidate.isDraft -and -not $Candidate.isPrerelease -and @($Candidate.assets).Count -eq 6){$Release=$Candidate;break}
-        }
-    }
-    if($null -eq $Release){throw 'Release oficial 2.0.13 nao ficou pronta com seis assets.'}
-
+    Write-Host '4/7 - Construindo e publicando seis assets no mesmo job'
+    $Publisher=Join-Path $Repo '.github\scripts\Build-Publish-DDM-SNOC-2.0.13.ps1'
+    if(-not(Test-Path -LiteralPath $Publisher)){throw "Publicador ausente: $Publisher"}
+    & $Publisher -Repo $Repo -Product $Product -Version $Version -Tag $Tag -SourceCommit $SourceCommit
+    if($LASTEXITCODE -ne 0){throw "Publicador de assets retornou $LASTEXITCODE"}
     Write-Host '5/7 - Executando piloto central integral com asset publicado'
     $Download=Join-Path $env:RUNNER_TEMP ('ddm-2013-download-'+[guid]::NewGuid().ToString('N'))
     New-Item $Download -ItemType Directory -Force|Out-Null
