@@ -80,6 +80,21 @@ if($Text -notmatch 'split-acl-assertions-2013'){
     $Text=$Text.Replace($OldMarker,$NewMarker.TrimEnd())
 }
 
+$DirectPublishBlock=@'
+    Write-Host '4/7 - Construindo e publicando seis assets no mesmo job'
+    $Publisher=Join-Path $Repo '.github\scripts\Build-Publish-DDM-SNOC-2.0.13.ps1'
+    if(-not(Test-Path -LiteralPath $Publisher)){throw "Publicador ausente: $Publisher"}
+    & $Publisher -Repo $Repo -Product $Product -Version $Version -Tag $Tag -SourceCommit $SourceCommit
+    if($LASTEXITCODE -ne 0){throw "Publicador de assets retornou $LASTEXITCODE"}
+
+'@
+$ReleaseWaitPattern="(?s)    Write-Host '4/7 - Criando tag e aguardando release oficial'.*?(?=    Write-Host '5/7 - Executando piloto central integral com asset publicado')"
+if([regex]::IsMatch($Text,$ReleaseWaitPattern)){
+    $Text=[regex]::Replace($Text,$ReleaseWaitPattern,$DirectPublishBlock)
+}
+if($Text.Contains("Write-Host '4/7 - Criando tag e aguardando release oficial'")){throw 'Promotor ainda depende de workflow encadeado.'}
+if(-not $Text.Contains('Build-Publish-DDM-SNOC-2.0.13.ps1')){throw 'Promotor nao chama o publicador direto.'}
+
 $InvalidExecutable='& icacls.exe $Child.FullName /inheritance:e /reset /T /C /Q | Out-Null'
 if($Text.Contains($InvalidExecutable)){throw 'Chamada executavel combinada do icacls ainda permanece.'}
 if($Text.Contains("Assert-Contains `$Common '/inheritance:e /reset /T /C /Q'")){throw 'Assercao antiga do promotor ainda permanece.'}
