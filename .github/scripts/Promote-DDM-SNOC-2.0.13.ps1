@@ -65,7 +65,7 @@ function Set-DDMLocalSecureAcl {
     $InstallerPath=Join-Path $Product 'bootstrap\Install-DDM-SNOC-Bootstrap.ps1'
     $Installer=Read-Text $InstallerPath
     if($Installer -notmatch 'ACL-FULL-STATE-RECOVERY-2\.0\.13'){
-        $Marker="$Boot=$DDMProduct.BootstrapDirectory"
+        $Marker='$Boot=$DDMProduct.BootstrapDirectory'
         $Replacement=@'
 $Boot=$DDMProduct.BootstrapDirectory
 # ACL-FULL-STATE-RECOVERY-2.0.13
@@ -108,7 +108,7 @@ exit /b %ERRORLEVEL%
 
     $FirstTestPath=Join-Path $Product 'tools\Test-DDM-BootstrapFirstInstall.ps1'
     $FirstTest=Read-Text $FirstTestPath
-    $FirstTest=$FirstTest.Replace("$ReleaseId='2.0.12__7.0.29__FIRSTINSTALL'","$ReleaseId='2.0.13__7.0.29__FIRSTINSTALL'")
+    $FirstTest=$FirstTest.Replace('$ReleaseId=''2.0.12__7.0.29__FIRSTINSTALL''','$ReleaseId=''2.0.13__7.0.29__FIRSTINSTALL''')
     $OldBlock=@'
     Remove-Item -LiteralPath $Marker -Force -ErrorAction SilentlyContinue
     & $env:ComSpec /d /c ('call "'+(Join-Path $Central 'GPO-DIARIA.cmd')+'"')
@@ -146,7 +146,7 @@ exit /b %ERRORLEVEL%
     $RepoTest=$RepoTest.Replace("ProductVersion -eq '2.0.12'","ProductVersion -eq '2.0.13'")
     $RepoTest=$RepoTest.Replace('ProductVersion deve ser 2.0.12.','ProductVersion deve ser 2.0.13.')
     if($RepoTest -notmatch 'ACL-FULL-STATE-RECOVERY-2\.0\.13'){
-        $Needle="$BootstrapInstaller = Read-DDMRaw 'bootstrap\Install-DDM-SNOC-Bootstrap.ps1'"
+        $Needle='$BootstrapInstaller = Read-DDMRaw ''bootstrap\Install-DDM-SNOC-Bootstrap.ps1'''
         $Insert=@'
 $BootstrapInstaller = Read-DDMRaw 'bootstrap\Install-DDM-SNOC-Bootstrap.ps1'
 Assert-DDMTest ($BootstrapInstaller.Contains('ACL-FULL-STATE-RECOVERY-2.0.13')) 'Instalador nao repara todo o StateDirectory antes da leitura.'

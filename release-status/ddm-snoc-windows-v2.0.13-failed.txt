@@ -1,1 +1,1 @@
-﻿State=FAILED RunId=30954679032 Error=Marcador $Boot do instalador nao encontrado. FailedAtUtc=2026-08-04T22:00:50.7803470Z
+﻿State=FAILED RunId=30954856330 Error=GPO-DIARIA nao verifica a tarefa local. FailedAtUtc=2026-08-04T22:03:19.7718285Z

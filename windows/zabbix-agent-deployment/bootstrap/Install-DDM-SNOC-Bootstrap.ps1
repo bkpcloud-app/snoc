@@ -127,6 +127,8 @@ if (-not (Test-Admin)) { throw 'Execute como Administrador ou SYSTEM.' }
 $CentralRoot=Normalize-DDMCentralRootArgument $CentralRoot
 $TaskName='DDM SNOC Windows - Compliance'
 $Boot=$DDMProduct.BootstrapDirectory
+# ACL-FULL-STATE-RECOVERY-2.0.13
+Set-DDMLocalSecureAcl $DDMProduct.StateDirectory
 
 if ($Remove) {
     Repair-DDMLocalSecureAcl $DDMProduct.StateDirectory

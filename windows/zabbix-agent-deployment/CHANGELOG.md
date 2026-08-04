@@ -1,3 +1,9 @@
+## 2.0.13 - 2026-08-04
+- Repara automaticamente ACLs locais quebrados em Config e desired-state antes de qualquer leitura.
+- Corrige Set-DDMLocalSecureAcl para manter heranca canonica nos descendentes.
+- Faz o GPO-DIARIA reinstalar/reparar o bootstrap antes da conformidade.
+- Adiciona modo NOW para execucao manual sem jitter.
+
 ## 2.0.12 - 2026-08-04
 - Corrige a primeira instalacao quando a tarefa de compliance ainda nao existe.
 - Captura stderr e ExitCode do schtasks sem falhar quando a tarefa esta ausente.

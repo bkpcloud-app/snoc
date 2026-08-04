@@ -11,6 +11,8 @@ $BootstrapRoot=Split-Path -Parent $MyInvocation.MyCommand.Definition
 . (Join-Path $BootstrapRoot 'DDM-Product.ps1')
 . (Join-Path $BootstrapRoot 'lib\DDM-Common.ps1')
 $StateRoot=$DDMProduct.StateDirectory
+# ACL-FULL-STATE-RECOVERY-2.0.13
+Set-DDMLocalSecureAcl $StateRoot
 $LogRoot=Join-Path $StateRoot 'BootstrapLogs'
 New-Item -Path $LogRoot -ItemType Directory -Force | Out-Null
 $LogFile=Join-Path $LogRoot ('BOOTSTRAP-' + (Get-Date -Format 'yyyyMMdd') + '.log')

@@ -13,7 +13,7 @@ $StateRoot='C:\ProgramData\BKPCloud\SNOC-Windows'
 $RunRoot=Join-Path $env:TEMP ('DDM-FIRST-INSTALL-'+[guid]::NewGuid().ToString('N'))
 $Central=Join-Path $RunRoot 'ZBX'
 $InstallRoot=Join-Path $Central 'BOOTSTRAP-INSTALL'
-$ReleaseId='2.0.12__7.0.29__FIRSTINSTALL'
+$ReleaseId='2.0.13__7.0.29__FIRSTINSTALL'
 $ReleaseRoot=Join-Path (Join-Path $Central 'RELEASES') $ReleaseId
 $Marker=Join-Path $RunRoot 'bootstrap-ran.txt'
 
@@ -88,9 +88,26 @@ exit 0
         Test-Path -LiteralPath (Join-Path $StateRoot 'Bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1')
     ) 'Bootstrap local nao permaneceu para simular instalacao parcial.'
 
+    $ConfigDir=Join-Path $StateRoot 'Config'
+    New-Item -Path $ConfigDir -ItemType Directory -Force | Out-Null
+    $LockedConfig=Join-Path $ConfigDir 'CLIENTE.runtime.clixml'
+    $LockedDesired=Join-Path $StateRoot 'desired-state.clixml'
+    [IO.File]::WriteAllText($LockedConfig,'ACL-CONFIG-BEFORE')
+    [IO.File]::WriteAllText($LockedDesired,'ACL-DESIRED-BEFORE')
+    foreach($LockedFile in @($LockedConfig,$LockedDesired)){
+        & icacls.exe $LockedFile /inheritance:r /grant:r '*S-1-5-18:F' /C /Q | Out-Null
+        Assert-DDMFirstInstallTest ($LASTEXITCODE -eq 0) "Nao foi possivel preparar ACL bloqueada em $LockedFile."
+    }
+    $ReadWasDenied=$false
+    try{[void][IO.File]::ReadAllText($LockedConfig)}catch{$ReadWasDenied=$true}
+    Assert-DDMFirstInstallTest $ReadWasDenied 'O teste nao reproduziu Access denied em CLIENTE.runtime.clixml.'
+
     Remove-Item -LiteralPath $Marker -Force -ErrorAction SilentlyContinue
-    & $env:ComSpec /d /c ('call "'+(Join-Path $Central 'GPO-DIARIA.cmd')+'"')
-    Assert-DDMFirstInstallTest ($LASTEXITCODE -eq 0) "Recuperacao parcial pelo GPO-DIARIA.cmd retornou $LASTEXITCODE."
+    & $env:ComSpec /d /c ('call "'+(Join-Path $Central 'GPO-DIARIA.cmd')+'" NOW')
+    Assert-DDMFirstInstallTest ($LASTEXITCODE -eq 0) "Recuperacao ACL pelo GPO-DIARIA.cmd retornou $LASTEXITCODE."
+    Assert-DDMFirstInstallTest ([IO.File]::ReadAllText($LockedConfig) -eq 'ACL-CONFIG-BEFORE') 'CLIENTE.runtime.clixml continuou sem leitura apos reparo ACL.'
+    [IO.File]::WriteAllText($LockedDesired,'ACL-DESIRED-AFTER')
+    Assert-DDMFirstInstallTest ([IO.File]::ReadAllText($LockedDesired) -eq 'ACL-DESIRED-AFTER') 'desired-state.clixml continuou sem escrita apos reparo ACL.'
     Assert-DDMFirstInstallTest (
         (Invoke-CmdQuiet ('"%SystemRoot%\System32\schtasks.exe" /Query /TN "'+$TaskName+'"')) -eq 0
     ) 'GPO-DIARIA.cmd nao recriou a tarefa ausente.'
@@ -99,7 +116,7 @@ exit 0
         ([IO.File]::ReadAllText($Marker)) -eq ($Central+'|Auto')
     ) 'Bootstrap recebeu parametros incorretos depois da recuperacao.'
 
-    Write-Host 'BOOTSTRAP_FIRST_INSTALL_AND_PARTIAL_RECOVERY_OK' -ForegroundColor Green
+    Write-Host 'BOOTSTRAP_FIRST_INSTALL_PARTIAL_AND_FULL_STATE_ACL_RECOVERY_OK' -ForegroundColor Green
 }
 finally {
     [void](Invoke-CmdQuiet ('"%SystemRoot%\System32\schtasks.exe" /Delete /TN "'+$TaskName+'" /F'))
