@@ -1,0 +1,33 @@
+name: Bootstrap DDM SNOC Windows 2.0.4 tag
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/ddm-snoc-bootstrap-tag-2.0.4.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Create stable tag once
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='ddm-snoc-windows-v2.0.4'
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "${TAG}" -m 'DDM SNOC Windows 2.0.4'
+          git push origin "${TAG}"
