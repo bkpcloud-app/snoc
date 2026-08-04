@@ -12,7 +12,7 @@ param(
     [string]$OriginalBackupRoot,
 
     [string]$Repository = 'bkpcloud-app/snoc',
-    [string]$ExpectedTag = 'ddm-snoc-windows-v2.0.5',
+    [string]$ExpectedTag = 'ddm-snoc-windows-v2.0.9',
     [string]$BackupBase = 'C:\temp\DDM-SNOC-BACKUPS',
     [string]$ScheduleTime = '03:00',
     [switch]$SkipScheduledTask
@@ -144,7 +144,7 @@ function Restore-OriginalCentral {
         [string]$BackupContent
     )
 
-    Write-Step 'FALHA: restaurando automaticamente os 33 arquivos originais...' Yellow
+    Write-Step 'FALHA: restaurando automaticamente o conteudo original...' Yellow
     Remove-CentralContents $Central
     Invoke-RobocopyChecked $BackupContent $Central
     Write-Host 'Conteudo original restaurado.' -ForegroundColor Yellow
