@@ -138,7 +138,7 @@ Write-Host '3/12 Contrato global do produto'
 . (Join-Path $ProductRoot 'config\DDM-Product.ps1')
 Assert-DDMTest ($DDMProduct.ProductName -eq 'DDM SNOC Windows') 'ProductName invalido.'
 Assert-DDMTest ($DDMProduct.ProductCode -eq 'DDM-SNOC-WINDOWS') 'ProductCode invalido.'
-Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.9') 'ProductVersion deve ser 2.0.9.'
+Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.10') 'ProductVersion deve ser 2.0.10.'
 Assert-DDMTest ($DDMProduct.ClientSchemaVersion -eq 3) 'Schema deve ser 3.'
 Assert-DDMTest ([bool]$DDMProduct.AllowAgent2OnServer2012) 'Server 2012 deve permanecer habilitado para Agent 2.'
 Assert-DDMTest ([bool]$DDMProduct.InstallAgent2Plugins) 'Plugins Agent 2 devem permanecer habilitados.'
@@ -317,6 +317,9 @@ Write-Host '7/12 Bootstrap, cache e conformidade'
 $Bootstrap = Read-DDMRaw 'bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1'
 $BootstrapInstaller = Read-DDMRaw 'bootstrap\Install-DDM-SNOC-Bootstrap.ps1'
 $Endpoint = Read-DDMRaw 'endpoint\Invoke-DDM-SNOC-Daily.ps1'
+$UncCmdTestPath = Join-Path $ProductRoot 'tools\Test-DDM-UncCmd.ps1'
+Assert-DDMTest (Test-Path -LiteralPath $UncCmdTestPath) 'Teste dedicado de CMD por UNC ausente.'
+& $UncCmdTestPath -ProductRoot $ProductRoot
 foreach ($Required in @(
     'DDM_BLOCKED_RELEASE',
     'Assert-DDMNotLocallyBlocked',

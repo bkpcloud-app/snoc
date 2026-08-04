@@ -1,3 +1,8 @@
+## 2.0.10 - 2026-08-04
+- Corrige INSTALAR-BOOTSTRAP.cmd e GPO-DIARIA.cmd executados diretamente por UNC.
+- Remove a barra final de %~dp0 antes de enviar CentralRoot ao PowerShell.
+- Adiciona regressao automatica em compartilhamento SMB real.
+
 ## 2.0.9 - 2026-08-04
 - Corrige falso positivo de CIDRs duplicados em Networks representadas por hashtables no Windows PowerShell 5.1.
 - Valida todos os CLIENTE.ps1 oficiais no pipeline e adiciona piloto integral do atualizador central.

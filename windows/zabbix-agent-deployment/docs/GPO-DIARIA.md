@@ -1,3 +1,7 @@
+## Execucao por caminho UNC
+
+INSTALAR-BOOTSTRAP.cmd e GPO-DIARIA.cmd removem a barra final de %~dp0 antes de enviar CentralRoot ao PowerShell. O pipeline executa os dois CMDs diretamente por um compartilhamento SMB real.
+
 # GPO e bootstrap local
 
 ## Modo automatico
