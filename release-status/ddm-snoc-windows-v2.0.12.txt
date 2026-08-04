@@ -1,0 +1,1 @@
+﻿State=READY Tag=ddm-snoc-windows-v2.0.12 Commit=bf5bae563fa78201d10a16fa444a0ac1bbb4e3cd Assets=6 TaskAbsentFirstInstall=PASS TaskRunsAsSYSTEM=PASS PartialRecovery=PASS AllSevenUncCmds=PASS FullCentralPilot=PASS VerifiedAtUtc=2026-08-04T21:28:16.5489040Z

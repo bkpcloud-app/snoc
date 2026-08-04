@@ -1,0 +1,112 @@
+ame $env:COMPUTERNAME -Namespace ROOT\VeeamBS | Where-Object { $_.Name -eq "$ID" }
+		$query | Select-Object -ExpandProperty Capacity
+	}
+	
+	"RepoFree" {
+		$query = Get-CimInstance -Class Repository -ComputerName $env:COMPUTERNAME -Namespace ROOT\VeeamBS | Where-Object { $_.Name -eq "$ID" }
+		$query | Select-Object -ExpandProperty FreeSpace
+	}
+	
+	"RunStatus" {
+		$xml1 = ImportXml -item backupjob
+		$query = $xml1 | Where-Object { $_.Id -like "*$ID*" }
+		if ($query.IsRunning) { return "1" }
+		else { return "0" }
+	}
+	
+	"IncludedSize"{
+		$xml1 = ImportXml -item backupjob
+		$query = $xml1 | Where-Object { $_.Id -like "*$ID*" }
+		[string]$query.Info.IncludedSize
+	}
+	
+	"ExcludedSize"{
+		$xml1 = ImportXml -item backupjob
+		$query = $xml1 | Where-Object { $_.Id -like "*$ID*" }
+		[string]$query.Info.ExcludedSize
+	}
+	
+	"JobsCount" {
+		$xml1 = ImportXml -item backupjob | Measure-Object
+		[string]$xml1.Count
+	}
+	
+	"VmCount" {
+		$result = veeam-backuptask-unique -ID $ID -jobtype jobname | Measure-Object
+		[string]$result.count
+	}
+	
+	"VmCountResultBackup" {
+		$query = veeam-backuptask-unique -ID $ID -jobtype jobname
+		$result = $query | Where-Object { $_.Status -like $ID0 } | Measure-Object
+		[string]$result.count
+	}
+	
+	"VmCountResultBackupSync" {
+		$query = veeam-backuptask-unique -ID $ID -jobtype jobname
+		$result = $query | Where-Object { $_.Status -like $ID0 } | Measure-Object
+		[string]$result.count
+	}
+	
+	"Type" {
+		$xml1 = ImportXml -item backupsession
+		$query = $xml1 | Where-Object { $_.JobId -like "$ID" } | Select-Object -First 1
+		[string]$query.JobType
+	}
+	
+	"LastRunTime" {
+		$xml1 = ImportXml -item backupsession
+		$query = $xml1 | Where-Object { $_.JobId -like "*$ID*" } | Sort-Object creationtime -Descending | Select-Object -First 1
+		[string]$query1 = $query.CreationTimeUTC.ToString('dd/MM/yyyy HH:mm:ss')
+		$result1 = $nextdate, $nexttime = $query1.Split(" ")
+		$newdate = ("$($nextdate -replace "(\d{2})-(\d{2})", "`$2-`$1") $nexttime")
+		$date = get-date -date "01/01/1970"
+		$result2 = (New-TimeSpan -Start $date -end $newdate).TotalSeconds
+		[string]$result2
+	}
+	
+	"LastEndTime" {
+		$xml1 = ImportXml -item backupsession
+		$query = $xml1 | Where-Object { $_.JobId -like "*$ID*" } | Sort-Object creationtime -Descending | Select-Object -First 1
+		[string]$query1 = $query.EndTime
+		$result1 = $nextdate, $nexttime = $query1.Split(" ")
+		$newdate = [datetime]("$($nextdate -replace "(\d{2})-(\d{2})", "`$2-`$1") $nexttime")
+		$date = get-date -date "01/01/1970"
+		$result2 = (New-TimeSpan -Start $date -end $newdate).TotalSeconds
+		[string]$result2
+	}
+	
+	"NextRunTime" {
+		$xml1 = ImportXml -item backupjob
+		$query = $xml1 | Where-Object { $_.Id -like "*$ID*" }
+		$query1 = $query.ScheduleOptions
+		$result = $query1.NextRun
+		if (!$result)
+		{
+			$result = $query | Select-Object name, @{ N = 'RunAfter'; E = { ($xml1 | Where-Object { $_.id -eq $query.info.ParentScheduleId }).Name } }
+			$result1 = 'After Job' + " : " + $result.RunAfter
+			[string]$result1
+		}
+		else
+		{
+			[string]$result
+		}
+	}
+	
+	"RunningJob" {
+		$xml1 = ImportXml -item backupjob
+		$query = $xml1 | Where-Object { $_.isCompleted -eq $false } | Measure-Object
+		if ($query)
+		{
+			[string]$query.Count
+		}
+		else
+		{
+			return "0"
+		}
+	}
+	default
+	{
+		write-output "-- ERROR -- : Need an option !"
+	}
+}

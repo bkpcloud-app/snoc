@@ -1,0 +1,195 @@
+askSession) | Out-Null
+								}
+							}
+						}
+						$TaskSessions | Select-Object @{ N = "JobName"; E = { $BackupSession.JobName } }, @{ N = "JobId"; E = { $BackupSession.JobId } }, @{ N = "SessionName"; E = { $_.JobSess.Name } }, @{ N = "JobResult"; E = { $_.JobSess.Result } }, @{ N = "JobStart"; E = { $_.JobSess.CreationTime } }, @{ N = "JobEnd"; E = { $_.JobSess.EndTime } }, @{ N = "Date"; E = { $_.JobSess.CreationTime.ToString("yyyy-MM-dd") } }, name, status
+					}
+				}
+				$Result | Export-Clixml $args[1]
+				$disconnectVeeam = Disconnect-VBRServer
+				Copy-Item -Path $args[1] -Destination $args[3]
+				Remove-Item $args[1]
+			} -ArgumentList "$commandnew", "$path", "$name", "$newpath", "$days"
+		}
+		
+		# Purge completed Job 
+		$purge = get-job | Where-Object { $_.State -eq 'Completed' } | Remove-Job
+	}
+}
+
+# Function import xml with check & delay time if copy process running
+function ImportXml
+{
+	[CmdletBinding()]
+	Param ([Parameter(ValueFromPipeline = $true)]
+		$item)
+	
+	$path = "$pathxml\$item" + ".xml"
+	$result = Test-Path -Path $path
+	if ($result -like 'False')
+	{
+		start-sleep -Milliseconds 10
+	}
+	
+	$err = $null
+	try
+	{
+		$xmlquery = Import-Clixml "$path"
+	}
+	catch
+	{
+		$err = $_
+	}
+	If ($err -ne $null)
+	{
+		start-sleep -Milliseconds 50
+		$xmlquery = Import-Clixml "$path"
+	}
+	$xmlquery
+}
+
+# Replace Function for Veeam Correlation
+function VeeamStatusReplace
+{
+	[CmdletBinding()]
+	Param ([Parameter(ValueFromPipeline = $true)]
+		$item)
+	$item.replace('Failed', '0').
+	replace('Warning', '1').
+	replace('Success', '2').
+	replace('None', '2').
+	replace('idle', '3').
+	replace('InProgress', '5').
+	replace('Pending', '6').
+	replace('Pausing', '7').
+	replace('Postprocessing', '8').
+	replace('Resuming', '9').
+	replace('Starting', '10').
+	replace('Stopped', '11').
+	replace('Stopping', '12').
+	replace('WaitingRepository', '13').
+	replace('WaitingTape', '13').
+	replace('Working', '13')
+}
+
+# Function Sort-Object VMs by jobs on last backup (with unique name if retry)
+function veeam-backuptask-unique
+{
+	[CmdletBinding()]
+	Param (
+		[Parameter(Mandatory = $true)]
+		$jobtype,
+		[Parameter(Mandatory = $true)]
+		$ID
+	)
+	$xml1 = ImportXml -item backuptaskswithretry | Where-Object { $_.$jobtype -like "$ID" }
+	$unique = $xml1.Name | Sort-Object -Unique
+	
+	$output = & {
+		foreach ($object in $unique)
+		{
+			$query = $xml1 | Where-Object { $_.Name -like $object } | Sort-Object JobStart -Descending | Select-Object -First 1
+			foreach ($object1 in $query)
+			{
+				$query | Select-Object @{ N = "JobName"; E = { $object1.JobName } }, @{ N = "JobId"; E = { $object1.JobId } }, @{ N = "SessionName"; E = { $object1.SessionName } }, @{ N = "JobResult"; E = { $object1.JobResult } }, @{ N = "JobStart"; E = { $object1.JobStart } }, @{ N = "JobEnd"; E = { $object1.JobEnd } }, @{ N = "Date"; E = { $object1.Date.ToString("yyyy-MM-dd") } }, @{ N = "Name"; E = { $object1.Name } }, @{ N = "Status"; E = { $object1.Status } }
+			}
+		}
+	}
+	$output
+}
+
+function ConvertTo-ZabbixDiscoveryJson
+{
+	[CmdletBinding()]
+	param
+	(
+		[Parameter(ValueFromPipeline = $true)]
+		$InputObject,
+		[Parameter(Position = 0)]
+		[String[]]$Property = @("ID", "NAME", "JOBTYPE")
+	)
+	
+	begin
+	{
+		$out = @()
+	}
+	
+	process
+	{
+		if ($InputObject)
+		{
+			$InputObject | ForEach-Object {
+				if ($_)
+				{
+					$Element = @{ }
+					foreach ($P in $Property)
+					{
+						$Element.Add("{#$($P.ToUpper())}", [String]$_.$P)
+					}
+					$out += $Element
+				}
+			}
+		}
+	}
+	end
+	{
+		@{ 'data' = $out } | ConvertTo-Json -Compress
+	}
+}
+
+switch ($ITEM)
+{
+	"DiscoveryBackupJobs" {
+		$xml1 = ImportXml -item backupjob
+		$query = $xml1 | Where-Object { $_.IsScheduleEnabled -eq "true" -and ($_.JobType -like "Backup" -or $_.JobType -like "EpAgentBackup") } | Select-Object @{ N = "JOBID"; E = { $_.ID } }, @{ N = "JOBNAME"; E = { $_.NAME } }
+		$query | ConvertTo-ZabbixDiscoveryJson JOBNAME, JOBID
+	}
+	
+	"DiscoveryBackupSyncJobs" {
+		$xml1 = ImportXml -item backupjob
+		$query = $xml1 | Where-Object { $_.IsScheduleEnabled -eq "true" -and $_.JobType -like "BackupSync" } | Select-Object @{ N = "JOBBSID"; E = { $_.ID } }, @{ N = "JOBBSNAME"; E = { $_.NAME } }
+		$query | ConvertTo-ZabbixDiscoveryJson JOBBSNAME, JOBBSID
+	}
+	
+	"DiscoveryTapeJobs" {
+		$xml1 = ImportXml -item backuptape
+		$query = $xml1 | Select-Object @{ N = "JOBTAPEID"; E = { $_.ID } }, @{ N = "JOBTAPENAME"; E = { $_.NAME } }
+		$query | ConvertTo-ZabbixDiscoveryJson JOBTAPENAME, JOBTAPEID
+	}
+	
+	"DiscoveryEndpointJobs" {
+		$xml1 = ImportXml -item backupendpoint
+		$query = $xml1 | Select-Object Id, Name | Select-Object @{ N = "JOBENDPOINTID"; E = { $_.ID } }, @{ N = "JOBENDPOINTNAME"; E = { $_.NAME } }
+		$query | ConvertTo-ZabbixDiscoveryJson JOBENDPOINTNAME, JOBENDPOINTID
+	}
+	
+	"DiscoveryReplicaJobs" {
+		$xml1 = ImportXml -item backupjob
+		$query = $xml1 | Where-Object { $_.IsScheduleEnabled -eq "true" -and $_.JobType -like "Replica" } | Select-Object @{ N = "JOBREPLICAID"; E = { $_.ID } }, @{ N = "JOBREPLICANAME"; E = { $_.NAME } }
+		$query | ConvertTo-ZabbixDiscoveryJson JOBREPLICANAME, JOBREPLICAID
+	}
+	
+	"DiscoveryRepo" {
+		$query = Get-CimInstance -Class Repository -ComputerName $env:COMPUTERNAME -Namespace ROOT\VeeamBS | Select-Object @{ N = "REPONAME"; E = { $_.NAME } }
+		$query | ConvertTo-ZabbixDiscoveryJson REPONAME
+	}
+	
+	"DiscoveryBackupVmsByJobs" {
+		if ($ID -like "BackupSync")
+		{
+			ImportXml -item backupsyncvmbyjob | Select-Object @{ N = "JOBNAME"; E = { $_.Job } }, @{ N = "JOBVMNAME"; E = { $_.NAME } } | ConvertTo-ZabbixDiscoveryJson JOBVMNAME, JOBNAME
+		}
+		else
+		{
+			ImportXml -item backupvmbyjob | Select-Object @{ N = "JOBNAME"; E = { $_.Job } }, @{ N = "JOBVMNAME"; E = { $_.NAME } } | ConvertTo-ZabbixDiscoveryJson JOBVMNAME, JOBNAME
+		}
+	}
+	
+	"ExportXml" {
+		
+		$test = Test-Path -Path "$pathxml"
+		if ($test -like "False")
+		{
+			$query = New-Item -ItemType Directory -Force -Path "$pathxml"
+		}
+		if ((Get-CimInstance -Class Win32_Process -Filter "Name='PowerShell.EXE'" | Where-Object { $_.CommandLine 

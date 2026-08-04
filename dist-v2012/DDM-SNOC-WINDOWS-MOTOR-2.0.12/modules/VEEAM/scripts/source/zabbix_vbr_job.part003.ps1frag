@@ -1,0 +1,191 @@
+-Like "*exportxml*" } | Measure-Object).count -eq 1)
+		{
+			$job = ExportXml -command "[Veeam.Backup.Core.CBackupSession]::GetAll()" -name backupsession -switch normal -options true
+			$job0 = ExportXml -command "[Veeam.Backup.Core.CBackupJob]::GetAll()" -name backupjob -switch normal
+			$job1 = ExportXml -command Get-VBRTapeJob -name backuptape -switch normal
+			$job2 = ExportXml -command Get-VBREPJob -name backupendpoint -switch normal
+			$job3 = ExportXml -command "[Veeam.Backup.Core.CBackupJob]::GetAll()" -name backupvmbyjob -switch byvm -type Backup
+			$job4 = ExportXml -command "[Veeam.Backup.Core.CBackupJob]::GetAll()" -name backupsyncvmbyjob -switch byvm -type BackupSync
+			$job5 = ExportXml -name backuptaskswithretry -switch bytaskswithretry
+			Get-Job | Wait-Job
+		}
+	}
+	
+	"ResultBackup"  {
+		$xml = ImportXml -item backuptaskswithretry
+		$query1 = $xml | Where-Object { $_.jobId -like "$ID" } | Sort-Object JobStart -Descending | Select-Object -First 1
+		$query2 = $query1.JobResult
+		if (!$query2.value)
+		{
+			write-output "4" # If empty Send 4 : First Backup (or no history)
+		}
+		else
+		{
+			$query3 = $query2.value
+			$query4 = "$query3" | VeeamStatusReplace
+			write-output "$query4"
+		}
+	}
+	
+	"ResultBackupSync"  {
+		[System.DateTime]$ExcludeDate = (Get-Date).adddays(-7)
+		$xml = ImportXml -item backupjob | Where-Object { $_.Id -like $ID }
+		$result = veeam-backuptask-unique -ID $xml.name -jobtype jobname | Where-Object { $_.JobEnd -ge $ExcludeDate }
+		$result1 = $result | Where-Object { $_.JobEnd -ge $ExcludeDate } # If the Vm have not a backup for 7 days, exclusion
+		$query = $result1 | Measure-Object
+		$count = $query.count
+		$success = ($Result.Status | Where-Object { $_.Value -like "*Success*" }).count
+		$warning = ($Result.Status | Where-Object { $_.Value -like "*Warning*" }).count
+		$failed = ($Result.Status | Where-Object { $_.Value -like "*Failed*" }).count
+		$pending = ($Result.Status | Where-Object { $_.Value -like "*Pending*" }).count
+		$InProgress = ($Result.Status | Where-Object { $_.Value -like "*InProgress*" }).count
+		if ($count -eq $success) { write-output "2" }
+		else
+		{
+			if ($failed -gt 0) { write-output "0" }
+			else
+			{
+				if ($warning -gt 0) { write-output "1" }
+				else
+				{
+					
+					if ($InProgress -gt 0) { write-output "5" }
+					else
+					{
+						if ($pending -gt 0)
+						{
+							$xml2 = ImportXml -item backupsession
+							$query1 = $xml2 | Where-Object { $_.jobId -like "*$ID*" } | Sort-Object creationtime -Descending | Select-Object -First 2 | Select-Object -Index 1
+							if (!$query1.Result.Value) { write-output "4" }
+							else
+							{
+								$query2 = $query1.Result.Value | VeeamStatusReplace
+								write-output "$query2"
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	"ResultTape"  {
+		if (!$ID)
+		{
+			write-output "-- ERROR --   Switch 'ResultTape' need ID of the Veeam task"
+			write-output ""
+			write-output "Example : ./zabbix_vbr_job.ps1 ResultTape 'c333cedf-db4a-44ed-8623-17633300d7fe'"
+		}
+		else
+		{
+			$xml1 = ImportXml -item backuptape
+			$query = $xml1 | Where-Object { $_.Id -like "*$ID*" } | Sort-Object creationtime -Descending | Select-Object -First 1
+			$query2 = $query.LastResult.Value
+			if (!$query2)
+			{
+				# Retrieve version veeam
+				$corePath = Get-ItemProperty -Path "HKLM:\Software\Veeam\Veeam Backup and Replication\" -Name "CorePath"
+				$depDLLPath = Join-Path -Path $corePath.CorePath -ChildPath "Packages\VeeamDeploymentDll.dll" -Resolve
+				$file = Get-Item -Path $depDLLPath
+				$version = $file.VersionInfo.ProductVersion
+				if ($version -lt "8")
+				{
+					$query = Get-VBRTapeJob | Where-Object { $_.Id -like "*$ID*" }
+					$query1 = $query.GetLastResult()
+					$query2 = "$query1" | VeeamStatusReplace
+					write-output "$query2"
+				}
+				else
+				{
+					write-output "4"
+				}
+			}
+			else
+			{
+				if (($query.LastState.Value -like "WaitingTape") -and ($query2 -like "None"))
+				{
+					write-output "1"
+				}
+				else
+				{
+					$query3 = $query2 | VeeamStatusReplace
+					write-output "$query3"
+				}
+			}
+		}
+	}
+	
+	"ResultEndpoint"  {
+		if (!$ID)
+		{
+			write-output "-- ERROR --   Switch 'ResultEndpoint' need ID of the Veeam Endpoint Task"
+			write-output ""
+			write-output "Example : ./zabbix_vbr_job.ps1 ResultEndpoint 'c333cedf-db4a-44ed-8623-17633300d7fe'"
+		}
+		else
+		{
+			$xml3 = ImportXml -item backupendpoint
+			$query = $xml3 | Where-Object { $_.Id -like "*$ID*" }
+			$query1 = $query | Where-Object { $_.Id -eq $query.Id } | Sort-Object creationtime -Descending | Select-Object -First 1
+			$query2 = $query1.LastResult
+			# If empty Send 4 : First Backup (or no history)
+			if (!$query2)
+			{
+				write-output "4"
+			}
+			else
+			{
+				$query4 = $query2.value
+				$query3 = $query4 | VeeamStatusReplace
+				write-output "$query3"
+			}
+		}
+	}
+	
+	"ResultReplica"  {
+		$xml = ImportXml -item backupsession
+		$query1 = $xml | Where-Object { $_.jobId -like "$ID" } | Sort-Object creationtime -Descending | Select-Object -First 1
+		$query2 = $query1.Result
+		if (!$query2.value)
+		{
+			write-output "4" # If empty Send 4 : First Backup (or no history)
+		}
+		else
+		{
+			$query3 = $query2.value
+			$query4 = "$query3" | VeeamStatusReplace
+			write-output "$query4"
+		}
+	}
+	
+	"VmResultBackup" {
+		$query = veeam-backuptask-unique -ID $ID0 -jobtype jobname
+		$result = $query | Where-Object { $_.Name -like "$ID" }
+		if (!$result)
+		{
+			write-output "4" # If empty Send 4 : First Backup (or no history)
+		}
+		else
+		{
+			$query3 = $Result.Status.Value
+			$query4 = $query3 | VeeamStatusReplace
+			[string]$query4
+		}
+	}
+	
+	"VmResultBackupSync" {
+		$query = veeam-backuptask-unique -ID $ID0 -jobtype jobname
+		$result = $query | Where-Object { $_.Name -like "$ID" }
+		if (!$result)
+		{
+			write-output "4" # If empty Send 4 : First Backup (or no history)
+		}
+		else
+		{
+			$query3 = $Result.Status.Value
+			$query4 = $query3 | VeeamStatusReplace
+			[string]$query4
+		}
+	}
+	"RepoCapacity" {
+		$query = Get-CimInstance -Class Repository -ComputerN
