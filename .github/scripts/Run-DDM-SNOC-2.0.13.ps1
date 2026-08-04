@@ -61,6 +61,15 @@ $NewAclCall=@'
 '@
 $Text=$Text.Replace($OldAclCall.Trim(),$NewAclCall.Trim())
 
+$OldPromoterAssert=@'
+    Assert-Contains $Common '/inheritance:e /reset /T /C /Q' 'Reparo de heranca ACL nao foi aplicado.'
+'@
+$NewPromoterAssert=@'
+    Assert-Contains $Common '/inheritance:e /T /C /Q' 'Habilitacao de heranca ACL nao foi aplicada.'
+    Assert-Contains $Common '/reset /T /C /Q' 'Reset de ACL herdada nao foi aplicado.'
+'@
+$Text=$Text.Replace($OldPromoterAssert.Trim(),$NewPromoterAssert.Trim())
+
 if($Text -notmatch 'split-acl-assertions-2013'){
     $OldMarker='    # remove-controles-legados-gpo-2013'
     $NewMarker=@'
@@ -73,6 +82,7 @@ if($Text -notmatch 'split-acl-assertions-2013'){
 
 $InvalidExecutable='& icacls.exe $Child.FullName /inheritance:e /reset /T /C /Q | Out-Null'
 if($Text.Contains($InvalidExecutable)){throw 'Chamada executavel combinada do icacls ainda permanece.'}
+if($Text.Contains("Assert-Contains `$Common '/inheritance:e /reset /T /C /Q'")){throw 'Assercao antiga do promotor ainda permanece.'}
 if($Text -match '\$Marker="\$Boot='){throw 'Marcador Boot ainda usa interpolacao.'}
 if($Text -match '\$FirstTest\.Replace\("\$ReleaseId='){throw 'ReleaseId do teste ainda usa interpolacao.'}
 if($Text -match '\$Needle="\$BootstrapInstaller'){throw 'Needle BootstrapInstaller ainda usa interpolacao.'}
