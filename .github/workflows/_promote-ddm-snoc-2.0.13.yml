@@ -1,0 +1,32 @@
+name: Promote DDM SNOC Windows 2.0.13
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-ddm-snoc-windows-2.0.13
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.event.pull_request.title == 'DDM-SNOC-2.0.13-PROMOTE'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Promote validated 2.0.13
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\Promote-DDM-SNOC-2.0.13.ps1')
