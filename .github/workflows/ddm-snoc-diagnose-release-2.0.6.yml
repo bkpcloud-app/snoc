@@ -1,0 +1,47 @@
+name: Diagnose DDM SNOC Windows 2.0.6 Release
+
+on:
+  push:
+    paths:
+      - '.github/workflows/ddm-snoc-diagnose-release-2.0.6.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Inspect release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Continue'
+          $Tag='ddm-snoc-windows-v2.0.6'
+          $Lines=@()
+          $Lines+='GeneratedAtUtc='+((Get-Date).ToUniversalTime().ToString('o'))
+          $Lines+='Tag='+$Tag
+          $Output=& gh release view $Tag --json tagName,isDraft,isPrerelease,assets,url 2>&1
+          $Code=$LASTEXITCODE
+          $Lines+='ViewExitCode='+$Code
+          $Lines+='ViewOutputBegin'
+          $Lines+=@($Output | ForEach-Object {[string]$_})
+          $Lines+='ViewOutputEnd'
+          $Target=Join-Path $env:GITHUB_WORKSPACE 'release-status\ddm-snoc-windows-v2.0.6-diagnostic.txt'
+          New-Item (Split-Path -Parent $Target) -ItemType Directory -Force | Out-Null
+          $Lines | Set-Content $Target -Encoding UTF8
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $Target
+          git commit -m 'chore(snoc-windows): diagnostica release 2.0.6'
+          git pull --rebase origin main
+          git push origin HEAD:main
