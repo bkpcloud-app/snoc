@@ -40,25 +40,58 @@ function Get-EndpointMode([string]$Root) {
     if (Test-DDMBlank $Client.ClientId) { throw 'ClientId vazio no runtime.' }
     return [string]$Client.Update.EndpointMode
 }
+function Normalize-DDMCentralRootArgument([string]$Value) {
+    if (Test-DDMBlank $Value) { throw 'CentralRoot ausente ou vazio.' }
+    $Normalized=([string]$Value).Trim()
+    while ($Normalized.Length -ge 2 -and $Normalized.Substring(0,1) -eq '"' -and $Normalized.Substring($Normalized.Length-1,1) -eq '"') {
+        $Normalized=$Normalized.Substring(1,$Normalized.Length-2).Trim()
+    }
+    if ($Normalized.IndexOf('"') -ge 0) { throw 'CentralRoot contem aspas invalidas.' }
+    try { $Full=[System.IO.Path]::GetFullPath($Normalized) }
+    catch { throw ('CentralRoot invalido: ' + $_.Exception.Message) }
+    return $Full.TrimEnd('\')
+}
+function Invoke-DDMSchtasks([string[]]$SchtasksArguments) {
+    $Schtasks=Join-Path $env:SystemRoot 'System32\schtasks.exe'
+    $PreviousErrorActionPreference=$ErrorActionPreference
+    $ErrorActionPreference='Continue'
+    try {
+        $Output=@(& $Schtasks @SchtasksArguments 2>&1)
+        $ExitCode=$LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference=$PreviousErrorActionPreference
+    }
+    return New-Object PSObject -Property @{ExitCode=$ExitCode;Output=$Output}
+}
+function Get-DDMSchtasksOutputText($Result) {
+    return [string]::Join(' | ',@($Result.Output | ForEach-Object { [string]$_ }))
+}
+function Remove-DDMTaskIfPresent([string]$TaskName) {
+    $Delete=Invoke-DDMSchtasks -SchtasksArguments @('/Delete','/TN',$TaskName,'/F')
+    if ([int]$Delete.ExitCode -ne 0 -and [int]$Delete.ExitCode -ne 1) {
+        throw ('Falha ao remover tarefa ' + $TaskName + ': ' + (Get-DDMSchtasksOutputText $Delete))
+    }
+}
 function Backup-Task([string]$TaskName) {
     $TaskBackup=Join-Path $DDMProduct.StateDirectory 'TaskBackups'
     New-Item -Path $TaskBackup -ItemType Directory -Force | Out-Null
-    $Existing=& schtasks.exe /Query /TN $TaskName /XML 2>$null
-    if ($LASTEXITCODE -eq 0 -and $Existing) {
+    $Query=Invoke-DDMSchtasks -SchtasksArguments @('/Query','/TN',$TaskName,'/XML')
+    if ([int]$Query.ExitCode -eq 0 -and @($Query.Output).Count -gt 0) {
         $Path=Join-Path $TaskBackup ('TASK-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.xml')
-        [System.IO.File]::WriteAllText($Path,([string]::Join("`r`n",@($Existing))),[System.Text.Encoding]::Unicode)
+        [System.IO.File]::WriteAllText($Path,([string]::Join("`r`n",@($Query.Output | ForEach-Object { [string]$_ }))),[System.Text.Encoding]::Unicode)
     }
     $Backups=@(Get-ChildItem -LiteralPath $TaskBackup -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer } | Sort-Object LastWriteTime -Descending)
     foreach($Old in @($Backups | Select-Object -Skip 5)) { Remove-Item -LiteralPath $Old.FullName -Force -ErrorAction SilentlyContinue }
 }
 if (-not (Test-Admin)) { throw 'Execute como Administrador ou SYSTEM.' }
-$CentralRoot=[System.IO.Path]::GetFullPath($CentralRoot).TrimEnd('\')
+$CentralRoot=Normalize-DDMCentralRootArgument $CentralRoot
 $TaskName='DDM SNOC Windows - Compliance'
 $Boot=$DDMProduct.BootstrapDirectory
 
 if ($Remove) {
     Backup-Task $TaskName
-    & schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
+    Remove-DDMTaskIfPresent $TaskName
     Remove-Item -LiteralPath $Boot -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $DDMProduct.StateDirectory 'central.root') -Force -ErrorAction SilentlyContinue
     Write-Host 'Bootstrap local e tarefa removidos.' -ForegroundColor Green
@@ -77,7 +110,7 @@ $PowerShell="$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $Bootstrap=Join-Path $Boot 'Invoke-DDM-SNOC-Bootstrap.ps1'
 if ($EndpointMode -eq 'MANUAL_LOCAL_BOOTSTRAP') {
     Backup-Task $TaskName
-    & schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
+    Remove-DDMTaskIfPresent $TaskName
     Write-Host 'Bootstrap instalado em modo manual; nenhuma tarefa agendada foi criada.' -ForegroundColor Yellow
     if ($RunNow) { & $PowerShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -CentralRoot $CentralRoot -Mode Auto -MaxJitterSeconds 0; exit $LASTEXITCODE }
     exit 0
@@ -119,11 +152,11 @@ $Xml=@"
 "@
 try {
     [System.IO.File]::WriteAllText($TaskXml,$Xml,[System.Text.Encoding]::Unicode)
-    & schtasks.exe /Create /TN $TaskName /XML $TaskXml /F | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Falha ao criar tarefa $TaskName. ExitCode=$LASTEXITCODE" }
-    $Created=@(& schtasks.exe /Query /TN $TaskName /XML 2>&1)
-    if ($LASTEXITCODE -ne 0) { throw 'Tarefa criada, mas nao pode ser relida.' }
-    $CreatedText=[string]::Join("`n",$Created)
+    $Create=Invoke-DDMSchtasks -SchtasksArguments @('/Create','/TN',$TaskName,'/XML',$TaskXml,'/F')
+    if ([int]$Create.ExitCode -ne 0) { throw ("Falha ao criar tarefa $TaskName. ExitCode=$($Create.ExitCode); " + (Get-DDMSchtasksOutputText $Create)) }
+    $Created=Invoke-DDMSchtasks -SchtasksArguments @('/Query','/TN',$TaskName,'/XML')
+    if ([int]$Created.ExitCode -ne 0) { throw ('Tarefa criada, mas nao pode ser relida: ' + (Get-DDMSchtasksOutputText $Created)) }
+    $CreatedText=[string]::Join("`n",@($Created.Output | ForEach-Object { [string]$_ }))
     foreach ($Required in @('S-1-5-18','IgnoreNew','PT4H','Invoke-DDM-SNOC-Bootstrap.ps1')) {
         if ($CreatedText -notmatch [regex]::Escape($Required)) { throw "Tarefa criada sem propriedade obrigatoria: $Required" }
     }
