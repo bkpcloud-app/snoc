@@ -27,20 +27,18 @@ function Copy-Atomic([string]$Source,[string]$Destination) {
     try {
         Copy-Item -LiteralPath $Source -Destination $Temp -Force
         $SourceHash=Get-DDMSha256 $Source
-        if ($SourceHash -ne (Get-DDMSha256 $Temp)) { throw "Falha de integridade ao copiar $Source" }
+        if ($SourceHash -ne (Get-DDMSha256 $Temp)) { throw "Falha de integridade ao preparar $Source" }
         if ($HadDestination) {
-            [System.IO.File]::Replace($Temp,$Destination,$Backup,$true)
+            Copy-Item -LiteralPath $Destination -Destination $Backup -Force
+            if ((Get-DDMSha256 $Destination) -ne (Get-DDMSha256 $Backup)) { throw "Falha ao preservar $Destination" }
         }
-        else {
-            [System.IO.File]::Move($Temp,$Destination)
-        }
+        Copy-Item -LiteralPath $Temp -Destination $Destination -Force
         if ($SourceHash -ne (Get-DDMSha256 $Destination)) { throw "Falha de integridade ao ativar $Destination" }
         Remove-Item -LiteralPath $Backup -Force -ErrorAction SilentlyContinue
     }
     catch {
         if ($HadDestination -and (Test-Path -LiteralPath $Backup)) {
-            Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
-            [System.IO.File]::Move($Backup,$Destination)
+            Copy-Item -LiteralPath $Backup -Destination $Destination -Force
         }
         elseif (-not $HadDestination) {
             Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
