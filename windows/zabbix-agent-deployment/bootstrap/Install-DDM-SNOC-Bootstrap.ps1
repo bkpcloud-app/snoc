@@ -16,6 +16,16 @@ function Test-Admin {
     $P=New-Object Security.Principal.WindowsPrincipal($Id)
     return $P.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
+function Repair-DDMLocalSecureAcl([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { New-Item -Path $Path -ItemType Directory -Force | Out-Null }
+    & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /C /Q | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao proteger ACL da raiz local: $Path (ExitCode=$LASTEXITCODE)" }
+    $Children=@(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue)
+    if ($Children.Count -gt 0) {
+        & icacls.exe (Join-Path $Path '*') /reset /T /C /Q | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Falha ao restaurar heranca dos arquivos locais: $Path (ExitCode=$LASTEXITCODE)" }
+    }
+}
 function Copy-Atomic([string]$Source,[string]$Destination) {
     if (-not (Test-Path -LiteralPath $Source)) { throw "Arquivo de bootstrap ausente: $Source" }
     $SourceHash=Get-DDMSha256 $Source
@@ -119,6 +129,7 @@ $TaskName='DDM SNOC Windows - Compliance'
 $Boot=$DDMProduct.BootstrapDirectory
 
 if ($Remove) {
+    Repair-DDMLocalSecureAcl $DDMProduct.StateDirectory
     Backup-Task $TaskName
     Remove-DDMTaskIfPresent $TaskName
     Remove-Item -LiteralPath $Boot -Recurse -Force -ErrorAction SilentlyContinue
@@ -128,12 +139,13 @@ if ($Remove) {
 }
 
 $EndpointMode=Get-EndpointMode $CentralRoot
+Repair-DDMLocalSecureAcl $DDMProduct.StateDirectory
 New-Item -Path (Join-Path $Boot 'lib') -ItemType Directory -Force | Out-Null
 Copy-Atomic (Join-Path $ProductRoot 'bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1') (Join-Path $Boot 'Invoke-DDM-SNOC-Bootstrap.ps1')
 Copy-Atomic (Join-Path $ProductRoot 'lib\DDM-Common.ps1') (Join-Path $Boot 'lib\DDM-Common.ps1')
 Copy-Atomic (Join-Path $ProductRoot 'config\DDM-Product.ps1') (Join-Path $Boot 'DDM-Product.ps1')
 Write-DDMAtomicText (Join-Path $DDMProduct.StateDirectory 'central.root') ($CentralRoot + "`r`n") 'UTF8'
-Set-DDMLocalSecureAcl $DDMProduct.StateDirectory
+Repair-DDMLocalSecureAcl $DDMProduct.StateDirectory
 
 $PowerShell="$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $Bootstrap=Join-Path $Boot 'Invoke-DDM-SNOC-Bootstrap.ps1'
