@@ -1,0 +1,81 @@
+name: Fix and validate DDM SNOC Central Recovery 2.0.5
+
+on:
+  push:
+    paths:
+      - '.github/workflows/ddm-snoc-fix-validate-recovery-2.0.5.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-validate:
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Fix parser, validate and record result
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $Recovery = Join-Path $Product 'tools\Recover-DDM-SNOC-Central.ps1'
+          $StatusPath = Join-Path $env:GITHUB_WORKSPACE 'release-status\recovery-script-2.0.5.txt'
+          $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          $State = 'FAILED'
+          $Message = ''
+
+          try {
+              $Raw = [System.IO.File]::ReadAllText($Recovery)
+              $Old = 'throw "CURRENT.txt nao aponta para o motor $Version: $Current"'
+              $New = 'throw "CURRENT.txt nao aponta para o motor ${Version}: $Current"'
+              if (-not $Raw.Contains($Old)) {
+                  throw 'Trecho exato do erro de parser nao foi encontrado.'
+              }
+              $Raw = $Raw.Replace($Old, $New)
+              [System.IO.File]::WriteAllText($Recovery, $Raw, $Utf8NoBom)
+
+              $Tokens = $null
+              $Errors = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile(
+                  $Recovery,
+                  [ref]$Tokens,
+                  [ref]$Errors
+              )
+              if (@($Errors).Count -gt 0) {
+                  throw ($Errors | ForEach-Object {
+                      'line=' + $_.Extent.StartLineNumber +
+                      ' column=' + $_.Extent.StartColumnNumber +
+                      ' text=' + $_.Extent.Text +
+                      ' message=' + $_.Message
+                  } | Out-String)
+              }
+
+              & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
+
+              $State = 'READY'
+              $Message = 'Parser e validacao completa do repositorio aprovados.'
+          }
+          catch {
+              $Message = $_.Exception.Message.Replace("`r", ' ').Replace("`n", ' ')
+          }
+
+          New-Item -Path (Split-Path -Parent $StatusPath) -ItemType Directory -Force | Out-Null
+          @(
+              'State=' + $State,
+              'Message=' + $Message,
+              'VerifiedAtUtc=' + (Get-Date).ToUniversalTime().ToString('o')
+          ) | Set-Content -LiteralPath $StatusPath -Encoding ASCII
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- $Recovery $StatusPath
+          git commit -m ('fix(snoc-windows): recovery 2.0.5 ' + $State)
+          git pull --rebase origin main
+          git push origin HEAD:main
