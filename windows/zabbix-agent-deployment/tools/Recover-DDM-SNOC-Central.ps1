@@ -348,7 +348,7 @@ try {
     }
     $Current = (Get-Content -LiteralPath $CurrentPath -First 1).Trim()
     if ($Current -notlike "$Version`__*") {
-        throw "CURRENT.txt nao aponta para o motor $Version: $Current"
+        throw "CURRENT.txt nao aponta para o motor ${Version}: $Current"
     }
 
     $UpdateSucceeded = $true
