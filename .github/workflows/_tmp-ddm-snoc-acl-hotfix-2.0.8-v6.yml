@@ -1,0 +1,139 @@
+name: DDM SNOC Windows ACL Hotfix 2.0.8 v6
+
+on:
+  push:
+    paths:
+      - '.github/workflows/_tmp-ddm-snoc-acl-hotfix-2.0.8-v6.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ddm-snoc-windows-acl-hotfix-2.0.8-v6
+  cancel-in-progress: false
+
+jobs:
+  hotfix:
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Apply, validate, publish and record
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Repo=$env:GITHUB_WORKSPACE
+          $Template=Join-Path $Repo '.github\workflows\_tmp-ddm-snoc-acl-hotfix-2.0.8-v5.yml'
+          $Tag='ddm-snoc-windows-v2.0.8'
+          $TagCreated=$false
+          $ReleaseCreated=$false
+
+          function Get-StepScript([string]$Name){
+              $Lines=@(Get-Content -LiteralPath $Template)
+              $Start=-1
+              for($I=0;$I -lt $Lines.Count;$I++){
+                  if($Lines[$I].Trim() -eq ('- name: '+$Name)){$Start=$I;break}
+              }
+              if($Start -lt 0){throw "Etapa ausente: $Name"}
+              $Run=-1
+              for($I=$Start+1;$I -lt $Lines.Count;$I++){
+                  if($Lines[$I].Trim() -eq 'run: |'){$Run=$I;break}
+                  if($Lines[$I] -match '^      - name:'){break}
+              }
+              if($Run -lt 0){throw "run ausente: $Name"}
+              $Body=@()
+              for($I=$Run+1;$I -lt $Lines.Count;$I++){
+                  if($Lines[$I] -match '^      - name:'){break}
+                  $Line=$Lines[$I]
+                  if($Line.StartsWith('          ')){$Line=$Line.Substring(10)}
+                  $Body+=$Line
+              }
+              return ($Body -join "`r`n")
+          }
+
+          function Run-Script([string]$Name,[string]$Text){
+              $Path=Join-Path $env:RUNNER_TEMP (($Name -replace '[^A-Za-z0-9_-]','_')+'.ps1')
+              [IO.File]::WriteAllText($Path,$Text,(New-Object Text.UTF8Encoding($false)))
+              & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Path
+              if($LASTEXITCODE -ne 0){throw "$Name retornou $LASTEXITCODE"}
+          }
+
+          try{
+              if(-not(Test-Path -LiteralPath $Template)){throw "Template v5 ausente: $Template"}
+              $Patch=Get-StepScript 'Patch source and add ACL regression'
+              $Validate=Get-StepScript 'Validate source'
+              $Build=Get-StepScript 'Build and validate assets'
+
+              $Patch=$Patch.Replace(
+                  'return [System.Security.AccessControl.FileSystemRights]$Signed',
+                  'return [Enum]::ToObject([System.Security.AccessControl.FileSystemRights],$Signed)'
+              )
+              Run-Script 'Patch-source-v6' $Patch
+              Run-Script 'Validate-source-v6' $Validate
+
+              git config user.name 'github-actions[bot]'
+              git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+              git add -A
+              git commit -m 'fix(snoc-windows): corrige ACL Synchronize e promove 2.0.8'
+              git push origin HEAD:main
+              $Commit=(git rev-parse HEAD).Trim()
+
+              $Build=$Build.Replace('${{ steps.source.outputs.commit }}',$Commit)
+              Run-Script 'Build-assets-v6' $Build
+
+              if(-not [string]::IsNullOrWhiteSpace([string](git ls-remote --tags origin "refs/tags/$Tag"))){throw "Tag ja existe: $Tag"}
+              git tag -a $Tag -m 'DDM SNOC Windows 2.0.8'
+              git push origin $Tag
+              $TagCreated=$true
+
+              $D=Join-Path $Repo 'dist'
+              $M=Join-Path $D 'DDM-SNOC-WINDOWS-MOTOR-2.0.8.zip'
+              $S=Join-Path $D 'DDM-SNOC-WINDOWS-AD-SEED-2.0.8.zip'
+              $J=Join-Path $D 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json'
+              & gh release create $Tag $M ($M+'.sha256') $S ($S+'.sha256') $J ($J+'.sha256') --verify-tag --title 'DDM SNOC Windows 2.0.8' --notes 'Corrige falso positivo ACL Synchronize; auditoria Mizu em 40 pontos.'
+              if($LASTEXITCODE -ne 0){throw "gh release create retornou $LASTEXITCODE"}
+              $ReleaseCreated=$true
+
+              $R=(& gh release view $Tag --json isDraft,isPrerelease,assets,targetCommitish)|ConvertFrom-Json
+              if($R.isDraft -or $R.isPrerelease){throw 'Release ficou draft ou prerelease.'}
+              if(@($R.assets).Count -ne 6){throw "Release possui $(@($R.assets).Count) assets."}
+              $Names=@($R.assets|ForEach-Object{[string]$_.name})
+              foreach($Required in @(
+                  'DDM-SNOC-WINDOWS-MOTOR-2.0.8.zip',
+                  'DDM-SNOC-WINDOWS-MOTOR-2.0.8.zip.sha256',
+                  'DDM-SNOC-WINDOWS-AD-SEED-2.0.8.zip',
+                  'DDM-SNOC-WINDOWS-AD-SEED-2.0.8.zip.sha256',
+                  'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json',
+                  'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.8.json.sha256'
+              )){if($Names -notcontains $Required){throw "Asset ausente: $Required"}}
+
+              $StatusPath=Join-Path $Repo 'release-status\ddm-snoc-windows-v2.0.8.txt'
+              New-Item (Split-Path -Parent $StatusPath) -ItemType Directory -Force|Out-Null
+              Set-Content -LiteralPath $StatusPath -Value ('State=READY Tag='+$Tag+' Commit='+$Commit+' Assets=6 AuditPoints=40 VerifiedAtUtc='+(Get-Date).ToUniversalTime().ToString('o')) -Encoding UTF8
+              git add $StatusPath
+              git commit -m 'chore(snoc-windows): registra 2.0.8 READY'
+              git push origin HEAD:main
+          }
+          catch{
+              $Message=$_.Exception.Message -replace '[\r\n]+',' '
+              if($ReleaseCreated){& gh release delete $Tag --yes 2>$null}
+              if($TagCreated){git push --delete origin $Tag 2>$null}
+              git fetch origin main
+              git reset --hard origin/main
+              $FailurePath=Join-Path $Repo 'release-status\ddm-snoc-windows-v2.0.8-v6-attempt.txt'
+              New-Item (Split-Path -Parent $FailurePath) -ItemType Directory -Force|Out-Null
+              Set-Content -LiteralPath $FailurePath -Value ('State=FAILED RunId=${{ github.run_id }} Commit=${{ github.sha }} Message='+$Message+' FailedAtUtc='+(Get-Date).ToUniversalTime().ToString('o')) -Encoding UTF8
+              git config user.name 'github-actions[bot]'
+              git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+              git add $FailurePath
+              git commit -m 'chore(snoc-windows): registra falha v6 ACL 2.0.8'
+              git push origin HEAD:main
+              throw
+          }
