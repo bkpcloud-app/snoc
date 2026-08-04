@@ -1,0 +1,6 @@
+﻿GeneratedAtUtc=2026-08-04T15:57:32.1380275Z
+Tag=ddm-snoc-windows-v2.0.6
+ViewExitCode=1
+ViewOutputBegin
+release not found
+ViewOutputEnd
