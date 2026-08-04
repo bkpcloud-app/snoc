@@ -1,0 +1,1 @@
+﻿State=READY Tag=ddm-snoc-windows-v2.0.13 Commit=fb81e86ada1127f20636a60426e8791654753466 Assets=6 FullStateAclRecovery=PASS ClientRuntimeRead=PASS DesiredStateWrite=PASS BootstrapRepairBeforeRead=PASS GpoAlwaysRepairs=PASS ManualNowNoJitter=PASS AllSevenUncCmds=PASS FullCentralPilot=PASS VerifiedAtUtc=2026-08-04T22:29:35.6416765Z
