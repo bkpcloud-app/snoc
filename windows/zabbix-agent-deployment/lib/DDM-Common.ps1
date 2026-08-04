@@ -109,8 +109,8 @@ function Get-DDMCidrInfo {
     return New-Object PSObject -Property @{Cidr=$Cidr;Prefix=$Prefix;Network=$Network;Broadcast=$Broadcast;Canonical=(($Octets -join '.')+'/'+$Prefix)}
 }
 
-function Test-DDMCidrOverlap { param([string]$Left,[string]$Right);$L=Get-DDMCidrInfo $Left;$R=Get-DDMCidrInfo $Right;return($L.Network -le $R.Broadcast -and $R.Network -le $L.Broadcast) }
-function Test-DDMIPv4InCidr { param([string]$Address,[string]$Cidr);$Info=Get-DDMCidrInfo $Cidr;[uint64]$Ip=[uint64](Convert-DDMIPv4ToUInt32 $Address);return($Ip -ge $Info.Network -and $Ip -le $Info.Broadcast) }
+function Test-DDMCidrOverlap { param([string]$Left,[string]$Right);$L=Get-DDMCidrInfo $Left;$R=Get-DDMCidrInfo $Right;return ($L.Network -le $R.Broadcast -and $R.Network -le $L.Broadcast) }
+function Test-DDMIPv4InCidr { param([string]$Address,[string]$Cidr);$Info=Get-DDMCidrInfo $Cidr;[uint64]$Ip=[uint64](Convert-DDMIPv4ToUInt32 $Address);return ($Ip -ge $Info.Network -and $Ip -le $Info.Broadcast) }
 
 function Get-DDMLocalIPv4Info {
     $Result=@();$Adapters=Get-WmiObject Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True' -ErrorAction SilentlyContinue
@@ -186,7 +186,7 @@ function Test-DDMPortOwnedByProcess {
 
 function Get-DDMFreeSpaceMB {
     param([string]$Path)
-    $Root=[System.IO.Path]::GetPathRoot($Path);$Disk=Get-WmiObject Win32_LogicalDisk -Filter ("DeviceID='"+$Root.TrimEnd('\')+"'") -ErrorAction SilentlyContinue;if($null -eq $Disk){return 0};return[math]::Floor([double]$Disk.FreeSpace/1MB)
+    $Root=[System.IO.Path]::GetPathRoot($Path);$Disk=Get-WmiObject Win32_LogicalDisk -Filter ("DeviceID='"+$Root.TrimEnd('\')+"'") -ErrorAction SilentlyContinue;if($null -eq $Disk){return 0};return [math]::Floor([double]$Disk.FreeSpace/1MB)
 }
 
 function Set-DDMLocalSecureAcl {

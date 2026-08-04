@@ -26,9 +26,9 @@ function Assert-DDMRuntimeTest {
 Write-Host '1/3 - Procurando comandos colados nos ASTs PowerShell'
 
 $ForbiddenPrefixes = @(
-    'return',
-    'throw',
-    'Write-CentralLog'
+    'return ',
+    'throw ',
+    'Write-CentralLog '
 )
 
 foreach ($File in @(

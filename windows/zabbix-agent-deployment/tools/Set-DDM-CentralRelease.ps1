@@ -23,7 +23,7 @@ $ReleaseBase = Join-Path $CentralRoot 'RELEASES'
 $CurrentPath = Join-Path $CentralRoot 'CURRENT.txt'
 $PreviousPath = Join-Path $CentralRoot 'PREVIOUS.txt'
 $RequestPath = Join-Path $CentralRoot 'ROLLBACK-REQUEST.clixml'
-$LogPath = Join-Path $CentralRoot 'CENTRAL-ROLLBACK.log'
+$LogPath = Join-Path $CentralRoot 'CENTRAL-ROLLBACK.Log '
 $ProductPath = Join-Path $CentralRoot 'CENTRAL-UPDATER\config\DDM-Product.ps1'
 
 if (-not (Test-Path -LiteralPath $ProductPath)) {

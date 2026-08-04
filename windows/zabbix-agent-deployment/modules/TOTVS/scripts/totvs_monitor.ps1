@@ -51,7 +51,7 @@ function ConvertTo-StateCode([string]$State){
 function Get-DelayedAutoStart([string]$ServiceName){
     try{
         $value=Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName" -Name DelayedAutoStart -ErrorAction SilentlyContinue
-        return($null -ne $value -and [int]$value.DelayedAutoStart -eq 1)
+        return ($null -ne $value -and [int]$value.DelayedAutoStart -eq 1)
     }catch{return $false}
 }
 function ConvertTo-StartModeCode($Service){
@@ -65,14 +65,14 @@ function ConvertTo-StartModeCode($Service){
         default{return 4}
     }
 }
-function ConvertTo-DoubleInvariant([double]$Value){if([double]::IsNaN($Value) -or [double]::IsInfinity($Value)){return 0.0};return[Math]::Round($Value,2)}
+function ConvertTo-DoubleInvariant([double]$Value){if([double]::IsNaN($Value) -or [double]::IsInfinity($Value)){return 0.0};return [Math]::Round($Value,2)}
 function ConvertTo-CreationKey($CreationDate){
     if($null -eq $CreationDate -or [string]::IsNullOrWhiteSpace([string]$CreationDate)){return ''}
     try{
-        if($CreationDate -is [DateTime]){return([DateTime]$CreationDate).ToUniversalTime().ToString('o')}
+        if($CreationDate -is [DateTime]){return ([DateTime]$CreationDate).ToUniversalTime().ToString('o')}
         $date=[System.Management.ManagementDateTimeConverter]::ToDateTime([string]$CreationDate)
         return $date.ToUniversalTime().ToString('o')
-    }catch{return[string]$CreationDate}
+    }catch{return [string]$CreationDate}
 }
 function Read-PreviousState{
     $state=@{TimestampUtc=$null;Processes=@{}}
@@ -161,7 +161,7 @@ function Get-TotvsPayload([string]$TermsText){
     Save-CurrentState $nowUtc $currentCpuState
     $finishedAt=[DateTime]::UtcNow
     $durationMs=[Math]::Round(($finishedAt-$startedAt).TotalMilliseconds,0)
-    return[ordered]@{
+    return [ordered]@{
         status=1
         error=''
         collected_at_utc=$finishedAt.ToString('o')

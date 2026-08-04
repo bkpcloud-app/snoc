@@ -40,7 +40,7 @@ function Get-ZabbixProducts {
     }
     return @($Items|Sort-Object ProductCode -Unique)
 }
-function Get-LocalPackage([string]$ProductCode){try{$I=New-Object -ComObject WindowsInstaller.Installer;return[string]$I.ProductInfo($ProductCode,'LocalPackage')}catch{return ''}}
+function Get-LocalPackage([string]$ProductCode){try{$I=New-Object -ComObject WindowsInstaller.Installer;return [string]$I.ProductInfo($ProductCode,'LocalPackage')}catch{return ''}}
 function Get-NormalizedVersion([string]$Value){if($Value -match '(\d+\.\d+\.\d+)'){return $Matches[1]};return $Value}
 
 function Test-ZabbixSignature([string]$Path,[bool]$CheckRevocation=$false){
@@ -210,6 +210,6 @@ try{
         $TransactionCommitted=$true
         try{Remove-OldState}catch{Log ("Limpeza pos-commit falhou: "+$_.Exception.Message) 'WARN'}
         if($Pending){exit 3010}else{exit 0}
-    }catch{$Failure=$_;$RollbackFailure='';if(-not$TransactionCommitted){try{Invoke-Rollback $Backup}catch{$RollbackFailure=$_.Exception.Message}};if(-not(Test-DDMBlank $RollbackFailure)){Write-DDMAtomicText (Join-Path $StateRoot $DDMProduct.RollbackFailureFile) ($RollbackFailure+"`r`n") 'UTF8'};Write-DDMAtomicText (Join-Path $StateRoot 'lastapply.status') ("ERROR - "+(Get-Date -Format s)+" - "+$Failure.Exception.Message+"`r`n") 'UTF8';throw$Failure}
+    }catch{$Failure=$_;$RollbackFailure='';if(-not$TransactionCommitted){try{Invoke-Rollback $Backup}catch{$RollbackFailure=$_.Exception.Message}};if(-not(Test-DDMBlank $RollbackFailure)){Write-DDMAtomicText (Join-Path $StateRoot $DDMProduct.RollbackFailureFile) ($RollbackFailure+"`r`n") 'UTF8'};Write-DDMAtomicText (Join-Path $StateRoot 'lastapply.status') ("ERROR - "+(Get-Date -Format s)+" - "+$Failure.Exception.Message+"`r`n") 'UTF8';throw $Failure}
 }catch{Log $_.Exception.Message 'ERROR';exit 1}
 finally{if($Locked){try{$Mutex.ReleaseMutex()}catch{}};$Mutex.Close()}

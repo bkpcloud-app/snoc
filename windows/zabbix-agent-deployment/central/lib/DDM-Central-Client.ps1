@@ -1,4 +1,4 @@
-function Write-CentralLog([string]$Message,[string]$Level='INFO') {
+function Write-CentralLog ([string]$Message,[string]$Level='INFO') {
     $Line='{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),$Level,$Message
     Write-Host $Line
     $Parent=Split-Path -Parent $LogPath

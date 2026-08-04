@@ -10,7 +10,7 @@ $Mutex=New-Object System.Threading.Mutex($false,'Global\DDM-SNOC-Windows-VEEAM')
 $Locked=$false
 function Get-Sha256([string]$Path){
     $Sha=[System.Security.Cryptography.SHA256]::Create();$Stream=[System.IO.File]::OpenRead($Path)
-    try{return([BitConverter]::ToString($Sha.ComputeHash($Stream))).Replace('-','')}finally{$Stream.Close();$Sha.Dispose()}
+    try{return ([BitConverter]::ToString($Sha.ComputeHash($Stream))).Replace('-','')}finally{$Stream.Close();$Sha.Dispose()}
 }
 try {
     try { $Locked=$Mutex.WaitOne(30000) } catch [System.Threading.AbandonedMutexException] { $Locked=$true }

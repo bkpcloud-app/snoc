@@ -265,13 +265,13 @@ try {
 
     $SupplyRaw = [System.IO.File]::ReadAllText($SupplyPath)
     if ($SupplyRaw -match '\breturn120\b') {
-        throw 'AD-SEED rejeitado: ainda contem return120.'
+        throw 'AD-SEED rejeitado: ainda contem return 120.'
     }
     $ProductRaw = [System.IO.File]::ReadAllText($ProductPath)
     if ($ProductRaw -notmatch ("ProductVersion\s*=\s*'" + [regex]::Escape($Version) + "'")) {
         throw 'Versao interna do AD-SEED diverge da tag.'
     }
-    Write-Host "AD-SEED $Version validado e sem return120." -ForegroundColor Green
+    Write-Host "AD-SEED $Version validado e sem return 120." -ForegroundColor Green
 
     Write-Step "4/9 - Baixando e validando CLIENTE.ps1 oficial: $ClientId"
     $RawRoot = "https://raw.githubusercontent.com/$Repository/$ExpectedTag"
