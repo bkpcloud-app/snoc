@@ -1,6 +1,9 @@
 name: Validate DDM SNOC Windows
 
 on:
+  push:
+    paths:
+      - 'release-status/.trigger-ddm-snoc-2.0.12-official'
   pull_request:
     paths:
       - 'windows/zabbix-agent-deployment/**'
@@ -9,14 +12,32 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ddm-snoc-windows-validation-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  promote_2012:
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Run validated 2.0.12 promotion
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\Run-DDM-SNOC-2.0.12-FromValidation.ps1')
+
   validate:
+    if: github.event_name != 'push'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
