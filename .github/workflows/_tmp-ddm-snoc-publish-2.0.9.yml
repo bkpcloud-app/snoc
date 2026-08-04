@@ -1,0 +1,226 @@
+name: Publish validated DDM SNOC Windows 2.0.9
+
+on:
+  push:
+    paths:
+      - '.github/workflows/_tmp-ddm-snoc-publish-2.0.9.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ddm-snoc-windows-publish-2.0.9
+  cancel-in-progress: false
+
+env:
+  SOURCE_COMMIT: 722abdfc9a95f1e070cca00a5ae6b4f639a031f3
+  RELEASE_TAG: ddm-snoc-windows-v2.0.9
+  PRODUCT_VERSION: 2.0.9
+
+jobs:
+  publish_and_pilot:
+    runs-on: windows-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout immutable validated source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 722abdfc9a95f1e070cca00a5ae6b4f639a031f3
+          fetch-depth: 0
+
+      - name: Revalidate source and all official clients
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          . (Join-Path $Product 'config\DDM-Product.ps1')
+          if($DDMProduct.ProductVersion -ne $env:PRODUCT_VERSION){throw 'Versao interna divergente.'}
+          & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
+          & (Join-Path $Product 'tools\Test-DDM-RuntimeLexing.ps1') -ProductRoot $Product
+          & (Join-Path $Product 'tools\Test-DDM-CentralBootstrapLoad.ps1') -ProductRoot $Product
+          & (Join-Path $Product 'tools\Test-DDM-AclValidation.ps1') -ProductRoot $Product
+
+      - name: Build and validate immutable assets
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Repo=$env:GITHUB_WORKSPACE
+          $Product=Join-Path $Repo 'windows\zabbix-agent-deployment'
+          $Dist=Join-Path $Repo 'dist'
+          $Motor=Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-'+$env:PRODUCT_VERSION)
+          $Seed=Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-'+$env:PRODUCT_VERSION)
+          Remove-Item $Dist -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item $Motor,$Seed -ItemType Directory -Force|Out-Null
+
+          foreach($Name in @('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','README.md','CHANGELOG.md')){
+              Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Force
+          }
+          foreach($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs','clients')){
+              Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Recurse -Force
+          }
+          foreach($Name in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd')){
+              Copy-Item (Join-Path $Product ('templates\central\'+$Name)) (Join-Path $Seed $Name) -Force
+          }
+          Copy-Item (Join-Path $Product 'CLIENTE.example.ps1') (Join-Path $Seed 'CLIENTE.example.ps1') -Force
+          Copy-Item (Join-Path $Product 'docs\UPDATE-AD.md') (Join-Path $Seed 'LEIA-ME-UPDATE-AD.md') -Force
+          Copy-Item (Join-Path $Product 'docs\AUDITORIA-300-PONTOS.md') (Join-Path $Seed 'AUDITORIA-300-PONTOS.md') -Force
+          Copy-Item (Join-Path $Product 'docs\AUDITORIA-MIZU-ACL-40-PONTOS.md') (Join-Path $Seed 'AUDITORIA-MIZU-ACL-40-PONTOS.md') -Force
+
+          $Updater=Join-Path $Seed 'CENTRAL-UPDATER'
+          foreach($Rel in @(
+              'central\Update-DDM-SNOC-Central.ps1',
+              'central\lib\DDM-Central-Client.ps1',
+              'central\lib\DDM-Central-Supply.ps1',
+              'central\lib\Invoke-DDM-Central-Publish.ps1',
+              'config\DDM-Product.ps1',
+              'lib\DDM-Common.ps1'
+          )){
+              $Source=Join-Path $Product $Rel
+              $Destination=Join-Path $Updater $Rel
+              New-Item (Split-Path -Parent $Destination) -ItemType Directory -Force|Out-Null
+              Copy-Item $Source $Destination -Force
+          }
+          $Rollback=Join-Path $Seed 'CENTRAL-TOOLS\tools\Set-DDM-CentralRelease.ps1'
+          New-Item (Split-Path -Parent $Rollback) -ItemType Directory -Force|Out-Null
+          Copy-Item (Join-Path $Product 'tools\Set-DDM-CentralRelease.ps1') $Rollback -Force
+
+          $MotorZip=Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-'+$env:PRODUCT_VERSION+'.zip')
+          $SeedZip=Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-'+$env:PRODUCT_VERSION+'.zip')
+          Compress-Archive -Path $Motor -DestinationPath $MotorZip -CompressionLevel Optimal
+          Compress-Archive -Path (Join-Path $Seed '*') -DestinationPath $SeedZip -CompressionLevel Optimal
+
+          $Expanded=Join-Path $env:RUNNER_TEMP 'ddm-motor-expanded-209'
+          Remove-Item $Expanded -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $MotorZip -DestinationPath $Expanded -Force
+          $ExpandedProduct=Join-Path $Expanded ('DDM-SNOC-WINDOWS-MOTOR-'+$env:PRODUCT_VERSION)
+          $ExpandedRepo=Split-Path -Parent (Split-Path -Parent $ExpandedProduct)
+          $WorkflowRoot=Join-Path $ExpandedRepo '.github\workflows'
+          New-Item $WorkflowRoot -ItemType Directory -Force|Out-Null
+          foreach($WorkflowName in @('ddm-snoc-windows-validation.yml','ddm-snoc-windows-release.yml')){
+              Copy-Item (Join-Path $Repo ('.github\workflows\'+$WorkflowName)) (Join-Path $WorkflowRoot $WorkflowName) -Force
+          }
+          & (Join-Path $ExpandedProduct 'tools\Test-DDM-Repository.ps1') -ProductRoot $ExpandedProduct
+          & (Join-Path $ExpandedProduct 'tools\Test-DDM-RuntimeLexing.ps1') -ProductRoot $ExpandedProduct
+          & (Join-Path $ExpandedProduct 'tools\Test-DDM-CentralBootstrapLoad.ps1') -ProductRoot $ExpandedProduct
+          & (Join-Path $ExpandedProduct 'tools\Test-DDM-AclValidation.ps1') -ProductRoot $ExpandedProduct
+
+          $Assets=@()
+          foreach($Zip in @($MotorZip,$SeedZip)){
+              $Hash=(Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash
+              Set-Content -LiteralPath ($Zip+'.sha256') -Value ($Hash+' *'+(Split-Path -Leaf $Zip)) -Encoding ASCII
+              $Assets+=New-Object PSObject -Property @{Name=(Split-Path -Leaf $Zip);Sha256=$Hash;Size=(Get-Item $Zip).Length}
+          }
+          $ManifestPath=Join-Path $Dist ('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-'+$env:PRODUCT_VERSION+'.json')
+          $Manifest=New-Object PSObject -Property @{
+              Product='DDM SNOC Windows'
+              ProductVersion=$env:PRODUCT_VERSION
+              GitCommit=$env:SOURCE_COMMIT
+              GitTag=$env:RELEASE_TAG
+              GeneratedAtUtc=(Get-Date).ToUniversalTime().ToString('o')
+              Assets=$Assets
+              Validation=@('repository','runtime-lexing','bootstrap-load','acl','all-official-clients','expanded-motor','full-central-pilot')
+              ExternalPilotsRequired=$false
+          }
+          $Manifest|ConvertTo-Json -Depth 6|Set-Content -LiteralPath $ManifestPath -Encoding UTF8
+          $ManifestHash=(Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash
+          Set-Content -LiteralPath ($ManifestPath+'.sha256') -Value ($ManifestHash+' *'+(Split-Path -Leaf $ManifestPath)) -Encoding ASCII
+
+      - name: Create stable release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if(-not [string]::IsNullOrWhiteSpace([string](git ls-remote --tags origin "refs/tags/$env:RELEASE_TAG"))){throw "Tag ja existe: $env:RELEASE_TAG"}
+          git tag -a $env:RELEASE_TAG $env:SOURCE_COMMIT -m "DDM SNOC Windows $env:PRODUCT_VERSION"
+          git push origin $env:RELEASE_TAG
+
+          $D=Join-Path $env:GITHUB_WORKSPACE 'dist'
+          $M=Join-Path $D ('DDM-SNOC-WINDOWS-MOTOR-'+$env:PRODUCT_VERSION+'.zip')
+          $S=Join-Path $D ('DDM-SNOC-WINDOWS-AD-SEED-'+$env:PRODUCT_VERSION+'.zip')
+          $J=Join-Path $D ('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-'+$env:PRODUCT_VERSION+'.json')
+          & gh release create $env:RELEASE_TAG $M ($M+'.sha256') $S ($S+'.sha256') $J ($J+'.sha256') --verify-tag --target $env:SOURCE_COMMIT --title "DDM SNOC Windows $env:PRODUCT_VERSION" --notes 'Corrige validacao de CIDRs em hashtables; valida todos os clientes oficiais e exige piloto integral do atualizador.'
+          if($LASTEXITCODE -ne 0){throw "gh release create retornou $LASTEXITCODE"}
+
+          for($Attempt=1;$Attempt -le 10;$Attempt++){
+              $Release=(& gh release view $env:RELEASE_TAG --json tagName,isDraft,isPrerelease,assets 2>$null)|ConvertFrom-Json
+              if($Release -and @($Release.assets).Count -eq 6){break}
+              Start-Sleep -Seconds 3
+          }
+          if(-not $Release){throw 'Release nao pode ser consultada.'}
+          if($Release.isDraft -or $Release.isPrerelease){throw 'Release nao ficou estavel.'}
+          if(@($Release.assets).Count -ne 6){throw "Release possui $(@($Release.assets).Count) assets."}
+
+      - name: Full Windows central-update pilot
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Repo=$env:GITHUB_WORKSPACE
+          $Product=Join-Path $Repo 'windows\zabbix-agent-deployment'
+          $Dist=Join-Path $Repo 'dist'
+          $PilotRoot=Join-Path 'C:\' ('DDM-SNOC-E2E-'+[guid]::NewGuid().ToString('N'))
+          $Central=Join-Path $PilotRoot 'ZBX'
+          try {
+              New-Item $Central -ItemType Directory -Force|Out-Null
+              & icacls.exe $Central /inheritance:r | Out-Host
+              if($LASTEXITCODE -ne 0){throw 'Falha ao remover heranca ACL do piloto.'}
+              & icacls.exe $Central /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-11:(OI)(CI)RX' | Out-Host
+              if($LASTEXITCODE -ne 0){throw 'Falha ao configurar ACL do piloto.'}
+
+              $SeedZip=Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-'+$env:PRODUCT_VERSION+'.zip')
+              Expand-Archive -LiteralPath $SeedZip -DestinationPath $Central -Force
+              Copy-Item (Join-Path $Product 'clients\AGL\CLIENTE.ps1') (Join-Path $Central 'CLIENTE.ps1') -Force
+
+              Start-Sleep -Seconds 8
+              $Updater=Join-Path $Central 'CENTRAL-UPDATER\central\Update-DDM-SNOC-Central.ps1'
+              & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Updater -CentralRoot $Central
+              if($LASTEXITCODE -ne 0){throw "Piloto integral retornou $LASTEXITCODE"}
+
+              $CurrentPath=Join-Path $Central 'CURRENT.txt'
+              if(-not(Test-Path -LiteralPath $CurrentPath)){throw 'Piloto integral nao criou CURRENT.txt.'}
+              $Current=(Get-Content -LiteralPath $CurrentPath -First 1).Trim()
+              if($Current -notlike "$env:PRODUCT_VERSION`__*"){throw "CURRENT.txt inesperado no piloto: $Current"}
+              Write-Host "FULL_CENTRAL_PILOT_OK Current=$Current" -ForegroundColor Green
+          }
+          finally {
+              Remove-Item $PilotRoot -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Record READY and remove temporary workflow
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin main
+          git checkout -B ready origin/main
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          $Status=Join-Path $env:GITHUB_WORKSPACE 'release-status\ddm-snoc-windows-v2.0.9.txt'
+          New-Item (Split-Path -Parent $Status) -ItemType Directory -Force|Out-Null
+          Set-Content -LiteralPath $Status -Value ('State=READY Tag='+$env:RELEASE_TAG+' Commit='+$env:SOURCE_COMMIT+' Assets=6 OfficialClients=4 FullCentralPilot=PASS VerifiedAtUtc='+(Get-Date).ToUniversalTime().ToString('o')) -Encoding UTF8
+          Remove-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'release-status\ddm-snoc-windows-v2.0.9-failed.txt') -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\_tmp-ddm-snoc-publish-2.0.9.yml') -Force -ErrorAction SilentlyContinue
+          git add -A
+          git commit -m 'chore(snoc-windows): registra 2.0.9 READY com piloto integral'
+          git push origin HEAD:main
+
+      - name: Remove failed release and record failure
+        if: failure()
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Continue'
+          & gh release delete $env:RELEASE_TAG --yes 2>$null
+          git push --delete origin $env:RELEASE_TAG 2>$null
+          git fetch origin main
+          git checkout -B failed origin/main
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          $Status=Join-Path $env:GITHUB_WORKSPACE 'release-status\ddm-snoc-windows-v2.0.9-failed.txt'
+          Set-Content -LiteralPath $Status -Value ('State=FAILED RunId='+$env:GITHUB_RUN_ID+' SourceCommit='+$env:SOURCE_COMMIT+' FailedAtUtc='+(Get-Date).ToUniversalTime().ToString('o')) -Encoding UTF8
+          git add $Status
+          git commit -m 'chore(snoc-windows): registra falha de publicacao 2.0.9'
+          git push origin HEAD:main
