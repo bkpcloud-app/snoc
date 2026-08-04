@@ -1,0 +1,1 @@
+﻿State=FAILED RunId=30954679032 Error=Marcador $Boot do instalador nao encontrado. FailedAtUtc=2026-08-04T22:00:50.7803470Z

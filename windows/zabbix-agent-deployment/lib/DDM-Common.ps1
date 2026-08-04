@@ -192,6 +192,18 @@ function Get-DDMFreeSpaceMB {
 function Set-DDMLocalSecureAcl {
     param([Parameter(Mandatory=$true)][string]$Path)
     if(-not(Test-Path -LiteralPath $Path)){New-Item -Path $Path -ItemType Directory -Force|Out-Null}
-    & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /T /C /Q|Out-Null
-    if($LASTEXITCODE -ne 0){throw "Falha ao proteger ACL local: $Path (ExitCode=$LASTEXITCODE)"}
+
+    # Recupera controle de arquivos deixados com ACL quebrada por versoes anteriores.
+    & icacls.exe $Path /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' /T /C /Q | Out-Null
+    if($LASTEXITCODE -ne 0){throw "Falha ao recuperar ACL local: $Path (ExitCode=$LASTEXITCODE)"}
+
+    # A raiz nao herda permissoes externas. Somente SYSTEM e Administradores escrevem.
+    & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /C /Q | Out-Null
+    if($LASTEXITCODE -ne 0){throw "Falha ao proteger raiz local: $Path (ExitCode=$LASTEXITCODE)"}
+
+    # Descendentes voltam a herdar a ACL canonica da raiz; nao remover heranca recursivamente.
+    foreach($Child in @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue)){
+        & icacls.exe $Child.FullName /inheritance:e /reset /T /C /Q | Out-Null
+        if($LASTEXITCODE -ne 0){throw "Falha ao normalizar ACL local: $($Child.FullName) (ExitCode=$LASTEXITCODE)"}
+    }
 }
