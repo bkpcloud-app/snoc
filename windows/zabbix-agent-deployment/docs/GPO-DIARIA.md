@@ -1,3 +1,7 @@
+## Cobertura integral dos CMDs por UNC
+
+O pipeline executa os sete CMDs centrais diretamente por SMB: instalacao do bootstrap, GPO diaria, instalacao, reparo, diagnostico, update do AD e rollback.
+
 ## Execucao por caminho UNC
 
 INSTALAR-BOOTSTRAP.cmd e GPO-DIARIA.cmd removem a barra final de %~dp0 antes de enviar CentralRoot ao PowerShell. O pipeline executa os dois CMDs diretamente por um compartilhamento SMB real.

@@ -1,3 +1,8 @@
+## 2.0.11 - 2026-08-04
+- Normaliza todos os sete CMDs centrais executados por caminho UNC.
+- Inclui update central, instalacao, reparo, diagnostico e rollback no teste SMB integral.
+- Impede passagem direta de %~dp0 com barra final ao PowerShell.
+
 ## 2.0.10 - 2026-08-04
 - Corrige INSTALAR-BOOTSTRAP.cmd e GPO-DIARIA.cmd executados diretamente por UNC.
 - Remove a barra final de %~dp0 antes de enviar CentralRoot ao PowerShell.
