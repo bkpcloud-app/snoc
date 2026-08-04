@@ -1,0 +1,1 @@
+﻿State=READY Tag=ddm-snoc-windows-v2.0.7 Commit=e33c6a6c5982e4e43ebec22bf5f9653485db0389 VerifiedAtUtc=2026-08-04T16:40:33.3840825Z Assets=6 Validation=repository_audit,runtime_lexical,central_bootstrap_load,seed_load_order,expanded_motor
