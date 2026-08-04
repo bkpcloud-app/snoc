@@ -1,4 +1,4 @@
-function Get-DDMHttpTimeoutSeconds($Product){if($Product -and $Product.HttpTimeoutSeconds){return[int]$Product.HttpTimeoutSeconds};return120}
+function Get-DDMHttpTimeoutSeconds($Product){if($Product -and $Product.HttpTimeoutSeconds){return[int]$Product.HttpTimeoutSeconds};return 120}
 function Assert-DDMDownloadSize([string]$Path,$Product){$Limit=if($Product -and $Product.MaxDownloadSizeMB){[int64]$Product.MaxDownloadSizeMB*1MB}else{1GB};$Size=(Get-Item -LiteralPath $Path).Length;if($Size -le 0 -or $Size -gt $Limit){throw"Download fora do limite permitido: $Path ($Size bytes; limite=$Limit)."}}
 
 function Invoke-DDMWebRequestWithRetry {

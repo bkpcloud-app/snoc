@@ -1,3 +1,8 @@
+## 2.0.5
+
+- corrige falha real do atualizador central causada por eturn120 em Get-DDMHttpTimeoutSeconds;
+- adiciona teste de regressao para bloquear eturn colado a valores numericos;
+- mantem o fluxo AD -> GitHub/CDN -> NETLOGON e endpoints somente internos.
 # Historico
 
 ## 2.0.3 — endurecimento transacional e modos manual/automatico

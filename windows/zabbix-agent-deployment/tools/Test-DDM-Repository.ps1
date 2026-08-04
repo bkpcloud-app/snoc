@@ -138,7 +138,7 @@ Write-Host '3/12 Contrato global do produto'
 . (Join-Path $ProductRoot 'config\DDM-Product.ps1')
 Assert-DDMTest ($DDMProduct.ProductName -eq 'DDM SNOC Windows') 'ProductName invalido.'
 Assert-DDMTest ($DDMProduct.ProductCode -eq 'DDM-SNOC-WINDOWS') 'ProductCode invalido.'
-Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.4') 'ProductVersion deve ser 2.0.4.'
+Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.5') 'ProductVersion deve ser 2.0.5.'
 Assert-DDMTest ($DDMProduct.ClientSchemaVersion -eq 3) 'Schema deve ser 3.'
 Assert-DDMTest ([bool]$DDMProduct.AllowAgent2OnServer2012) 'Server 2012 deve permanecer habilitado para Agent 2.'
 Assert-DDMTest ([bool]$DDMProduct.InstallAgent2Plugins) 'Plugins Agent 2 devem permanecer habilitados.'
@@ -232,6 +232,7 @@ finally {
 
 Write-Host '6/12 Central, fornecimento e imutabilidade'
 $Supply = Read-DDMRaw 'central\lib\DDM-Central-Supply.ps1'
+Assert-DDMTest ($Supply -notmatch '(?i)\breturn\d+\b') 'Fornecimento central possui return colado a numero.'
 $Publisher = Read-DDMRaw 'central\lib\Invoke-DDM-Central-Publish.ps1'
 $CentralClient = Read-DDMRaw 'central\lib\DDM-Central-Client.ps1'
 foreach ($Required in @(
