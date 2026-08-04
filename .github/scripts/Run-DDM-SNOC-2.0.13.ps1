@@ -37,6 +37,18 @@ if($Text -notmatch 'remove-controles-legados-gpo-2013'){
     $Text=$Text.Replace($RepoReadOld.Trim(),$RepoReadNew.Trim())
 }
 
+$OldIdempotency=@'
+    if(-not $FirstTest.Contains($OldBlock.Trim())){throw 'Bloco de recuperacao parcial do teste nao encontrado.'}
+    $FirstTest=$FirstTest.Replace($OldBlock.Trim(),$NewBlock.Trim())
+'@
+$NewIdempotency=@'
+    if($FirstTest -notmatch 'ACL-CONFIG-BEFORE'){
+        if(-not $FirstTest.Contains($OldBlock.Trim())){throw 'Bloco de recuperacao parcial do teste nao encontrado.'}
+        $FirstTest=$FirstTest.Replace($OldBlock.Trim(),$NewBlock.Trim())
+    }
+'@
+$Text=$Text.Replace($OldIdempotency.Trim(),$NewIdempotency.Trim())
+
 if($Text -match '\$Marker="\$Boot='){throw 'Marcador Boot ainda usa interpolacao.'}
 if($Text -match '\$FirstTest\.Replace\("\$ReleaseId='){throw 'ReleaseId do teste ainda usa interpolacao.'}
 if($Text -match '\$Needle="\$BootstrapInstaller'){throw 'Needle BootstrapInstaller ainda usa interpolacao.'}
