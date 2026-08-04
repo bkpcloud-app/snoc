@@ -310,7 +310,7 @@ try {
     Invoke-RobocopyChecked $CentralRoot $PartialContent
     Write-Host "Estado parcial preservado em: $PartialBackupRoot" -ForegroundColor Green
 
-    Write-Step '6/9 - Substituindo a publicacao parcial pelo AD-SEED 2.0.5...'
+    Write-Step "6/9 - Substituindo a publicacao atual pelo AD-SEED $Version..."
     Remove-CentralContents $CentralRoot
     $CentralChanged = $true
     Invoke-RobocopyChecked $SeedExtract $CentralRoot
