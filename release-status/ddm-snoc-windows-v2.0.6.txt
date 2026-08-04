@@ -1,1 +1,1 @@
-﻿State=FAILED Commit=2f20cf51c5effc51fb4538639cf873d4b8af230b VerifiedAtUtc=2026-08-04T15:54:40.6845201Z Message=System.Management.Automation.RuntimeException: Asset ausente: DDM-SNOC-WINDOWS-MOTOR-2.0.6.zip
+﻿State=FAILED Commit=2f20cf51c5effc51fb4538639cf873d4b8af230b VerifiedAtUtc=2026-08-04T15:56:29.8944201Z Message=System.Management.Automation.RuntimeException: gh release upload retornou 1
