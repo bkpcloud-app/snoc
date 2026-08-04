@@ -71,7 +71,8 @@ if($Text -notmatch 'split-acl-assertions-2013'){
     $Text=$Text.Replace($OldMarker,$NewMarker.TrimEnd())
 }
 
-if($Text -match '/inheritance:e /reset'){throw 'Operacoes icacls ainda estao combinadas.'}
+$InvalidExecutable='& icacls.exe $Child.FullName /inheritance:e /reset /T /C /Q | Out-Null'
+if($Text.Contains($InvalidExecutable)){throw 'Chamada executavel combinada do icacls ainda permanece.'}
 if($Text -match '\$Marker="\$Boot='){throw 'Marcador Boot ainda usa interpolacao.'}
 if($Text -match '\$FirstTest\.Replace\("\$ReleaseId='){throw 'ReleaseId do teste ainda usa interpolacao.'}
 if($Text -match '\$Needle="\$BootstrapInstaller'){throw 'Needle BootstrapInstaller ainda usa interpolacao.'}
