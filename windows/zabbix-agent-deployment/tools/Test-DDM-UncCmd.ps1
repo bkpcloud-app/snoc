@@ -13,17 +13,25 @@ function Assert-DDMUncTest {
     if (-not $Condition) { throw $Message }
 }
 
-$InstallCmdPath = Join-Path $ProductRoot 'templates\central\INSTALAR-BOOTSTRAP.cmd'
-$GpoCmdPath = Join-Path $ProductRoot 'templates\central\GPO-DIARIA.cmd'
-Assert-DDMUncTest (Test-Path -LiteralPath $InstallCmdPath) 'INSTALAR-BOOTSTRAP.cmd ausente.'
-Assert-DDMUncTest (Test-Path -LiteralPath $GpoCmdPath) 'GPO-DIARIA.cmd ausente.'
-
-foreach ($Path in @($InstallCmdPath,$GpoCmdPath)) {
-    $Text = [System.IO.File]::ReadAllText($Path)
-    Assert-DDMUncTest ($Text.Contains('set "CENTRAL=%~dp0"')) "$Path nao captura o diretorio do CMD."
-    Assert-DDMUncTest ($Text.Contains('if "%CENTRAL:~-1%"=="\" set "CENTRAL=%CENTRAL:~0,-1%"')) "$Path nao remove a barra final de %~dp0."
-    Assert-DDMUncTest ($Text.Contains('-CentralRoot "%CENTRAL%"')) "$Path nao envia o CentralRoot normalizado."
-    Assert-DDMUncTest (-not $Text.Contains('-CentralRoot "%~dp0"')) "$Path ainda envia %~dp0 diretamente ao PowerShell."
+$CmdNames = @(
+    'INSTALAR-BOOTSTRAP.cmd',
+    'GPO-DIARIA.cmd',
+    'INSTALAR.cmd',
+    'REPARAR.cmd',
+    'DIAGNOSTICAR.cmd',
+    'ATUALIZAR-AD.cmd',
+    'VOLTAR-RELEASE.cmd'
+)
+$CmdPaths = @()
+foreach ($Name in $CmdNames) {
+    $Path = Join-Path $ProductRoot ('templates\central\' + $Name)
+    Assert-DDMUncTest (Test-Path -LiteralPath $Path) "$Name ausente."
+    $CmdPaths += $Path
+    $Text = [IO.File]::ReadAllText($Path)
+    Assert-DDMUncTest ($Text.Contains('set "CENTRAL=%~dp0"')) "$Name nao captura o diretorio do CMD."
+    Assert-DDMUncTest ($Text.Contains('if "%CENTRAL:~-1%"=="\" set "CENTRAL=%CENTRAL:~0,-1%"')) "$Name nao remove a barra final de %~dp0."
+    Assert-DDMUncTest ($Text.Contains('-CentralRoot "%CENTRAL%"')) "$Name nao envia o CentralRoot normalizado."
+    Assert-DDMUncTest (-not $Text.Contains('-CentralRoot "%~dp0"')) "$Name ainda envia %~dp0 diretamente ao PowerShell."
 }
 
 if ($env:GITHUB_ACTIONS -ne 'true') {
@@ -41,14 +49,28 @@ $ShareName = 'DDMSNOC' + ([guid]::NewGuid().ToString('N').Substring(0,8))
 $Expected = "\\localhost\$ShareName"
 $InstallerMarker = Join-Path $env:RUNNER_TEMP ($ShareName + '-installer.txt')
 $BootstrapMarker = Join-Path $env:RUNNER_TEMP ($ShareName + '-bootstrap.txt')
+$UpdaterMarker = Join-Path $env:RUNNER_TEMP ($ShareName + '-updater.txt')
+$RollbackMarker = Join-Path $env:RUNNER_TEMP ($ShareName + '-rollback.txt')
 $StateRoot = 'C:\ProgramData\BKPCloud\SNOC-Windows'
-$LocalBootstrap = Join-Path $StateRoot 'Bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1'
 $Everyone = (New-Object Security.Principal.SecurityIdentifier('S-1-1-0')).Translate([Security.Principal.NTAccount]).Value
+
+function Reset-DDMProbeState {
+    Remove-Item -LiteralPath $StateRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $InstallerMarker,$BootstrapMarker,$UpdaterMarker,$RollbackMarker -Force -ErrorAction SilentlyContinue
+}
+function Invoke-DDMUncCmd {
+    param([string]$Name,[string]$Arguments='')
+    $Command = 'call "{0}\{1}" {2}' -f $Expected,$Name,$Arguments
+    & $env:ComSpec /d /c $Command
+    Assert-DDMUncTest ($LASTEXITCODE -eq 0) "$Name por UNC retornou $LASTEXITCODE."
+}
 
 try {
     New-Item -Path (Join-Path $ShareRoot 'BOOTSTRAP-INSTALL\bootstrap') -ItemType Directory -Force | Out-Null
-    Copy-Item -LiteralPath $InstallCmdPath -Destination (Join-Path $ShareRoot 'INSTALAR-BOOTSTRAP.cmd') -Force
-    Copy-Item -LiteralPath $GpoCmdPath -Destination (Join-Path $ShareRoot 'GPO-DIARIA.cmd') -Force
+    New-Item -Path (Join-Path $ShareRoot 'CENTRAL-UPDATER\central') -ItemType Directory -Force | Out-Null
+    New-Item -Path (Join-Path $ShareRoot 'CENTRAL-TOOLS\tools') -ItemType Directory -Force | Out-Null
+    foreach ($Path in $CmdPaths) { Copy-Item -LiteralPath $Path -Destination (Join-Path $ShareRoot (Split-Path -Leaf $Path)) -Force }
+    Set-Content -LiteralPath (Join-Path $ShareRoot 'CLIENTE.ps1') -Value '$DDMClient=@{}' -Encoding ASCII
 
     $ProbeInstallerLines = @(
         'param([string]$CentralRoot)',
@@ -58,44 +80,63 @@ try {
         '$Boot=''C:\ProgramData\BKPCloud\SNOC-Windows\Bootstrap\Invoke-DDM-SNOC-Bootstrap.ps1''',
         'New-Item (Split-Path -Parent $Boot) -ItemType Directory -Force|Out-Null',
         '$Lines=@(',
-        '  ''param([string]$CentralRoot,[string]$Mode)'',',
+        '  ''param([string]$CentralRoot,[string]$Mode,[int]$MaxJitterSeconds)'',',
         '  ''if($CentralRoot -ne $env:DDM_EXPECTED_UNC){throw "Bootstrap CentralRoot incorreto: <$CentralRoot>"}'',',
-        '  ''if($Mode -ne "Auto"){throw "Bootstrap Mode incorreto: <$Mode>"}'',',
-        '  ''[IO.File]::WriteAllText($env:DDM_BOOTSTRAP_MARKER,$CentralRoot)''',
+        '  ''[IO.File]::WriteAllText($env:DDM_BOOTSTRAP_MARKER,($Mode+"|"+$CentralRoot))''',
         ')',
         '[IO.File]::WriteAllLines($Boot,$Lines,(New-Object Text.UTF8Encoding($false)))'
     )
-    [IO.File]::WriteAllLines(
-        (Join-Path $ShareRoot 'BOOTSTRAP-INSTALL\bootstrap\Install-DDM-SNOC-Bootstrap.ps1'),
-        $ProbeInstallerLines,
-        (New-Object Text.UTF8Encoding($false))
+    [IO.File]::WriteAllLines((Join-Path $ShareRoot 'BOOTSTRAP-INSTALL\bootstrap\Install-DDM-SNOC-Bootstrap.ps1'),$ProbeInstallerLines,(New-Object Text.UTF8Encoding($false)))
+
+    $UpdaterLines = @(
+        'param([string]$CentralRoot)',
+        'if($CentralRoot -ne $env:DDM_EXPECTED_UNC){throw "Updater CentralRoot incorreto: <$CentralRoot>"}',
+        '[IO.File]::WriteAllText($env:DDM_UPDATER_MARKER,$CentralRoot)'
     )
+    [IO.File]::WriteAllLines((Join-Path $ShareRoot 'CENTRAL-UPDATER\central\Update-DDM-SNOC-Central.ps1'),$UpdaterLines,(New-Object Text.UTF8Encoding($false)))
+
+    $RollbackLines = @(
+        'param([string]$CentralRoot,[switch]$UsePrevious,[string]$ReleaseId,[switch]$List)',
+        'if($CentralRoot -ne $env:DDM_EXPECTED_UNC){throw "Rollback CentralRoot incorreto: <$CentralRoot>"}',
+        '[IO.File]::WriteAllText($env:DDM_ROLLBACK_MARKER,$CentralRoot)'
+    )
+    [IO.File]::WriteAllLines((Join-Path $ShareRoot 'CENTRAL-TOOLS\tools\Set-DDM-CentralRelease.ps1'),$RollbackLines,(New-Object Text.UTF8Encoding($false)))
 
     New-SmbShare -Name $ShareName -Path $ShareRoot -FullAccess $Everyone | Out-Null
     $env:DDM_EXPECTED_UNC = $Expected
     $env:DDM_INSTALLER_MARKER = $InstallerMarker
     $env:DDM_BOOTSTRAP_MARKER = $BootstrapMarker
+    $env:DDM_UPDATER_MARKER = $UpdaterMarker
+    $env:DDM_ROLLBACK_MARKER = $RollbackMarker
 
-    Remove-Item -LiteralPath $StateRoot -Recurse -Force -ErrorAction SilentlyContinue
-    & $env:ComSpec /d /c ('call "{0}\INSTALAR-BOOTSTRAP.cmd"' -f $Expected)
-    Assert-DDMUncTest ($LASTEXITCODE -eq 0) "INSTALAR-BOOTSTRAP.cmd por UNC retornou $LASTEXITCODE."
-    Assert-DDMUncTest (Test-Path -LiteralPath $InstallerMarker) 'Instalador por UNC nao foi chamado.'
-    Assert-DDMUncTest (([IO.File]::ReadAllText($InstallerMarker)) -eq $Expected) 'INSTALAR-BOOTSTRAP.cmd alterou o UNC recebido.'
+    Reset-DDMProbeState
+    Invoke-DDMUncCmd 'INSTALAR-BOOTSTRAP.cmd'
+    Assert-DDMUncTest (([IO.File]::ReadAllText($InstallerMarker)) -eq $Expected) 'INSTALAR-BOOTSTRAP.cmd alterou o UNC.'
 
-    Remove-Item -LiteralPath $StateRoot -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $InstallerMarker,$BootstrapMarker -Force -ErrorAction SilentlyContinue
-    & $env:ComSpec /d /c ('call "{0}\GPO-DIARIA.cmd"' -f $Expected)
-    Assert-DDMUncTest ($LASTEXITCODE -eq 0) "GPO-DIARIA.cmd por UNC retornou $LASTEXITCODE."
-    Assert-DDMUncTest (Test-Path -LiteralPath $InstallerMarker) 'GPO-DIARIA.cmd nao chamou o instalador.'
-    Assert-DDMUncTest (Test-Path -LiteralPath $BootstrapMarker) 'GPO-DIARIA.cmd nao chamou o bootstrap.'
-    Assert-DDMUncTest (([IO.File]::ReadAllText($InstallerMarker)) -eq $Expected) 'GPO-DIARIA.cmd enviou UNC incorreto ao instalador.'
-    Assert-DDMUncTest (([IO.File]::ReadAllText($BootstrapMarker)) -eq $Expected) 'GPO-DIARIA.cmd enviou UNC incorreto ao bootstrap.'
+    foreach ($Case in @(
+        @{Name='GPO-DIARIA.cmd';Mode='Auto'},
+        @{Name='INSTALAR.cmd';Mode='Apply'},
+        @{Name='REPARAR.cmd';Mode='Repair'},
+        @{Name='DIAGNOSTICAR.cmd';Mode='Diagnose'}
+    )) {
+        Reset-DDMProbeState
+        Invoke-DDMUncCmd $Case.Name
+        Assert-DDMUncTest (Test-Path -LiteralPath $InstallerMarker) "$($Case.Name) nao chamou o instalador."
+        Assert-DDMUncTest (([IO.File]::ReadAllText($BootstrapMarker)) -eq ($Case.Mode + '|' + $Expected)) "$($Case.Name) enviou modo ou UNC incorreto ao bootstrap."
+    }
 
-    Write-Host 'UNC_CMD_REGRESSION_OK' -ForegroundColor Green
+    Reset-DDMProbeState
+    Invoke-DDMUncCmd 'ATUALIZAR-AD.cmd'
+    Assert-DDMUncTest (([IO.File]::ReadAllText($UpdaterMarker)) -eq $Expected) 'ATUALIZAR-AD.cmd enviou UNC incorreto ao atualizador.'
+
+    Reset-DDMProbeState
+    Invoke-DDMUncCmd 'VOLTAR-RELEASE.cmd' 'PREVIOUS'
+    Assert-DDMUncTest (([IO.File]::ReadAllText($RollbackMarker)) -eq $Expected) 'VOLTAR-RELEASE.cmd enviou UNC incorreto ao rollback.'
+
+    Write-Host 'UNC_ALL_CENTRAL_CMDS_OK' -ForegroundColor Green
 }
 finally {
     Remove-SmbShare -Name $ShareName -Force -Confirm:$false -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $ShareRoot -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $InstallerMarker,$BootstrapMarker -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $StateRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Reset-DDMProbeState
 }
