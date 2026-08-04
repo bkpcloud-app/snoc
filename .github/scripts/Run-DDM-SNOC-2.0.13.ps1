@@ -49,6 +49,29 @@ $NewIdempotency=@'
 '@
 $Text=$Text.Replace($OldIdempotency.Trim(),$NewIdempotency.Trim())
 
+$OldAclCall=@'
+        & icacls.exe $Child.FullName /inheritance:e /reset /T /C /Q | Out-Null
+        if($LASTEXITCODE -ne 0){throw "Falha ao normalizar ACL local: $($Child.FullName) (ExitCode=$LASTEXITCODE)"}
+'@
+$NewAclCall=@'
+        & icacls.exe $Child.FullName /inheritance:e /T /C /Q | Out-Null
+        if($LASTEXITCODE -ne 0){throw "Falha ao habilitar heranca ACL local: $($Child.FullName) (ExitCode=$LASTEXITCODE)"}
+        & icacls.exe $Child.FullName /reset /T /C /Q | Out-Null
+        if($LASTEXITCODE -ne 0){throw "Falha ao resetar ACL local: $($Child.FullName) (ExitCode=$LASTEXITCODE)"}
+'@
+$Text=$Text.Replace($OldAclCall.Trim(),$NewAclCall.Trim())
+
+if($Text -notmatch 'split-acl-assertions-2013'){
+    $OldMarker='    # remove-controles-legados-gpo-2013'
+    $NewMarker=@'
+    # remove-controles-legados-gpo-2013
+    $RepoTest=$RepoTest.Replace("Assert-DDMTest (`$CommonAcl.Contains('/inheritance:e /reset /T /C /Q')) 'ACL local ainda remove heranca recursivamente.'","Assert-DDMTest (`$CommonAcl.Contains('/inheritance:e /T /C /Q')) 'ACL local nao habilita heranca nos descendentes.'`r`nAssert-DDMTest (`$CommonAcl.Contains('/reset /T /C /Q')) 'ACL local nao reseta descendentes para heranca canonica.'")
+    # split-acl-assertions-2013
+'@
+    $Text=$Text.Replace($OldMarker,$NewMarker.TrimEnd())
+}
+
+if($Text -match '/inheritance:e /reset'){throw 'Operacoes icacls ainda estao combinadas.'}
 if($Text -match '\$Marker="\$Boot='){throw 'Marcador Boot ainda usa interpolacao.'}
 if($Text -match '\$FirstTest\.Replace\("\$ReleaseId='){throw 'ReleaseId do teste ainda usa interpolacao.'}
 if($Text -match '\$Needle="\$BootstrapInstaller'){throw 'Needle BootstrapInstaller ainda usa interpolacao.'}
