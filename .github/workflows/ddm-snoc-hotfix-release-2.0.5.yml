@@ -1,0 +1,206 @@
+name: Publish DDM SNOC Windows 2.0.5 hotfix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/ddm-snoc-hotfix-release-2.0.5.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2025
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Fix source, validate, tag and publish 2.0.5
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+          $Tag = 'ddm-snoc-windows-v2.0.5'
+          $Version = '2.0.5'
+          $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+          $SupplyPath = Join-Path $Product 'central\lib\DDM-Central-Supply.ps1'
+          $Supply = [System.IO.File]::ReadAllText($SupplyPath)
+          if ($Supply -notmatch '\breturn120\b') {
+              throw 'Assinatura esperada return120 nao encontrada; hotfix recusado para evitar alteracao ambigua.'
+          }
+          $Supply = $Supply.Replace('return120', 'return 120')
+          [System.IO.File]::WriteAllText($SupplyPath, $Supply, $Utf8NoBom)
+
+          $ConfigPath = Join-Path $Product 'config\DDM-Product.ps1'
+          $Config = [System.IO.File]::ReadAllText($ConfigPath)
+          $Config = $Config.Replace("ProductVersion           = '2.0.4'", "ProductVersion           = '2.0.5'")
+          if ($Config -notmatch "ProductVersion\s*=\s*'2\.0\.5'") {
+              throw 'Nao foi possivel promover ProductVersion para 2.0.5.'
+          }
+          [System.IO.File]::WriteAllText($ConfigPath, $Config, $Utf8NoBom)
+
+          $TestPath = Join-Path $Product 'tools\Test-DDM-Repository.ps1'
+          $Test = [System.IO.File]::ReadAllText($TestPath)
+          $Test = $Test.Replace("(`$DDMProduct.ProductVersion -eq '2.0.4')", "(`$DDMProduct.ProductVersion -eq '2.0.5')")
+          $Test = $Test.Replace('ProductVersion deve ser 2.0.4.', 'ProductVersion deve ser 2.0.5.')
+          $Anchor = "`$Supply = Read-DDMRaw 'central\lib\DDM-Central-Supply.ps1'"
+          if ($Test -notmatch 'return colado a numero') {
+              $Replacement = $Anchor + "`r`nAssert-DDMTest (`$Supply -notmatch '(?i)\breturn\d+\b') 'Fornecimento central possui return colado a numero.'"
+              $Test = $Test.Replace($Anchor, $Replacement)
+          }
+          if ($Test -notmatch "ProductVersion -eq '2\.0\.5'") {
+              throw 'Teste de ProductVersion nao foi atualizado para 2.0.5.'
+          }
+          [System.IO.File]::WriteAllText($TestPath, $Test, $Utf8NoBom)
+
+          $ChangePath = Join-Path $Product 'CHANGELOG.md'
+          $Change = [System.IO.File]::ReadAllText($ChangePath)
+          if ($Change -notmatch '(?m)^## 2\.0\.5\b') {
+              $Entry = @"
+          ## 2.0.5
+
+          - corrige falha real do atualizador central causada por `return120` em `Get-DDMHttpTimeoutSeconds`;
+          - adiciona teste de regressao para bloquear `return` colado a valores numericos;
+          - mantem o fluxo AD -> GitHub/CDN -> NETLOGON e endpoints somente internos.
+
+          "@
+              [System.IO.File]::WriteAllText($ChangePath, $Entry + $Change, $Utf8NoBom)
+          }
+
+          & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- $SupplyPath $ConfigPath $TestPath $ChangePath
+          git commit -m 'fix(snoc-windows): corrige timeout central e promove 2.0.5'
+          git push origin HEAD:main
+
+          git tag -a $Tag -m 'DDM SNOC Windows 2.0.5'
+          git push origin ('refs/tags/' + $Tag)
+
+          . $ConfigPath
+          if ([string]$DDMProduct.ProductVersion -ne $Version) {
+              throw 'ProductVersion divergente antes da montagem da release.'
+          }
+
+          $Dist = Join-Path $env:GITHUB_WORKSPACE 'dist-2.0.5'
+          $Motor = Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-' + $Version)
+          $Seed = Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-' + $Version)
+          Remove-Item -LiteralPath $Dist -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -Path $Motor, $Seed -ItemType Directory -Force | Out-Null
+
+          foreach ($Name in @('Start-DDM-SNOC.ps1', 'CLIENTE.example.ps1', 'README.md', 'CHANGELOG.md')) {
+              Copy-Item -LiteralPath (Join-Path $Product $Name) -Destination (Join-Path $Motor $Name) -Force
+          }
+          foreach ($Name in @('config', 'lib', 'central', 'bootstrap', 'endpoint', 'engine', 'modules', 'templates', 'tools', 'docs', 'clients')) {
+              Copy-Item -LiteralPath (Join-Path $Product $Name) -Destination (Join-Path $Motor $Name) -Recurse -Force
+          }
+
+          foreach ($Name in @('ATUALIZAR-AD.cmd', 'VOLTAR-RELEASE.cmd')) {
+              Copy-Item -LiteralPath (Join-Path $Product ('templates\central\' + $Name)) -Destination (Join-Path $Seed $Name) -Force
+          }
+          Copy-Item -LiteralPath (Join-Path $Product 'CLIENTE.example.ps1') -Destination (Join-Path $Seed 'CLIENTE.example.ps1') -Force
+          Copy-Item -LiteralPath (Join-Path $Product 'docs\UPDATE-AD.md') -Destination (Join-Path $Seed 'LEIA-ME-UPDATE-AD.md') -Force
+          Copy-Item -LiteralPath (Join-Path $Product 'docs\AUDITORIA-300-PONTOS.md') -Destination (Join-Path $Seed 'AUDITORIA-300-PONTOS.md') -Force
+
+          $Updater = Join-Path $Seed 'CENTRAL-UPDATER'
+          foreach ($Rel in @(
+              'central\Update-DDM-SNOC-Central.ps1',
+              'central\lib\DDM-Central-Client.ps1',
+              'central\lib\DDM-Central-Supply.ps1',
+              'central\lib\Invoke-DDM-Central-Publish.ps1',
+              'config\DDM-Product.ps1',
+              'lib\DDM-Common.ps1'
+          )) {
+              $Source = Join-Path $Product $Rel
+              $Destination = Join-Path $Updater $Rel
+              New-Item -Path (Split-Path -Parent $Destination) -ItemType Directory -Force | Out-Null
+              Copy-Item -LiteralPath $Source -Destination $Destination -Force
+          }
+
+          $CentralTools = Join-Path $Seed 'CENTRAL-TOOLS\tools'
+          New-Item -Path $CentralTools -ItemType Directory -Force | Out-Null
+          Copy-Item -LiteralPath (Join-Path $Product 'tools\Set-DDM-CentralRelease.ps1') -Destination (Join-Path $CentralTools 'Set-DDM-CentralRelease.ps1') -Force
+
+          foreach ($Required in @(
+              'ATUALIZAR-AD.cmd',
+              'VOLTAR-RELEASE.cmd',
+              'CENTRAL-UPDATER\central\Update-DDM-SNOC-Central.ps1',
+              'CENTRAL-UPDATER\central\lib\DDM-Central-Supply.ps1',
+              'CENTRAL-UPDATER\config\DDM-Product.ps1',
+              'CENTRAL-TOOLS\tools\Set-DDM-CentralRelease.ps1'
+          )) {
+              if (-not (Test-Path -LiteralPath (Join-Path $Seed $Required))) {
+                  throw "AD-SEED incompleto: $Required"
+              }
+          }
+
+          if ([System.IO.File]::ReadAllText((Join-Path $Seed 'CENTRAL-UPDATER\central\lib\DDM-Central-Supply.ps1')) -match '\breturn120\b') {
+              throw 'AD-SEED ainda contem return120.'
+          }
+          if ([System.IO.File]::ReadAllText((Join-Path $Motor 'central\lib\DDM-Central-Supply.ps1')) -match '\breturn120\b') {
+              throw 'MOTOR ainda contem return120.'
+          }
+
+          $MotorZip = Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-' + $Version + '.zip')
+          $SeedZip = Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-' + $Version + '.zip')
+          Compress-Archive -Path $Motor -DestinationPath $MotorZip -CompressionLevel Optimal
+          Compress-Archive -Path (Join-Path $Seed '*') -DestinationPath $SeedZip -CompressionLevel Optimal
+
+          $GitCommit = (git rev-parse HEAD).Trim()
+          $Assets = @()
+          foreach ($Zip in @($MotorZip, $SeedZip)) {
+              $Hash = (Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToUpperInvariant()
+              Set-Content -LiteralPath ($Zip + '.sha256') -Value ($Hash + ' *' + (Split-Path -Leaf $Zip)) -Encoding ASCII
+              $Assets += New-Object PSObject -Property @{
+                  Name = Split-Path -Leaf $Zip
+                  Sha256 = $Hash
+                  Size = (Get-Item -LiteralPath $Zip).Length
+              }
+          }
+
+          $Manifest = New-Object PSObject -Property @{
+              Product = $DDMProduct.ProductName
+              ProductVersion = $Version
+              GitCommit = $GitCommit
+              GitTag = $Tag
+              GeneratedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+              Assets = $Assets
+              Validation = @(
+                  'PowerShell parser',
+                  'PowerShell 2 surface',
+                  'client negative tests',
+                  'central and rollback invariants',
+                  'runtime regression return-number',
+                  'exactly 300 audit controls'
+              )
+              ExternalPilotsRequired = $true
+          }
+          $ManifestPath = Join-Path $Dist ('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-' + $Version + '.json')
+          $Manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ManifestPath -Encoding UTF8
+          $ManifestHash = (Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
+          Set-Content -LiteralPath ($ManifestPath + '.sha256') -Value ($ManifestHash + ' *' + (Split-Path -Leaf $ManifestPath)) -Encoding ASCII
+
+          $Files = @(
+              $MotorZip,
+              ($MotorZip + '.sha256'),
+              $SeedZip,
+              ($SeedZip + '.sha256'),
+              $ManifestPath,
+              ($ManifestPath + '.sha256')
+          )
+
+          & gh release create $Tag @Files --verify-tag --title 'DDM SNOC Windows 2.0.5' --notes 'Hotfix do atualizador central: corrige return120 e adiciona teste de regressao. Piloto externo continua obrigatorio.'
+          if ($LASTEXITCODE -ne 0) {
+              throw 'Falha ao publicar a release 2.0.5.'
+          }
