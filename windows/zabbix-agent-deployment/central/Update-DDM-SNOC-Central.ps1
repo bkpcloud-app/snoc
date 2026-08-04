@@ -26,7 +26,7 @@ $BootstrapCommonPath=[System.IO.Path]::GetFullPath(
 if (-not (Test-Path -LiteralPath $BootstrapCommonPath)) {
     throw "DDM-Common.ps1 ausente no AD-SEED: $BootstrapCommonPath"
 }
-. $BootstrapCommonPath
+. (Join-Path $CentralScriptRoot '..\lib\DDM-Common.ps1')
 . (Join-Path $CentralScriptRoot 'lib\DDM-Central-Client.ps1')
 . (Join-Path $CentralScriptRoot 'lib\DDM-Central-Supply.ps1')
 . (Join-Path $CentralScriptRoot 'lib\Invoke-DDM-Central-Publish.ps1')
