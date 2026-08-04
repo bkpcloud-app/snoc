@@ -1,0 +1,1 @@
+﻿State=FAILED Commit=0d613069b69a930466e02b7c2780423994baabce VerifiedAtUtc=2026-08-04T15:47:21.0673348Z Message=System.Management.Automation.RuntimeException: Comando possivelmente colado em D:\a\snoc\snoc\windows\zabbix-agent-deployment\engine\Install-DDM-Zabbix-Windows.ps1: return[string]$I.ProductInfo; texto=return[string]$I.ProductInfo($ProductCode,'LocalPackage')
