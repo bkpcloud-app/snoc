@@ -29,4 +29,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference='Stop'
-          & (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\Promote-DDM-SNOC-2.0.13.ps1')
+          & (Join-Path $env:GITHUB_WORKSPACE '.github\scripts\Run-DDM-SNOC-2.0.13.ps1')
