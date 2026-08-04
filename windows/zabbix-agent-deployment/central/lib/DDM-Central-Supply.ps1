@@ -45,7 +45,7 @@ function Invoke-DDMWebRequestWithRetry {
                 UseBasicParsing = $true
                 Headers         = $Headers
                 ErrorAction     = 'Stop'
-                TimeoutSec      = Get-DDMHttpTimeoutSeconds $Product
+                TimeoutSec      = (Get-DDMHttpTimeoutSeconds $Product)
             }
 
             if (-not [string]::IsNullOrWhiteSpace($OutFile)) {
