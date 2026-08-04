@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'release-status/.trigger-ddm-snoc-2.0.12-official'
+      - '.github/workflows/ddm-snoc-windows-validation.yml'
   pull_request:
     paths:
       - 'windows/zabbix-agent-deployment/**'
