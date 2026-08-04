@@ -1,0 +1,1 @@
+﻿State=READY Commit=af4bb7caef0c6135dfe9823f037717618e17fd3a VerifiedAtUtc=2026-08-04T15:49:04.4071885Z Message=Todos os comandos colados foram normalizados; parser, auditor e runtime mocks aprovados.
