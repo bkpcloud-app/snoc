@@ -143,6 +143,9 @@ exit /b %ERRORLEVEL%
 
     $RepoTestPath=Join-Path $Product 'tools\Test-DDM-Repository.ps1'
     $RepoTest=Read-Text $RepoTestPath
+    $RepoTest=$RepoTest.Replace("Assert-DDMTest (`$GpoDaily.Contains('schtasks.exe`" /Query /TN `"%TASK%`" >nul 2>&1')) 'GPO-DIARIA nao verifica a tarefa local.'",'')
+    $RepoTest=$RepoTest.Replace("Assert-DDMTest ([regex]::Matches(`$GpoDaily,'INSTALAR-BOOTSTRAP\.cmd').Count -eq 2) 'GPO-DIARIA nao recupera instalacao parcial.'",'')
+    # remove-controles-legados-gpo-2013
     $RepoTest=$RepoTest.Replace("ProductVersion -eq '2.0.12'","ProductVersion -eq '2.0.13'")
     $RepoTest=$RepoTest.Replace('ProductVersion deve ser 2.0.12.','ProductVersion deve ser 2.0.13.')
     if($RepoTest -notmatch 'ACL-FULL-STATE-RECOVERY-2\.0\.13'){

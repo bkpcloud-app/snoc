@@ -1,1 +1,1 @@
-﻿State=FAILED RunId=30954856330 Error=GPO-DIARIA nao verifica a tarefa local. FailedAtUtc=2026-08-04T22:03:19.7718285Z
+﻿State=FAILED RunId=30955009989 Error=Bloco de recuperacao parcial do teste nao encontrado. FailedAtUtc=2026-08-04T22:05:54.9250874Z
