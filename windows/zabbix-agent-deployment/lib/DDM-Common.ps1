@@ -203,7 +203,9 @@ function Set-DDMLocalSecureAcl {
 
     # Descendentes voltam a herdar a ACL canonica da raiz; nao remover heranca recursivamente.
     foreach($Child in @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue)){
-        & icacls.exe $Child.FullName /inheritance:e /reset /T /C /Q | Out-Null
-        if($LASTEXITCODE -ne 0){throw "Falha ao normalizar ACL local: $($Child.FullName) (ExitCode=$LASTEXITCODE)"}
+        & icacls.exe $Child.FullName /inheritance:e /T /C /Q | Out-Null
+        if($LASTEXITCODE -ne 0){throw "Falha ao habilitar heranca ACL local: $($Child.FullName) (ExitCode=$LASTEXITCODE)"}
+        & icacls.exe $Child.FullName /reset /T /C /Q | Out-Null
+        if($LASTEXITCODE -ne 0){throw "Falha ao resetar ACL local: $($Child.FullName) (ExitCode=$LASTEXITCODE)"}
     }
 }

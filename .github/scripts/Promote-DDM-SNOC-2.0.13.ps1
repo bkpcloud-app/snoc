@@ -61,7 +61,8 @@ function Set-DDMLocalSecureAcl {
     $CommonPat='(?s)function Set-DDMLocalSecureAcl \{.*?\r?\n\}\s*$'
     if(-not [regex]::IsMatch($Common,$CommonPat)){throw 'Funcao Set-DDMLocalSecureAcl nao encontrada no final do DDM-Common.ps1.'}
     $Common=[regex]::Replace($Common,$CommonPat,$AclFunction.TrimEnd()+"`r`n")
-    Assert-Contains $Common '/inheritance:e /reset /T /C /Q' 'Reparo de heranca ACL nao foi aplicado.'
+    Assert-Contains $Common '/inheritance:e /T /C /Q' 'Habilitacao de heranca ACL nao foi aplicada.'
+    Assert-Contains $Common '/reset /T /C /Q' 'Reset de ACL herdada nao foi aplicado.'
     Save-Text $CommonPath $Common
 
     $InstallerPath=Join-Path $Product 'bootstrap\Install-DDM-SNOC-Bootstrap.ps1'
