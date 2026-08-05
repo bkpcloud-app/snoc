@@ -1,6 +1,9 @@
 name: Apply DDM SNOC Audited Migration Fix
 
 on:
+  push:
+    branches:
+      - 'audit/srv-ae-migration-120'
   pull_request:
     paths:
       - 'windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1'
@@ -12,7 +15,7 @@ permissions:
 
 jobs:
   patch-test-and-commit:
-    if: github.head_ref == 'audit/srv-ae-migration-120'
+    if: github.ref == 'refs/heads/audit/srv-ae-migration-120' || github.head_ref == 'audit/srv-ae-migration-120'
     runs-on: windows-latest
     timeout-minutes: 20
 
@@ -20,7 +23,7 @@ jobs:
       - name: Checkout audit branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          ref: audit/srv-ae-migration-120
           fetch-depth: 0
 
       - name: Apply exact reviewed replacements
@@ -104,4 +107,4 @@ $MsiListenPort=if($Client.Communication.ListenPort){[int]$Client.Communication.L
           git add -- 'windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1'
           git add -- 'windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1'
           git commit -m 'fix(windows): correct MSI properties and rollback ordering'
-          git push origin HEAD:${{ github.head_ref }}
+          git push origin HEAD:audit/srv-ae-migration-120
