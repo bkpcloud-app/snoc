@@ -244,7 +244,7 @@ function Run-FaultModel {
         if ($Step -eq 'StartTarget') { $State.A2Service = 'Running' }
         if ($Step -eq 'RemoveOppositeProduct') { $State.A1Product = $false }
         if ($Step -eq 'RemoveOppositeService') { $State.A1Service = 'Absent' }
-        if ($Step -eq 'Commit') { $State.Committed = $true }
+        if ($Step -eq 'Commit' -and $Step -ne $FaultStep) { $State.Committed = $true }
 
         if ($Step -eq $FaultStep) {
             $Failed = $true
