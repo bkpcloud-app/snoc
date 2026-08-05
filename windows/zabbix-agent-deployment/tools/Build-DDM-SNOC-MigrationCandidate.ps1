@@ -15,14 +15,14 @@ $TestPath = Join-Path $ProductRoot 'tools\Test-DDM-SNOC-Migration-240Scenarios.p
 $Engine = [IO.File]::ReadAllText($EnginePath)
 $Test = [IO.File]::ReadAllText($TestPath)
 
-$OldOrder = 'Stop-Agents;$Backup=Backup-State $Products $A1 $A2 $NeedMsi'
-$NewOrder = '$Backup=Backup-State $Products $A1 $A2 $NeedMsi' + "`r`n    try{" + "`r`n        Stop-Agents"
-
-$OrderMatches = [regex]::Matches($Engine,[regex]::Escape($OldOrder)).Count
-if ($OrderMatches -ne 1) {
-    throw "Unsafe backup/stop sequence count is $OrderMatches; expected one."
+$OrderPattern = 'Stop-Agents;\$Backup=Backup-State \$Products \$A1 \$A2 \$NeedMsi\r?\n    try\{'
+$OrderMatches = [regex]::Matches($Engine,$OrderPattern)
+if ($OrderMatches.Count -ne 1) {
+    throw "Unsafe backup/stop transaction count is $($OrderMatches.Count); expected one."
 }
-$Engine = $Engine.Replace($OldOrder,$NewOrder)
+$DetectedNewLine = if ($OrderMatches[0].Value.Contains("`r`n")) { "`r`n" } else { "`n" }
+$NewOrder = '$Backup=Backup-State $Products $A1 $A2 $NeedMsi' + $DetectedNewLine + '    try{' + $DetectedNewLine + '        Stop-Agents'
+$Engine = $Engine.Replace($OrderMatches[0].Value,$NewOrder)
 
 $OldMsi = @'
 Invoke-Msi 'INSTALL' (Get-Artifact $Role) @('ADDLOCAL=ALL','DONOTSTART=1','STARTUPTYPE=automatic','SKIP=fw',('INSTALLFOLDER="'+$InstallRoot+'"')) $Role
@@ -70,9 +70,10 @@ foreach ($Property in $RequiredMsiProperties) {
 }
 
 $BackupIndex = $Engine.IndexOf('$Backup=Backup-State $Products $A1 $A2 $NeedMsi',[StringComparison]::OrdinalIgnoreCase)
+$TryIndex = $Engine.IndexOf('try{',$BackupIndex,[StringComparison]::OrdinalIgnoreCase)
 $StopIndex = $Engine.IndexOf('Stop-Agents',$BackupIndex,[StringComparison]::OrdinalIgnoreCase)
-if ($BackupIndex -lt 0 -or $StopIndex -lt 0 -or $BackupIndex -ge $StopIndex) {
-    throw 'Candidate still stops agents before completing rollback backup.'
+if ($BackupIndex -lt 0 -or $TryIndex -lt 0 -or $StopIndex -lt 0 -or $BackupIndex -ge $TryIndex -or $TryIndex -ge $StopIndex) {
+    throw 'Candidate does not place Stop-Agents inside the rollback-protected transaction after backup.'
 }
 
 $EngineHash = (Get-FileHash -LiteralPath $EnginePath -Algorithm SHA256).Hash
