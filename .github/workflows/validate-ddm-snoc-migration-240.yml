@@ -42,33 +42,26 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240'
           $Script = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
-
-          # The audit searches for the literal token $ProductCode in the engine.
-          # Define it as its own literal value so StrictMode does not expand it.
           $global:ProductCode = '$ProductCode'
-
           $Code = 0
           try {
-              . $Script `
-                  -RepositoryRoot $env:GITHUB_WORKSPACE `
-                  -OutputDirectory $Output
+              . $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
           }
           catch {
               $Code = 1
               Write-Host $_.Exception.Message -ForegroundColor Yellow
           }
-
           "exit_code=$Code" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          if ($Code -ne 0) {
-              Write-Host "Auditoria detectou falhas. ExitCode=$Code" -ForegroundColor Yellow
-          }
 
-      - name: Upload complete evidence
+      - name: Upload complete evidence and exact audited sources
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: DDM-SNOC-MIGRATION-240-EVIDENCE
-          path: ${{ runner.temp }}/DDM-SNOC-MIGRATION-240
+          path: |
+            ${{ runner.temp }}/DDM-SNOC-MIGRATION-240
+            windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1
+            windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1
           if-no-files-found: error
           retention-days: 30
 
