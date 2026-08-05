@@ -11,6 +11,18 @@ on:
       - 'windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1'
       - 'windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1'
       - '.github/workflows/validate-ddm-snoc-migration-240.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1'
+      - 'windows/zabbix-agent-deployment/config/DDM-Product.ps1'
+      - 'windows/zabbix-agent-deployment/CHANGELOG.md'
+      - 'windows/zabbix-agent-deployment/lib/DDM-Common.ps1'
+      - 'windows/zabbix-agent-deployment/tools/Build-DDM-SNOC-MigrationCandidate.ps1'
+      - 'windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1'
+      - 'windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1'
+      - '.github/workflows/validate-ddm-snoc-migration-240.yml'
   workflow_dispatch:
 
 permissions:
@@ -22,71 +34,44 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout exact PR branch
+      - name: Checkout exact source ref
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Materialize exact audited 2.0.15 candidate
+      - name: Verify exact audited 2.0.15 source
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $Root = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           $Engine = Join-Path $Root 'engine\Install-DDM-Zabbix-Windows.ps1'
           $Config = Join-Path $Root 'config\DDM-Product.ps1'
-          $ChangeLog = Join-Path $Root 'CHANGELOG.md'
           $RepositoryTest = Join-Path $Root 'tools\Test-DDM-Repository.ps1'
-          $Builder = Join-Path $Root 'tools\Build-DDM-SNOC-MigrationCandidate.ps1'
           $ExpectedEngineHash = 'E034E3D6026414BA64ECDD8DAE16215D8E4AC0266D7583284900340FBE633EBD'
 
-          $CurrentEngineHash = (Get-FileHash -LiteralPath $Engine -Algorithm SHA256).Hash
-          if ($CurrentEngineHash -ne $ExpectedEngineHash) {
-              & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Builder -RepositoryRoot $env:GITHUB_WORKSPACE
-              if ($LASTEXITCODE -ne 0) {
-                  throw "Candidate builder returned $LASTEXITCODE"
-              }
+          $EngineHash = (Get-FileHash -LiteralPath $Engine -Algorithm SHA256).Hash
+          if ($EngineHash -ne $ExpectedEngineHash) {
+              throw "Engine hash mismatch. Expected=$ExpectedEngineHash Current=$EngineHash"
           }
 
-          $CurrentEngineHash = (Get-FileHash -LiteralPath $Engine -Algorithm SHA256).Hash
-          if ($CurrentEngineHash -ne $ExpectedEngineHash) {
-              throw "Engine hash mismatch. Expected=$ExpectedEngineHash Current=$CurrentEngineHash"
-          }
-
-          $ConfigText = [IO.File]::ReadAllText($Config)
-          if ($ConfigText -match "ProductVersion\s*=\s*'2\.0\.14'") {
-              $ConfigText = $ConfigText.Replace("ProductVersion           = '2.0.14'","ProductVersion           = '2.0.15'")
-              [IO.File]::WriteAllText($Config,$ConfigText,(New-Object Text.UTF8Encoding($false)))
-          }
-          if ([IO.File]::ReadAllText($Config) -notmatch "ProductVersion\s*=\s*'2\.0\.15'") {
-              throw 'ProductVersion 2.0.15 is not active.'
+          . $Config
+          if ([string]$DDMProduct.ProductVersion -ne '2.0.15') {
+              throw "ProductVersion must be 2.0.15. Current=$($DDMProduct.ProductVersion)"
           }
 
           $RepositoryTestText = [IO.File]::ReadAllText($RepositoryTest)
-          $RepositoryTestText = $RepositoryTestText.Replace(
-              "Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.14') 'ProductVersion deve ser 2.0.14.'",
-              "Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.15') 'ProductVersion deve ser 2.0.15.'"
-          )
-
-          $OldOrderAssertion = 'Assert-DDMTest ($Engine.LastIndexOf(''Stop-Agents'') -lt $Engine.LastIndexOf(''Backup-State $Products'')) ''Backup ocorre antes da parada do agente.'''
-          $NewOrderAssertion = 'Assert-DDMTest ($Engine.LastIndexOf(''Backup-State $Products'') -lt $Engine.LastIndexOf(''Stop-Agents'')) ''Backup deve ocorrer antes da parada do agente.'''
-          $RepositoryTestText = $RepositoryTestText.Replace($OldOrderAssertion,$NewOrderAssertion)
-
           if ($RepositoryTestText -notmatch "ProductVersion -eq '2\.0\.15'") {
-              throw 'Repository test was not aligned to 2.0.15.'
+              throw 'Repository test is not aligned to 2.0.15.'
           }
-          if (-not $RepositoryTestText.Contains($NewOrderAssertion)) {
-              throw 'Repository test still requires stopping agents before rollback backup.'
-          }
-          [IO.File]::WriteAllText($RepositoryTest,$RepositoryTestText,(New-Object Text.UTF8Encoding($false)))
-
-          $ChangeText = [IO.File]::ReadAllText($ChangeLog)
-          if ($ChangeText -notmatch '(?m)^## 2\.0\.15 ') {
-              $Header = "## 2.0.15 - 2026-08-05`r`n- Corrige a ordem transacional: backup completo antes de parar os agentes.`r`n- Envia SERVER, SERVERACTIVE, HOSTNAME, HOSTMETADATA e LISTENPORT ao MSI do Agent 2.`r`n- Mantem o Agent 1 ate validar configuracao, servico, porta e plugins do Agent 2.`r`n- Valida 240 cenarios de migracao, falha e rollback sem reprovacoes.`r`n`r`n"
-              [IO.File]::WriteAllText($ChangeLog,$Header+$ChangeText,(New-Object Text.UTF8Encoding($false)))
+          if ($RepositoryTestText -notmatch "LastIndexOf\('Backup-State \$Products'\) -lt \$Engine\.LastIndexOf\('Stop-Agents'\)") {
+              throw 'Repository test does not require rollback backup before agent stop.'
           }
 
-      - name: Parse exact candidate sources
+          Write-Host "ENGINE_SHA256=$EngineHash"
+          Write-Host 'PRODUCT_VERSION=2.0.15'
+
+      - name: Parse exact sources
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -143,7 +128,7 @@ jobs:
           & (Join-Path $Product 'tools\Test-DDM-UncCmd.ps1') -ProductRoot $Product
           & (Join-Path $Product 'tools\Test-DDM-BootstrapFirstInstall.ps1') -ProductRoot $Product
 
-      - name: Upload evidence and exact candidate sources
+      - name: Upload final validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -158,19 +143,31 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Commit exact audited 2.0.15 source
-        if: github.event_name == 'pull_request' && github.head_ref == 'audit/srv-ae-migration-120'
+      - name: Publish production tag 2.0.15
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          $Tag = 'ddm-snoc-windows-v2.0.15'
+          git fetch origin --tags --force
+          $Existing = ''
+          try {
+              $Existing = (git rev-list -n 1 $Tag 2>$null).Trim()
+          }
+          catch {
+              $Existing = ''
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($Existing)) {
+              if ($Existing -ne $env:GITHUB_SHA) {
+                  throw "Tag $Tag already points to $Existing instead of $env:GITHUB_SHA"
+              }
+              Write-Host "TAG_ALREADY_CORRECT=$Tag"
+              exit 0
+          }
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- 'windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1'
-          git add -- 'windows/zabbix-agent-deployment/config/DDM-Product.ps1'
-          git add -- 'windows/zabbix-agent-deployment/CHANGELOG.md'
-          git add -- 'windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1'
-          git add -- 'windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1'
-          if (-not (git diff --cached --quiet)) {
-              git commit -m 'fix(windows): promote audited migration engine 2.0.15'
-              git push origin HEAD:${{ github.head_ref }}
-          }
+          git tag -a $Tag $env:GITHUB_SHA -m 'DDM SNOC Windows 2.0.15 - audited Agent 2 migration'
+          git push origin $Tag
+          Write-Host "TAG_PUBLISHED=$Tag"
