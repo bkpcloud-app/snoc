@@ -22,19 +22,69 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Parse the 240-scenario test
+      - name: Build corrected candidate without changing repository
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $Path = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
-          $Tokens = $null
-          $Errors = $null
-          [void][Management.Automation.Language.Parser]::ParseFile($Path,[ref]$Tokens,[ref]$Errors)
-          if (@($Errors).Count -gt 0) {
-              throw (@($Errors | ForEach-Object { "L$($_.Extent.StartLineNumber): $($_.Message)" }) -join "`r`n")
+          $EnginePath = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\engine\Install-DDM-Zabbix-Windows.ps1'
+          $TestPath = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
+
+          $Engine = [IO.File]::ReadAllText($EnginePath)
+          $Test = [IO.File]::ReadAllText($TestPath)
+
+          $OldOrder = 'Stop-Agents;$Backup=Backup-State $Products $A1 $A2 $NeedMsi'
+          $NewOrder = '$Backup=Backup-State $Products $A1 $A2 $NeedMsi' + "`r`n    try{" + "`r`n        Stop-Agents"
+          if (-not $Engine.Contains($OldOrder)) {
+              throw 'Unsafe backup/stop sequence was not found exactly once.'
+          }
+          if ([regex]::Matches($Engine,[regex]::Escape($OldOrder)).Count -ne 1) {
+              throw 'Unsafe backup/stop sequence count is not one.'
+          }
+          $Engine = $Engine.Replace($OldOrder,$NewOrder)
+
+          $OldMsi = @'
+Invoke-Msi 'INSTALL' (Get-Artifact $Role) @('ADDLOCAL=ALL','DONOTSTART=1','STARTUPTYPE=automatic','SKIP=fw',('INSTALLFOLDER="'+$InstallRoot+'"')) $Role
+'@.Trim()
+          $NewMsi = @'
+$MsiListenPort=if($Client.Communication.ListenPort){[int]$Client.Communication.ListenPort}else{[int]$DDMProduct.ListenPort};Invoke-Msi 'INSTALL' (Get-Artifact $Role) @('ADDLOCAL=ALL','DONOTSTART=1','STARTUPTYPE=automatic','SKIP=fw',('SERVER="'+([string]$Identity.Proxy)+'"'),('SERVERACTIVE="'+([string]$Identity.ProxyActive)+'"'),('HOSTNAME="'+([string]$Identity.Hostname)+'"'),('HOSTMETADATA="'+([string]$Identity.Metadata)+'"'),('LISTENPORT="'+([string]$MsiListenPort)+'"'),('INSTALLFOLDER="'+$InstallRoot+'"')) $Role
+'@.Trim()
+          if (-not $Engine.Contains($OldMsi)) {
+              throw 'Unsafe target MSI property block was not found exactly once.'
+          }
+          if ([regex]::Matches($Engine,[regex]::Escape($OldMsi)).Count -ne 1) {
+              throw 'Unsafe target MSI property block count is not one.'
+          }
+          $Engine = $Engine.Replace($OldMsi,$NewMsi)
+
+          $OldCommitModel = "if (`$Step -eq 'Commit') { `$State.Committed = `$true }"
+          $NewCommitModel = "if (`$Step -eq 'Commit' -and `$Step -ne `$FaultStep) { `$State.Committed = `$true }"
+          if (-not $Test.Contains($OldCommitModel)) {
+              throw 'Commit fault model was not found exactly once.'
+          }
+          if ([regex]::Matches($Test,[regex]::Escape($OldCommitModel)).Count -ne 1) {
+              throw 'Commit fault model count is not one.'
+          }
+          $Test = $Test.Replace($OldCommitModel,$NewCommitModel)
+
+          $Utf8NoBom = New-Object Text.UTF8Encoding($false)
+          [IO.File]::WriteAllText($EnginePath,$Engine,$Utf8NoBom)
+          [IO.File]::WriteAllText($TestPath,$Test,$Utf8NoBom)
+
+          foreach ($Path in @($EnginePath,$TestPath)) {
+              $Tokens = $null
+              $Errors = $null
+              [void][Management.Automation.Language.Parser]::ParseFile($Path,[ref]$Tokens,[ref]$Errors)
+              if (@($Errors).Count -gt 0) {
+                  throw (@($Errors | ForEach-Object { "$Path L$($_.Extent.StartLineNumber): $($_.Message)" }) -join "`r`n")
+              }
           }
 
-      - name: Execute 240 different migration scenarios
+          $EngineHash = (Get-FileHash -LiteralPath $EnginePath -Algorithm SHA256).Hash
+          $TestHash = (Get-FileHash -LiteralPath $TestPath -Algorithm SHA256).Hash
+          Write-Host "CANDIDATE_ENGINE_SHA256=$EngineHash"
+          Write-Host "CANDIDATE_TEST_SHA256=$TestHash"
+
+      - name: Execute all 240 different migration scenarios
         id: audit
         continue-on-error: true
         shell: powershell
@@ -53,11 +103,11 @@ jobs:
           }
           "exit_code=$Code" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Upload complete evidence and exact audited sources
+      - name: Upload complete evidence and exact candidate sources
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: DDM-SNOC-MIGRATION-240-EVIDENCE
+          name: DDM-SNOC-MIGRATION-240-CANDIDATE-EVIDENCE
           path: |
             ${{ runner.temp }}/DDM-SNOC-MIGRATION-240
             windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1
@@ -71,9 +121,9 @@ jobs:
         run: |
           $Code = '${{ steps.audit.outputs.exit_code }}'
           if ([string]::IsNullOrWhiteSpace($Code)) {
-              throw 'A auditoria não informou código de saída.'
+              throw 'The audit did not produce an exit code.'
           }
           if ([int]$Code -ne 0) {
-              throw "Auditoria de migração reprovada. ExitCode=$Code"
+              throw "Migration audit failed. ExitCode=$Code"
           }
-          Write-Host 'AUDITORIA APROVADA: 240/240.' -ForegroundColor Green
+          Write-Host 'MIGRATION AUDIT PASSED: 240/240.' -ForegroundColor Green
