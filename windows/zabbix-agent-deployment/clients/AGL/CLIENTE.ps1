@@ -4,7 +4,7 @@
 
 $DDMClient = @{
     SchemaVersion        = 3
-    ConfigVersion        = '3.1.1'
+    ConfigVersion        = '3.1.2'
     ClientId             = 'AGL'
     DisplayName          = 'Mizu / AGL'
     Status               = 'PILOT_READY'
@@ -113,6 +113,7 @@ $DDMClient = @{
             'zabbix_agentd.d\adds_replsummary.conf',
             'zabbix_agentd.d\bkpcloud-product.conf',
             'zabbix_agentd.d\bkpcloud-hyperv-cluster.conf',
+            'zabbix_agentd.d\hyperv.conf',
             'zabbix_agentd.d\plascar-hyperv-cluster.conf'
         )
     }
