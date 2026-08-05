@@ -67,8 +67,20 @@ jobs:
               "Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.14') 'ProductVersion deve ser 2.0.14.'",
               "Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.15') 'ProductVersion deve ser 2.0.15.'"
           )
+
+          $OldOrderAssertion = @'
+Assert-DDMTest ($Engine.LastIndexOf('Stop-Agents') -lt $Engine.LastIndexOf('Backup-State $Products')) 'Backup ocorre antes da parada do agente.'
+'@.Trim()
+          $NewOrderAssertion = @'
+Assert-DDMTest ($Engine.LastIndexOf('Backup-State $Products') -lt $Engine.LastIndexOf('Stop-Agents')) 'Backup deve ocorrer antes da parada do agente.'
+'@.Trim()
+          $RepositoryTestText = $RepositoryTestText.Replace($OldOrderAssertion,$NewOrderAssertion)
+
           if ($RepositoryTestText -notmatch "ProductVersion -eq '2\.0\.15'") {
               throw 'Repository test was not aligned to 2.0.15.'
+          }
+          if (-not $RepositoryTestText.Contains($NewOrderAssertion)) {
+              throw 'Repository test still requires stopping agents before rollback backup.'
           }
           [IO.File]::WriteAllText($RepositoryTest,$RepositoryTestText,(New-Object Text.UTF8Encoding($false)))
 
