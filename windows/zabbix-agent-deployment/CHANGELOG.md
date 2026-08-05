@@ -1,3 +1,9 @@
+## 2.0.14 - 2026-08-05
+- Corrige a execucao do instalador do bootstrap diretamente pelo NETLOGON/UNC.
+- INSTALAR-BOOTSTRAP.cmd usa pushd e executa o PowerShell por unidade temporaria local.
+- Mantem o CentralRoot original em UNC para a tarefa e o cache local.
+- Adiciona teste integral com compartilhamento SMB real e instalador verdadeiro.
+
 ## 2.0.13 - 2026-08-04
 - Repara automaticamente ACLs locais quebrados em Config e desired-state antes de qualquer leitura.
 - Corrige Set-DDMLocalSecureAcl para manter heranca canonica nos descendentes.

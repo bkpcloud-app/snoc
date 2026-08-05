@@ -2,7 +2,7 @@
 $DDMProduct = @{
     ProductName              = 'DDM SNOC Windows'
     ProductCode              = 'DDM-SNOC-WINDOWS'
-    ProductVersion           = '2.0.13'
+    ProductVersion           = '2.0.14'
     ClientSchemaVersion      = 3
     ZabbixMajorLine          = '7.0'
     ZabbixUpdatePolicy       = 'LATEST_STABLE_IN_MAJOR'

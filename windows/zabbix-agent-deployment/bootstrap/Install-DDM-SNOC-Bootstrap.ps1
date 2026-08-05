@@ -8,8 +8,16 @@ param(
 $ErrorActionPreference='Stop'
 $ScriptRoot=Split-Path -Parent $MyInvocation.MyCommand.Definition
 $ProductRoot=Split-Path -Parent $ScriptRoot
-. (Join-Path $ProductRoot 'config\DDM-Product.ps1')
-. (Join-Path $ProductRoot 'lib\DDM-Common.ps1')
+# REAL-UNC-DEPENDENCY-LOAD-2.0.14
+$ProductConfigPath=Join-Path $ProductRoot 'config\DDM-Product.ps1'
+$CommonLibraryPath=Join-Path $ProductRoot 'lib\DDM-Common.ps1'
+foreach($Dependency in @($ProductConfigPath,$CommonLibraryPath)){
+    if(-not(Test-Path -LiteralPath $Dependency -PathType Leaf)){
+        throw "Dependencia do bootstrap ausente: $Dependency"
+    }
+}
+. $ProductConfigPath
+. $CommonLibraryPath
 
 function Test-Admin {
     $Id=[Security.Principal.WindowsIdentity]::GetCurrent()

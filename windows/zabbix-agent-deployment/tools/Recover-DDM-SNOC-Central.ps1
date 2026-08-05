@@ -12,7 +12,7 @@ param(
     [string]$OriginalBackupRoot,
 
     [string]$Repository = 'bkpcloud-app/snoc',
-    [string]$ExpectedTag = 'ddm-snoc-windows-v2.0.13',
+    [string]$ExpectedTag = 'ddm-snoc-windows-v2.0.14',
     [string]$BackupBase = 'C:\temp\DDM-SNOC-BACKUPS',
     [string]$ScheduleTime = '03:00',
     [switch]$SkipScheduledTask
