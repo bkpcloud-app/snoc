@@ -8,6 +8,9 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
+$ExpectedCandidateEngineSha256 = 'E034E3D6026414BA64ECDD8DAE16215D8E4AC0266D7583284900340FBE633EBD'
+$ExpectedCandidateTestSha256 = '1366E1311437E35E741108275BD04061B6CFD316D493633876EB2297D540ADC9'
+
 $ProductRoot = Join-Path $RepositoryRoot 'windows\zabbix-agent-deployment'
 $EnginePath = Join-Path $ProductRoot 'engine\Install-DDM-Zabbix-Windows.ps1'
 $TestPath = Join-Path $ProductRoot 'tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
@@ -78,6 +81,13 @@ if ($BackupIndex -lt 0 -or $TryIndex -lt 0 -or $StopIndex -lt 0 -or $BackupIndex
 
 $EngineHash = (Get-FileHash -LiteralPath $EnginePath -Algorithm SHA256).Hash
 $TestHash = (Get-FileHash -LiteralPath $TestPath -Algorithm SHA256).Hash
+if ($EngineHash -ne $ExpectedCandidateEngineSha256) {
+    throw "Candidate engine hash changed. Expected=$ExpectedCandidateEngineSha256 Actual=$EngineHash"
+}
+if ($TestHash -ne $ExpectedCandidateTestSha256) {
+    throw "Candidate test hash changed. Expected=$ExpectedCandidateTestSha256 Actual=$TestHash"
+}
+
 Write-Host "CANDIDATE_ENGINE_SHA256=$EngineHash"
 Write-Host "CANDIDATE_TEST_SHA256=$TestHash"
 Write-Host 'CANDIDATE_BUILD=PASS'
