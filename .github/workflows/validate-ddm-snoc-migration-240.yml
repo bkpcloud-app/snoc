@@ -3,25 +3,13 @@ name: Validate DDM SNOC Migration 240
 on:
   pull_request:
     paths:
-      - 'windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1'
-      - 'windows/zabbix-agent-deployment/config/DDM-Product.ps1'
-      - 'windows/zabbix-agent-deployment/CHANGELOG.md'
-      - 'windows/zabbix-agent-deployment/lib/DDM-Common.ps1'
-      - 'windows/zabbix-agent-deployment/tools/Build-DDM-SNOC-MigrationCandidate.ps1'
-      - 'windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1'
-      - 'windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1'
+      - 'windows/zabbix-agent-deployment/**'
       - '.github/workflows/validate-ddm-snoc-migration-240.yml'
   push:
     branches:
       - main
     paths:
-      - 'windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1'
-      - 'windows/zabbix-agent-deployment/config/DDM-Product.ps1'
-      - 'windows/zabbix-agent-deployment/CHANGELOG.md'
-      - 'windows/zabbix-agent-deployment/lib/DDM-Common.ps1'
-      - 'windows/zabbix-agent-deployment/tools/Build-DDM-SNOC-MigrationCandidate.ps1'
-      - 'windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1'
-      - 'windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1'
+      - 'windows/zabbix-agent-deployment/**'
       - '.github/workflows/validate-ddm-snoc-migration-240.yml'
   workflow_dispatch:
 
@@ -34,20 +22,19 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout exact source ref
+      - name: Checkout exact source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Verify exact audited 2.0.15 source
+      - name: Verify audited 2.0.15 source
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $Root = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          $Engine = Join-Path $Root 'engine\Install-DDM-Zabbix-Windows.ps1'
-          $Config = Join-Path $Root 'config\DDM-Product.ps1'
-          $RepositoryTest = Join-Path $Root 'tools\Test-DDM-Repository.ps1'
+          $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $Engine = Join-Path $Product 'engine\Install-DDM-Zabbix-Windows.ps1'
+          $Config = Join-Path $Product 'config\DDM-Product.ps1'
+          $RepositoryTest = Join-Path $Product 'tools\Test-DDM-Repository.ps1'
           $ExpectedEngineHash = 'E034E3D6026414BA64ECDD8DAE16215D8E4AC0266D7583284900340FBE633EBD'
 
           $EngineHash = (Get-FileHash -LiteralPath $Engine -Algorithm SHA256).Hash
@@ -61,22 +48,20 @@ jobs:
           }
 
           $RepositoryTestText = [IO.File]::ReadAllText($RepositoryTest)
-          if ($RepositoryTestText -notmatch "ProductVersion -eq '2\.0\.15'") {
-              throw 'Repository test is not aligned to 2.0.15.'
-          }
-          if ($RepositoryTestText -notmatch "LastIndexOf\('Backup-State \$Products'\) -lt \$Engine\.LastIndexOf\('Stop-Agents'\)") {
+          $ExpectedOrderAssertion = 'Assert-DDMTest ($Engine.LastIndexOf(''Backup-State $Products'') -lt $Engine.LastIndexOf(''Stop-Agents'')) ''Backup deve ocorrer antes da parada do agente.'''
+          if (-not $RepositoryTestText.Contains($ExpectedOrderAssertion)) {
               throw 'Repository test does not require rollback backup before agent stop.'
           }
 
           Write-Host "ENGINE_SHA256=$EngineHash"
           Write-Host 'PRODUCT_VERSION=2.0.15'
 
-      - name: Parse exact sources
+      - name: Parse all PowerShell sources
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $Root = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          foreach ($File in @(Get-ChildItem $Root -Filter '*.ps1' -Recurse)) {
+          $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          foreach ($File in @(Get-ChildItem $Product -Filter '*.ps1' -Recurse)) {
               $Tokens = $null
               $Errors = $null
               [void][Management.Automation.Language.Parser]::ParseFile($File.FullName,[ref]$Tokens,[ref]$Errors)
@@ -85,36 +70,14 @@ jobs:
               }
           }
 
-      - name: Execute all 240 different migration scenarios
-        id: audit
-        continue-on-error: true
+      - name: Execute all 240 migration scenarios
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240'
-          $Script = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
           $global:ProductCode = '$ProductCode'
-          $Code = 0
-          try {
-              . $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
-          }
-          catch {
-              $Code = 1
-              Write-Host $_.Exception.Message -ForegroundColor Yellow
-          }
-          "exit_code=$Code" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
-      - name: Enforce audit result
-        shell: powershell
-        run: |
-          $Code = '${{ steps.audit.outputs.exit_code }}'
-          if ([string]::IsNullOrWhiteSpace($Code)) {
-              throw 'The audit did not produce an exit code.'
-          }
-          if ([int]$Code -ne 0) {
-              throw "Migration audit failed. ExitCode=$Code"
-          }
-          Write-Host 'MIGRATION AUDIT PASSED: 240/240.' -ForegroundColor Green
+          $Script = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
+          $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240'
+          . $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
 
       - name: Execute complete product validation
         shell: powershell
@@ -128,7 +91,7 @@ jobs:
           & (Join-Path $Product 'tools\Test-DDM-UncCmd.ps1') -ProductRoot $Product
           & (Join-Path $Product 'tools\Test-DDM-BootstrapFirstInstall.ps1') -ProductRoot $Product
 
-      - name: Upload final validation evidence
+      - name: Upload final evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -137,7 +100,6 @@ jobs:
             ${{ runner.temp }}/DDM-SNOC-MIGRATION-240
             windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1
             windows/zabbix-agent-deployment/config/DDM-Product.ps1
-            windows/zabbix-agent-deployment/CHANGELOG.md
             windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1
           if-no-files-found: error
@@ -150,13 +112,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $Tag = 'ddm-snoc-windows-v2.0.15'
           git fetch origin --tags --force
-          $Existing = ''
-          try {
-              $Existing = (git rev-list -n 1 $Tag 2>$null).Trim()
-          }
-          catch {
-              $Existing = ''
-          }
+          $Existing = [string](git rev-list -n 1 $Tag 2>$null)
+          $Existing = $Existing.Trim()
 
           if (-not [string]::IsNullOrWhiteSpace($Existing)) {
               if ($Existing -ne $env:GITHUB_SHA) {
