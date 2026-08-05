@@ -12,36 +12,79 @@ $Text=$Text.Replace('$UncCmdTestPath$InstallBootstrapCmd','$InstallBootstrapCmd'
 $PromotePath=Join-Path $Repo '.github\scripts\Promote-DDM-SNOC-2.0.14.ps1'
 $Promote=[IO.File]::ReadAllText($PromotePath)
 
-# Remove a espera defeituosa da listagem geral. O publicador ja valida a release com seis assets.
+# Remove controles temporarios de tentativas anteriores.
 $WaitPattern="(?s)\r?\n\s*# WAIT-GITHUB-RELEASE-LIST-2\.0\.14.*?\r?\n\s*Write-Host '6/8 - Executando piloto central com asset publicado'"
-$WaitReplacement="`r`n`r`n    Write-Host '6/8 - Executando piloto central com asset publicado'"
-$Promote=[regex]::Replace($Promote,$WaitPattern,$WaitReplacement)
+$Promote=[regex]::Replace(
+    $Promote,
+    $WaitPattern,
+    "`r`n`r`n    Write-Host '6/8 - Executando piloto central com asset publicado'"
+)
+$DirectTagPattern="(?s)\r?\n\s*# PILOT-DIRECT-TAG-2\.0\.14.*?\r?\n\s*\$ClientText=Read-Text"
+$Promote=[regex]::Replace(
+    $Promote,
+    $DirectTagPattern,
+    "`r`n`r`n        `$ClientText=Read-Text"
+)
 
-if($Promote -notmatch 'PILOT-DIRECT-TAG-2\.0\.14'){
-    $Old=@'
-        Expand-Archive $SeedZip $Central -Force
-        $ClientText=Read-Text (Join-Path $Product 'clients\AGL\CLIENTE.ps1')
+# O piloto baixa os dois assets exatos da tag e entrega o MOTOR publicado
+# diretamente ao parametro nativo -MotorSourceRoot do atualizador.
+$OldDownload=@'
+    & gh release download $Tag --pattern "DDM-SNOC-WINDOWS-AD-SEED-$Version.zip" --dir $Download
+    if($LASTEXITCODE -ne 0){throw 'Falha ao baixar AD-SEED publicado.'}
+    $SeedZip=Join-Path $Download "DDM-SNOC-WINDOWS-AD-SEED-$Version.zip"
 '@
-    $New=@'
-        Expand-Archive $SeedZip $Central -Force
-
-        # PILOT-DIRECT-TAG-2.0.14
-        # O piloto usa o endpoint direto da release recem-publicada para nao depender
-        # do cache eventual da listagem geral de releases do GitHub.
-        $PilotProductPath=Join-Path $Central 'CENTRAL-UPDATER\config\DDM-Product.ps1'
-        $PilotProduct=Read-Text $PilotProductPath
-        $DirectReleaseUrl='https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/'+$Tag
-        $PilotProduct=[regex]::Replace(
-            $PilotProduct,
-            "RepositoryReleaseApiUrl\s*=\s*'[^']+'",
-            "RepositoryReleaseApiUrl = '$DirectReleaseUrl'"
-        )
-        Save-Text $PilotProductPath $PilotProduct
-
-        $ClientText=Read-Text (Join-Path $Product 'clients\AGL\CLIENTE.ps1')
+$NewDownload=@'
+    & gh release download $Tag `
+        --pattern "DDM-SNOC-WINDOWS-AD-SEED-$Version.zip" `
+        --pattern "DDM-SNOC-WINDOWS-MOTOR-$Version.zip" `
+        --dir $Download
+    if($LASTEXITCODE -ne 0){throw 'Falha ao baixar AD-SEED/MOTOR publicados.'}
+    $SeedZip=Join-Path $Download "DDM-SNOC-WINDOWS-AD-SEED-$Version.zip"
+    $MotorZip=Join-Path $Download "DDM-SNOC-WINDOWS-MOTOR-$Version.zip"
+    foreach($PublishedZip in @($SeedZip,$MotorZip)){
+        if(-not(Test-Path -LiteralPath $PublishedZip -PathType Leaf)){
+            throw "Asset publicado ausente no piloto: $PublishedZip"
+        }
+    }
+    $MotorExpanded=Join-Path $Download 'MOTOR-EXPANDED'
+    Expand-Archive -LiteralPath $MotorZip -DestinationPath $MotorExpanded -Force
+    $MotorSourceRoot=Join-Path $MotorExpanded "DDM-SNOC-WINDOWS-MOTOR-$Version"
+    if(-not(Test-Path -LiteralPath (Join-Path $MotorSourceRoot 'config\DDM-Product.ps1') -PathType Leaf)){
+        throw "MOTOR publicado invalido no piloto: $MotorSourceRoot"
+    }
 '@
-    if(-not $Promote.Contains($Old.Trim())){throw 'Marcador do piloto central nao encontrado.'}
-    $Promote=$Promote.Replace($Old.Trim(),$New.Trim())
+if($Promote.Contains($OldDownload.Trim())){
+    $Promote=$Promote.Replace($OldDownload.Trim(),$NewDownload.Trim())
+}
+elseif($Promote -notmatch 'MOTOR-EXPANDED'){
+    throw 'Bloco de download do piloto nao encontrado.'
+}
+
+$OldInvoke=@'
+        & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Updater -CentralRoot $Central
+'@
+$NewInvoke=@'
+        & powershell.exe `
+            -NoLogo `
+            -NoProfile `
+            -NonInteractive `
+            -ExecutionPolicy Bypass `
+            -File $Updater `
+            -CentralRoot $Central `
+            -MotorSourceRoot $MotorSourceRoot
+'@
+if($Promote.Contains($OldInvoke.Trim())){
+    $Promote=$Promote.Replace($OldInvoke.Trim(),$NewInvoke.Trim())
+}
+elseif($Promote -notmatch '\-MotorSourceRoot \$MotorSourceRoot'){
+    throw 'Invocacao do piloto central nao encontrada.'
+}
+
+if($Promote -match 'PILOT-DIRECT-TAG-2\.0\.14'){
+    throw 'Tentativa antiga de URL direta ainda permanece.'
+}
+if($Promote -notmatch '\-MotorSourceRoot \$MotorSourceRoot'){
+    throw 'Piloto nao usa o MOTOR publicado diretamente.'
 }
 
 [IO.File]::WriteAllText($PromotePath,$Promote,$Utf8)
