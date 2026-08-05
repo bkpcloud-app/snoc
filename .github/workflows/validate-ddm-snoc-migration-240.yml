@@ -100,7 +100,7 @@ jobs:
           foreach ($Name in @('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','README.md','CHANGELOG.md')) {
               Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Force
           }
-          foreach ($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')) {
+          foreach ($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs','clients')) {
               Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Recurse -Force
           }
           foreach ($Name in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd')) {
