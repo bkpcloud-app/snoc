@@ -104,23 +104,9 @@ function Get-RestoreProperties($Product,$Snapshot){$Properties=@('ADDLOCAL=ALL',
     $Engine = Replace-ExactOnce $Engine '$Backup=Backup-State $Products $A1 $A2 $NeedMsi' '$Backup=Backup-State $Products $A1 $A2 $NeedMsi $Identity $Client' 'Backup invocation'
     $Engine = Replace-ExactOnce $Engine "Invoke-Msi 'REMOVE' `$P.ProductCode @() `$F.DisplayName" "Invoke-Msi 'REMOVE' `$P.ProductCode @() `$P.DisplayName" 'MSI removal display name'
 
-    $Config = Replace-ExactOnce \
-        $Config \
-        "ProductVersion           = '2.0.15'" \
-        "ProductVersion           = '2.0.16'" \
-        'Product version'
-
-    $RepositoryTest = Replace-ExactOnce \
-        $RepositoryTest \
-        "ProductVersion -eq '2.0.15'" \
-        "ProductVersion -eq '2.0.16'" \
-        'Repository version assertion'
-
-    $RepositoryTest = Replace-ExactOnce \
-        $RepositoryTest \
-        'ProductVersion deve ser 2.0.15.' \
-        'ProductVersion deve ser 2.0.16.' \
-        'Repository version message'
+    $Config = Replace-ExactOnce $Config "ProductVersion           = '2.0.15'" "ProductVersion           = '2.0.16'" 'Product version'
+    $RepositoryTest = Replace-ExactOnce $RepositoryTest "ProductVersion -eq '2.0.15'" "ProductVersion -eq '2.0.16'" 'Repository version assertion'
+    $RepositoryTest = Replace-ExactOnce $RepositoryTest 'ProductVersion deve ser 2.0.15.' 'ProductVersion deve ser 2.0.16.' 'Repository version message'
 
     $OldScenario52 = @'
 Add-Contains 52 'Service registry keys are exported' $Engine '& reg.exe export'
@@ -161,9 +147,7 @@ Add-Order 73 'Rollback backup completes before stopping agents' $Transaction 'Ba
     if (Test-Path -LiteralPath $OldReleaseDoc) {
         Remove-Item -LiteralPath $OldReleaseDoc -Force
     }
-    Write-NormalizedText \
-        $NewReleaseDoc \
-        "# DDM SNOC Windows 2.0.16`n`nRelease de producao da migracao auditada do Zabbix Agent 1 para Agent 2.`n`nInclui protecao para servicos ainda inexistentes no backup do registro e identidade completa no rollback MSI.`n"
+    Write-NormalizedText $NewReleaseDoc "# DDM SNOC Windows 2.0.16`n`nRelease de producao da migracao auditada do Zabbix Agent 1 para Agent 2.`n`nInclui protecao para servicos ainda inexistentes no backup do registro e identidade completa no rollback MSI.`n"
 }
 
 foreach ($Path in @($EnginePath,$ConfigPath,$RepositoryTestPath,$ScenarioTestPath)) {
