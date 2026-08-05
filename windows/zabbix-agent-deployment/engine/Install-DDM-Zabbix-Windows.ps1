@@ -109,10 +109,17 @@ function Assert-LegacyConfigurationSafe($Client){
     }
 }
 
-function Backup-State($Products,$Agent1Snapshot,$Agent2Snapshot,[bool]$RequireMsi){
+function Backup-State($Products,$Agent1Snapshot,$Agent2Snapshot,[bool]$RequireMsi,$Identity,$Client){
     $Root=Join-Path $BackupRoot $RunId;New-Item $Root -ItemType Directory -Force|Out-Null
     foreach($D in @($DDMProduct.Agent1Directory,$DDMProduct.Agent2Directory)){if(Test-Path $D){Copy-Item $D (Join-Path $Root (Split-Path -Leaf $D)) -Recurse -Force}}
-    foreach($ServiceName in @('Zabbix Agent','Zabbix Agent 2')){$RegFile=Join-Path $Root (($ServiceName -replace ' ','_')+'.reg');& reg.exe export ("HKLM\SYSTEM\CurrentControlSet\Services\"+$ServiceName) $RegFile /y 2>$null|Out-Null}
+    foreach($ServiceName in @('Zabbix Agent','Zabbix Agent 2')){
+        $ServiceRegistryPath='HKLM:\SYSTEM\CurrentControlSet\Services\'+$ServiceName
+        if(Test-Path -LiteralPath $ServiceRegistryPath){
+            $RegFile=Join-Path $Root (($ServiceName -replace ' ','_')+'.reg')
+            & reg.exe export ("HKLM\SYSTEM\CurrentControlSet\Services\"+$ServiceName) $RegFile /y 2>$null|Out-Null
+            if($LASTEXITCODE -ne 0){throw "Falha ao exportar registro do servico $ServiceName. ExitCode=$LASTEXITCODE"}
+        }
+    }
     $ProductBackups=@()
     foreach($P in @($Products)){
         $Local=Get-LocalPackage $P.ProductCode;$Copy='';$Hash=''
@@ -120,11 +127,11 @@ function Backup-State($Products,$Agent1Snapshot,$Agent2Snapshot,[bool]$RequireMs
         elseif($RequireMsi -and @('AGENT1','AGENT2','PLUGINS') -contains $P.Family){throw "Rollback MSI indisponivel para $($P.DisplayName) $($P.DisplayVersion)."}
         $ProductBackups+=New-Object PSObject -Property @{DisplayName=$P.DisplayName;DisplayVersion=$P.DisplayVersion;ProductCode=$P.ProductCode;Family=$P.Family;LocalPackage=$Copy;LocalPackageSha256=$Hash;InstallLocation=$P.InstallLocation}
     }
-    $Snapshot=New-Object PSObject -Property @{Products=$ProductBackups;Agent1Service=$Agent1Snapshot;Agent2Service=$Agent2Snapshot;MsiChanged=$RequireMsi;CreatedAt=(Get-Date).ToUniversalTime().ToString('o')}
+    $ListenPort=if($Client.Communication.ListenPort){[int]$Client.Communication.ListenPort}else{[int]$DDMProduct.ListenPort};$RollbackIdentity=New-Object PSObject -Property @{Server=[string]$Identity.Proxy;ServerActive=[string]$Identity.ProxyActive;Hostname=[string]$Identity.Hostname;HostMetadata=[string]$Identity.Metadata;ListenPort=$ListenPort};$Snapshot=New-Object PSObject -Property @{Products=$ProductBackups;Agent1Service=$Agent1Snapshot;Agent2Service=$Agent2Snapshot;RollbackIdentity=$RollbackIdentity;MsiChanged=$RequireMsi;CreatedAt=(Get-Date).ToUniversalTime().ToString('o')}
     Export-DDMClixmlAtomic $Snapshot (Join-Path $Root 'snapshot.clixml') 8;return $Root
 }
 
-function Get-RestoreProperties($Product){$Properties=@('ADDLOCAL=ALL','DONOTSTART=1','SKIP=fw');if(@('AGENT1','AGENT2') -contains [string]$Product.Family){$Properties+='STARTUPTYPE=automatic'};if(-not(Test-DDMBlank $Product.InstallLocation)){$Properties+=('INSTALLFOLDER="'+[string]$Product.InstallLocation+'"')};return $Properties}
+function Get-RestoreProperties($Product,$Snapshot){$Properties=@('ADDLOCAL=ALL','DONOTSTART=1','SKIP=fw');if(@('AGENT1','AGENT2') -contains [string]$Product.Family){$Properties+='STARTUPTYPE=automatic';$RollbackIdentity=$Snapshot.RollbackIdentity;if($RollbackIdentity){$Properties+=('SERVER="'+[string]$RollbackIdentity.Server+'"'),('SERVERACTIVE="'+[string]$RollbackIdentity.ServerActive+'"'),('HOSTNAME="'+[string]$RollbackIdentity.Hostname+'"'),('HOSTMETADATA="'+[string]$RollbackIdentity.HostMetadata+'"'),('LISTENPORT="'+[string]$RollbackIdentity.ListenPort+'"')}};if(-not(Test-DDMBlank $Product.InstallLocation)){$Properties+=('INSTALLFOLDER="'+[string]$Product.InstallLocation+'"')};return $Properties}
 function Restore-ServiceSnapshot($Snap){
     if(-not[bool]$Snap.Exists){if(Get-Service $Snap.Name -ErrorAction SilentlyContinue){Stop-Service $Snap.Name -Force -ErrorAction SilentlyContinue;& sc.exe delete $Snap.Name|Out-Null};return}
     if(-not(Get-Service $Snap.Name -ErrorAction SilentlyContinue) -and -not(Test-DDMBlank $Snap.PathName)){$StartCode=if([string]$Snap.StartMode -eq 'Auto'){'auto'}elseif([string]$Snap.StartMode -eq 'Disabled'){'disabled'}else{'demand'};& sc.exe create ([string]$Snap.Name) ('binPath= '+[string]$Snap.PathName) ('start= '+$StartCode) ('DisplayName= '+[string]$Snap.DisplayName)|Out-Null;if($LASTEXITCODE -ne 0){throw "Falha ao recriar servico $($Snap.Name)"}}
@@ -139,7 +146,7 @@ function Invoke-Rollback([string]$Backup){
     $Snap=Import-DDMClixmlSafe (Join-Path $Backup 'snapshot.clixml')
     if([bool]$Snap.MsiChanged){
         foreach($Current in @(Get-ZabbixProducts)){$Was=@($Snap.Products|Where-Object{$_.ProductCode -eq $Current.ProductCode}).Count -gt 0;if(-not$Was){try{Invoke-Msi 'REMOVE' $Current.ProductCode @() $Current.DisplayName}catch{$Errors+=$_.Exception.Message}}}
-        foreach($P in @($Snap.Products)){$Exists=@(Get-ZabbixProducts|Where-Object{$_.ProductCode -eq $P.ProductCode}).Count -gt 0;if(-not$Exists -and -not(Test-DDMBlank $P.LocalPackage) -and (Test-Path $P.LocalPackage)){try{if((Get-DDMSha256 $P.LocalPackage) -ne ([string]$P.LocalPackageSha256).ToUpperInvariant()){throw 'MSI rollback alterado'};Test-ZabbixSignature $P.LocalPackage $false;Invoke-Msi 'INSTALL' $P.LocalPackage (Get-RestoreProperties $P) $P.DisplayName}catch{$Errors+=$_.Exception.Message}}}
+        foreach($P in @($Snap.Products)){$Exists=@(Get-ZabbixProducts|Where-Object{$_.ProductCode -eq $P.ProductCode}).Count -gt 0;if(-not$Exists -and -not(Test-DDMBlank $P.LocalPackage) -and (Test-Path $P.LocalPackage)){try{if((Get-DDMSha256 $P.LocalPackage) -ne ([string]$P.LocalPackageSha256).ToUpperInvariant()){throw 'MSI rollback alterado'};Test-ZabbixSignature $P.LocalPackage $false;Invoke-Msi 'INSTALL' $P.LocalPackage (Get-RestoreProperties $P $Snap) $P.DisplayName}catch{$Errors+=$_.Exception.Message}}}
     }
     foreach($Dir in @($DDMProduct.Agent1Directory,$DDMProduct.Agent2Directory)){$Saved=Join-Path $Backup (Split-Path -Leaf $Dir);try{if(Test-Path $Dir){Remove-Item $Dir -Recurse -Force};if(Test-Path $Saved){Copy-Item $Saved $Dir -Recurse -Force}}catch{$Errors+=$_.Exception.Message}}
     foreach($RegFile in @(Get-ChildItem -LiteralPath $Backup -ErrorAction SilentlyContinue|Where-Object{-not$_.PSIsContainer -and $_.Extension -ieq '.reg'})){& reg.exe import $RegFile.FullName 2>$null|Out-Null}
@@ -195,7 +202,7 @@ try{
     $NeedMsi=$Mode -eq 'Apply'
     if($Mode -eq 'Repair' -and ($TargetProducts.Count -ne 1 -or $OppositeProducts.Count -gt 0 -or -not$PluginOk)){throw 'Repair recusado porque o estado MSI diverge; use Apply.'}
     $A1=Get-ServiceSnapshot 'Zabbix Agent';$A2=Get-ServiceSnapshot 'Zabbix Agent 2';foreach($Snap in @($A1,$A2)){if($Snap.Exists -and -not(Test-DDMBlank $Snap.StartName) -and [string]$Snap.StartName -notmatch '^(?i)(LocalSystem|NT AUTHORITY\\SYSTEM)$'){throw "Servico $($Snap.Name) usa conta personalizada; migracao automatica bloqueada."}}
-    $Backup=Backup-State $Products $A1 $A2 $NeedMsi
+    $Backup=Backup-State $Products $A1 $A2 $NeedMsi $Identity $Client
     try{
         Stop-Agents
         $InstallRoot=if($Target.Family -eq 'AGENT2'){$DDMProduct.Agent2Directory}else{$DDMProduct.Agent1Directory}

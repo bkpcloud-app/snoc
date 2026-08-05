@@ -1,3 +1,8 @@
+## 2.0.16 - 2026-08-05
+- Exporta somente chaves de servicos realmente existentes durante o backup transacional.
+- Preserva SERVER, SERVERACTIVE, HOSTNAME, HOSTMETADATA e LISTENPORT na reinstalacao de rollback.
+- Reexecuta os 240 cenarios e a validacao completa sobre o pacote final.
+
 ## 2.0.15 - 2026-08-05
 - Corrige a ordem transacional: backup completo antes de parar os agentes.
 - Envia SERVER, SERVERACTIVE, HOSTNAME, HOSTMETADATA e LISTENPORT ao MSI do Agent 2.
@@ -43,8 +48,10 @@
 
 ## 2.0.5
 
-- corrige falha real do atualizador central causada por eturn120 em Get-DDMHttpTimeoutSeconds;
-- adiciona teste de regressao para bloquear eturn colado a valores numericos;
+- corrige falha real do atualizador central causada por 
+eturn120 em Get-DDMHttpTimeoutSeconds;
+- adiciona teste de regressao para bloquear 
+eturn colado a valores numericos;
 - mantem o fluxo AD -> GitHub/CDN -> NETLOGON e endpoints somente internos.
 # Historico
 
