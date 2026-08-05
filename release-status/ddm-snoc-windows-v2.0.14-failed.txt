@@ -1,1 +1,0 @@
-﻿State=FAILED RunId=31011130511 Error=API de releases nao enxergou a 2.0.14 com seis assets. FailedAtUtc=2026-08-05T13:41:05.1846765Z

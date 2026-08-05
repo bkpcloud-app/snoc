@@ -251,26 +251,6 @@ $UncCmdTestPath = Join-Path $ProductRoot 'tools\Test-DDM-UncCmd.ps1'
     & $PublisherPath -Repo $Repo -Product $Product -Version $Version -Tag $Tag -SourceCommit $SourceCommit
     if($LASTEXITCODE -ne 0){throw "Publicador de assets retornou $LASTEXITCODE"}
 
-    # WAIT-GITHUB-RELEASE-LIST-2.0.14
-    $ReleaseVisible=$false
-    for($Attempt=1;$Attempt -le 24;$Attempt++){
-        $ErrorActionPreference='Continue'
-        $ReleaseJson=& gh api 'repos/bkpcloud-app/snoc/releases?per_page=100' 2>$null
-        $ApiCode=$LASTEXITCODE
-        $ErrorActionPreference='Stop'
-        if($ApiCode -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$ReleaseJson)){
-            $ApiReleases=@($ReleaseJson|ConvertFrom-Json)
-            $Published=@($ApiReleases|Where-Object{[string]$_.tag_name -eq $Tag})
-            if($Published.Count -eq 1 -and @($Published[0].assets).Count -eq 6){
-                $ReleaseVisible=$true
-                break
-            }
-        }
-        Start-Sleep -Seconds 5
-    }
-    if(-not $ReleaseVisible){throw 'API de releases nao enxergou a 2.0.14 com seis assets.'}
-    Start-Sleep -Seconds 5
-
     Write-Host '6/8 - Executando piloto central com asset publicado'
     $Download=Join-Path $env:RUNNER_TEMP ('ddm-2014-download-'+[guid]::NewGuid().ToString('N'))
     New-Item $Download -ItemType Directory -Force|Out-Null
@@ -285,6 +265,20 @@ $UncCmdTestPath = Join-Path $ProductRoot 'tools\Test-DDM-UncCmd.ps1'
         & icacls.exe $Central /inheritance:r | Out-Null
         & icacls.exe $Central /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-11:(OI)(CI)RX' | Out-Null
         Expand-Archive $SeedZip $Central -Force
+
+        # PILOT-DIRECT-TAG-2.0.14
+        # O piloto usa o endpoint direto da release recem-publicada para nao depender
+        # do cache eventual da listagem geral de releases do GitHub.
+        $PilotProductPath=Join-Path $Central 'CENTRAL-UPDATER\config\DDM-Product.ps1'
+        $PilotProduct=Read-Text $PilotProductPath
+        $DirectReleaseUrl='https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/'+$Tag
+        $PilotProduct=[regex]::Replace(
+            $PilotProduct,
+            "RepositoryReleaseApiUrl\s*=\s*'[^']+'",
+            "RepositoryReleaseApiUrl = '$DirectReleaseUrl'"
+        )
+        Save-Text $PilotProductPath $PilotProduct
+
         $ClientText=Read-Text (Join-Path $Product 'clients\AGL\CLIENTE.ps1')
         $ClientText=$ClientText.Replace('\\mizu.local\NETLOGON\SCRIPTS\ZBX',$Central)
         Save-Text (Join-Path $Central 'CLIENTE.ps1') $ClientText
