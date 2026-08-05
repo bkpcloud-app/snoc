@@ -1,0 +1,1 @@
+﻿State=READY Tag=ddm-snoc-windows-v2.0.14 Commit=09440b41a1eaff20f09e68a187f297699809a5a6 Assets=6 RealSmbUncBootstrap=PASS PushdSelfMap=PASS OriginalUncPersisted=PASS DependencyLoad=PASS ExistingUncSuite=PASS FullCentralPilot=PASS VerifiedAtUtc=2026-08-05T13:56:42.0308276Z
