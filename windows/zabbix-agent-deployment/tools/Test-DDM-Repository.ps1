@@ -334,7 +334,7 @@ $GpoDaily = Read-DDMRaw 'templates\central\GPO-DIARIA.cmd'
 
 Assert-DDMTest (Test-Path -LiteralPath (Join-Path $ProductRoot 'tools\Test-DDM-BootstrapFirstInstall.ps1')) 'Teste da primeira instalacao ausente.'
 $Endpoint = Read-DDMRaw 'endpoint\Invoke-DDM-SNOC-Daily.ps1'
-$UncCmdTestPath$InstallBootstrapCmd = Read-DDMRaw 'templates\central\INSTALAR-BOOTSTRAP.cmd'
+$InstallBootstrapCmd = Read-DDMRaw 'templates\central\INSTALAR-BOOTSTRAP.cmd'
 Assert-DDMTest ($InstallBootstrapCmd.Contains('UNC-SELF-MAP-2.0.14')) 'INSTALAR-BOOTSTRAP.cmd nao cria unidade temporaria para UNC.'
 Assert-DDMTest ($InstallBootstrapCmd.Contains('pushd "%~dp0"')) 'INSTALAR-BOOTSTRAP.cmd nao executa pushd no compartilhamento.'
 Assert-DDMTest ($InstallBootstrapCmd.Contains('set "INSTALLER=%CD%\BOOTSTRAP-INSTALL\bootstrap\Install-DDM-SNOC-Bootstrap.ps1"')) 'Instalador ainda e aberto diretamente por UNC.'

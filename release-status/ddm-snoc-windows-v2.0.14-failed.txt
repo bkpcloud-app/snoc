@@ -1,1 +1,0 @@
-﻿State=FAILED RunId=31010644859 Error=At D:\a\snoc\snoc\windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1:337 char:16 + $UncCmdTestPath$InstallBootstrapCmd = Read-DDMRaw 'templates\central\ ... +                ~~~~~~~~~~~~~~~~~~~~ Unexpected token '$InstallBootstrapCmd' in expression or statement. FailedAtUtc=2026-08-05T13:32:10.3000943Z
