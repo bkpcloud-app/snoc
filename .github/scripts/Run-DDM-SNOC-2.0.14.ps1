@@ -11,41 +11,39 @@ $Text=$Text.Replace('$UncCmdTestPath$InstallBootstrapCmd','$InstallBootstrapCmd'
 
 $PromotePath=Join-Path $Repo '.github\scripts\Promote-DDM-SNOC-2.0.14.ps1'
 $Promote=[IO.File]::ReadAllText($PromotePath)
-if($Promote -notmatch 'WAIT-GITHUB-RELEASE-LIST-2\.0\.14'){
-    $Old=@'
-    if($LASTEXITCODE -ne 0){throw "Publicador de assets retornou $LASTEXITCODE"}
 
-    Write-Host '6/8 - Executando piloto central com asset publicado'
+# Remove a espera defeituosa da listagem geral. O publicador ja valida a release com seis assets.
+$WaitPattern="(?s)\r?\n\s*# WAIT-GITHUB-RELEASE-LIST-2\.0\.14.*?\r?\n\s*Write-Host '6/8 - Executando piloto central com asset publicado'"
+$WaitReplacement="`r`n`r`n    Write-Host '6/8 - Executando piloto central com asset publicado'"
+$Promote=[regex]::Replace($Promote,$WaitPattern,$WaitReplacement)
+
+if($Promote -notmatch 'PILOT-DIRECT-TAG-2\.0\.14'){
+    $Old=@'
+        Expand-Archive $SeedZip $Central -Force
+        $ClientText=Read-Text (Join-Path $Product 'clients\AGL\CLIENTE.ps1')
 '@
     $New=@'
-    if($LASTEXITCODE -ne 0){throw "Publicador de assets retornou $LASTEXITCODE"}
+        Expand-Archive $SeedZip $Central -Force
 
-    # WAIT-GITHUB-RELEASE-LIST-2.0.14
-    $ReleaseVisible=$false
-    for($Attempt=1;$Attempt -le 24;$Attempt++){
-        $ErrorActionPreference='Continue'
-        $ReleaseJson=& gh api 'repos/bkpcloud-app/snoc/releases?per_page=100' 2>$null
-        $ApiCode=$LASTEXITCODE
-        $ErrorActionPreference='Stop'
-        if($ApiCode -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$ReleaseJson)){
-            $ApiReleases=@($ReleaseJson|ConvertFrom-Json)
-            $Published=@($ApiReleases|Where-Object{[string]$_.tag_name -eq $Tag})
-            if($Published.Count -eq 1 -and @($Published[0].assets).Count -eq 6){
-                $ReleaseVisible=$true
-                break
-            }
-        }
-        Start-Sleep -Seconds 5
-    }
-    if(-not $ReleaseVisible){throw 'API de releases nao enxergou a 2.0.14 com seis assets.'}
-    Start-Sleep -Seconds 5
+        # PILOT-DIRECT-TAG-2.0.14
+        # O piloto usa o endpoint direto da release recem-publicada para nao depender
+        # do cache eventual da listagem geral de releases do GitHub.
+        $PilotProductPath=Join-Path $Central 'CENTRAL-UPDATER\config\DDM-Product.ps1'
+        $PilotProduct=Read-Text $PilotProductPath
+        $DirectReleaseUrl='https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/'+$Tag
+        $PilotProduct=[regex]::Replace(
+            $PilotProduct,
+            "RepositoryReleaseApiUrl\s*=\s*'[^']+'",
+            "RepositoryReleaseApiUrl = '$DirectReleaseUrl'"
+        )
+        Save-Text $PilotProductPath $PilotProduct
 
-    Write-Host '6/8 - Executando piloto central com asset publicado'
+        $ClientText=Read-Text (Join-Path $Product 'clients\AGL\CLIENTE.ps1')
 '@
-    if(-not $Promote.Contains($Old.Trim())){throw 'Marcador de publicacao para espera da API nao encontrado.'}
+    if(-not $Promote.Contains($Old.Trim())){throw 'Marcador do piloto central nao encontrado.'}
     $Promote=$Promote.Replace($Old.Trim(),$New.Trim())
-    [IO.File]::WriteAllText($PromotePath,$Promote,$Utf8)
 }
 
+[IO.File]::WriteAllText($PromotePath,$Promote,$Utf8)
 & $PromotePath
 exit $LASTEXITCODE
