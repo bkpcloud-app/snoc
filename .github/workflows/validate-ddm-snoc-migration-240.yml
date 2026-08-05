@@ -1,4 +1,4 @@
-name: Validate DDM SNOC Migration 240
+name: Validate and Publish DDM SNOC Windows 2.0.16
 
 on:
   pull_request:
@@ -11,26 +11,49 @@ permissions:
   contents: write
 
 jobs:
-  migration-240:
+  migration-240-release:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
-      - name: Checkout exact PR branch
+      - name: Checkout exact source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Materialize exact 2.0.16 source
+      - name: Verify audited 2.0.16 source
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $Patch = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.16.ps1'
-          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Patch -RepositoryRoot $env:GITHUB_WORKSPACE
-          if ($LASTEXITCODE -ne 0) {
-              throw "Promotion patch returned $LASTEXITCODE"
+          $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $Engine = Join-Path $Product 'engine\Install-DDM-Zabbix-Windows.ps1'
+          $Config = Join-Path $Product 'config\DDM-Product.ps1'
+          $ExpectedEngineHash = '3803306553C7641AB8E87ADAEEDA93EA87AEC6057259E8DAA6C12768FF42E58A'
+
+          $EngineHash = (Get-FileHash -LiteralPath $Engine -Algorithm SHA256).Hash
+          if ($EngineHash -ne $ExpectedEngineHash) {
+              throw "Engine hash mismatch. Expected=$ExpectedEngineHash Current=$EngineHash"
           }
+
+          . $Config
+          if ([string]$DDMProduct.ProductVersion -ne '2.0.16') {
+              throw "ProductVersion must be 2.0.16. Current=$($DDMProduct.ProductVersion)"
+          }
+
+          $EngineText = [IO.File]::ReadAllText($Engine)
+          foreach ($Required in @(
+              "Test-Path -LiteralPath `$ServiceRegistryPath",
+              '$RollbackIdentity=$Snapshot.RollbackIdentity',
+              '(Get-RestoreProperties $P $Snap) $P.DisplayName',
+              '$Backup=Backup-State $Products $A1 $A2 $NeedMsi $Identity $Client'
+          )) {
+              if (-not $EngineText.Contains($Required)) {
+                  throw "Required 2.0.16 invariant missing: $Required"
+              }
+          }
+
+          Write-Host "ENGINE_SHA256=$EngineHash"
+          Write-Host 'PRODUCT_VERSION=2.0.16'
 
       - name: Parse all PowerShell sources
         shell: powershell
@@ -67,13 +90,101 @@ jobs:
           & (Join-Path $Product 'tools\Test-DDM-UncCmd.ps1') -ProductRoot $Product
           & (Join-Path $Product 'tools\Test-DDM-BootstrapFirstInstall.ps1') -ProductRoot $Product
 
-      - name: Upload validation evidence
+      - name: Build and inspect production assets
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          . (Join-Path $Product 'config\DDM-Product.ps1')
+          $Dist = Join-Path $env:GITHUB_WORKSPACE 'dist-2.0.16'
+          $Motor = Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-' + $DDMProduct.ProductVersion)
+          $Seed = Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-' + $DDMProduct.ProductVersion)
+          Remove-Item $Dist -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item $Motor,$Seed -ItemType Directory -Force | Out-Null
+
+          foreach ($Name in @('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','README.md','CHANGELOG.md')) {
+              Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Force
+          }
+          foreach ($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs','clients')) {
+              Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Recurse -Force
+          }
+          foreach ($Name in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd')) {
+              Copy-Item (Join-Path $Product ('templates\central\' + $Name)) (Join-Path $Seed $Name) -Force
+          }
+          Copy-Item (Join-Path $Product 'CLIENTE.example.ps1') (Join-Path $Seed 'CLIENTE.example.ps1') -Force
+          Copy-Item (Join-Path $Product 'docs\UPDATE-AD.md') (Join-Path $Seed 'LEIA-ME-UPDATE-AD.md') -Force
+          Copy-Item (Join-Path $Product 'docs\AUDITORIA-300-PONTOS.md') (Join-Path $Seed 'AUDITORIA-300-PONTOS.md') -Force
+
+          $Updater = Join-Path $Seed 'CENTRAL-UPDATER'
+          foreach ($Rel in @('central\Update-DDM-SNOC-Central.ps1','central\lib\DDM-Central-Client.ps1','central\lib\DDM-Central-Supply.ps1','central\lib\Invoke-DDM-Central-Publish.ps1','config\DDM-Product.ps1','lib\DDM-Common.ps1')) {
+              $Source = Join-Path $Product $Rel
+              $Destination = Join-Path $Updater $Rel
+              New-Item (Split-Path -Parent $Destination) -ItemType Directory -Force | Out-Null
+              Copy-Item $Source $Destination -Force
+          }
+          $CentralTools = Join-Path $Seed 'CENTRAL-TOOLS'
+          $RollbackDestination = Join-Path $CentralTools 'tools\Set-DDM-CentralRelease.ps1'
+          New-Item (Split-Path -Parent $RollbackDestination) -ItemType Directory -Force | Out-Null
+          Copy-Item (Join-Path $Product 'tools\Set-DDM-CentralRelease.ps1') $RollbackDestination -Force
+
+          foreach ($Root in @($Motor,$Seed)) {
+              if (Get-ChildItem $Root -Recurse -Force | Where-Object { $_.FullName -match '\\base-package\\|\\\.parts\\|New-BKPCloud-Zabbix-Client' }) {
+                  throw "Legacy content found in asset: $Root"
+              }
+          }
+
+          $MotorZip = Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-' + $DDMProduct.ProductVersion + '.zip')
+          $SeedZip = Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-' + $DDMProduct.ProductVersion + '.zip')
+          Compress-Archive -Path $Motor -DestinationPath $MotorZip -CompressionLevel Optimal
+          Compress-Archive -Path (Join-Path $Seed '*') -DestinationPath $SeedZip -CompressionLevel Optimal
+
+          $Expanded = Join-Path $env:RUNNER_TEMP 'ddm-release-2.0.16-expanded'
+          Remove-Item $Expanded -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $MotorZip -DestinationPath $Expanded -Force
+          $ExpandedProduct = Join-Path $Expanded (Split-Path -Leaf $Motor)
+          $ExpandedRepoRoot = Split-Path -Parent (Split-Path -Parent $ExpandedProduct)
+          $ExpandedWorkflowRoot = Join-Path $ExpandedRepoRoot '.github\workflows'
+          New-Item $ExpandedWorkflowRoot -ItemType Directory -Force | Out-Null
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-windows-validation.yml') $ExpandedWorkflowRoot -Force
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-windows-release.yml') $ExpandedWorkflowRoot -Force
+          & (Join-Path $ExpandedProduct 'tools\Test-DDM-Repository.ps1') -ProductRoot $ExpandedProduct
+
+          git fetch origin main --no-tags
+          $MainSha = ([string](git rev-parse origin/main)).Trim()
+          $Assets = @()
+          foreach ($Zip in @($MotorZip,$SeedZip)) {
+              $Hash = (Get-FileHash $Zip -Algorithm SHA256).Hash
+              Set-Content -LiteralPath ($Zip + '.sha256') -Value ($Hash + ' *' + (Split-Path -Leaf $Zip)) -Encoding ASCII
+              $Assets += New-Object PSObject -Property @{ Name=(Split-Path -Leaf $Zip); Sha256=$Hash; Size=(Get-Item $Zip).Length }
+          }
+
+          $Manifest = New-Object PSObject -Property @{
+              Product=$DDMProduct.ProductName
+              ProductVersion=$DDMProduct.ProductVersion
+              GitCommit=$MainSha
+              GitTag='ddm-snoc-windows-v2.0.16'
+              GeneratedAtUtc=(Get-Date).ToUniversalTime().ToString('o')
+              EngineSha256='3803306553C7641AB8E87ADAEEDA93EA87AEC6057259E8DAA6C12768FF42E58A'
+              MigrationScenarios='240/240'
+              Assets=$Assets
+              ExternalPilotsRequired=$true
+          }
+          $ManifestPath = Join-Path $Dist ('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-' + $DDMProduct.ProductVersion + '.json')
+          $Manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ManifestPath -Encoding UTF8
+          $ManifestHash = (Get-FileHash $ManifestPath -Algorithm SHA256).Hash
+          Set-Content -LiteralPath ($ManifestPath + '.sha256') -Value ($ManifestHash + ' *' + (Split-Path -Leaf $ManifestPath)) -Encoding ASCII
+
+          "DIST_PATH=$Dist" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MAIN_SHA=$MainSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload final evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: DDM-SNOC-WINDOWS-2.0.16-VALIDATION
+          name: DDM-SNOC-WINDOWS-2.0.16-FINAL-EVIDENCE
           path: |
             ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-2.0.16
+            dist-2.0.16
             windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1
             windows/zabbix-agent-deployment/config/DDM-Product.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1
@@ -81,21 +192,46 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Commit exact validated 2.0.16 source
-        if: github.event_name == 'pull_request' && github.head_ref == 'fix/ddm-snoc-windows-2.0.16'
+      - name: Publish complete GitHub release 2.0.16
+        if: github.event_name == 'pull_request' && github.head_ref == 'release/ddm-snoc-windows-2.0.16-direct'
         shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- 'windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1'
-          git add -- 'windows/zabbix-agent-deployment/config/DDM-Product.ps1'
-          git add -- 'windows/zabbix-agent-deployment/CHANGELOG.md'
-          git add -- 'windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1'
-          git add -- 'windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1'
-          git add -- 'windows/zabbix-agent-deployment/docs/RELEASE-2.0.15.md'
-          git add -- 'windows/zabbix-agent-deployment/docs/RELEASE-2.0.16.md'
-          if (-not (git diff --cached --quiet)) {
-              git commit -m 'fix(windows): harden service backup and MSI rollback in 2.0.16'
-              git push origin HEAD:${{ github.head_ref }}
+          $Tag = 'ddm-snoc-windows-v2.0.16'
+          $Dist = $env:DIST_PATH
+          $Files = @(
+              (Join-Path $Dist 'DDM-SNOC-WINDOWS-MOTOR-2.0.16.zip'),
+              (Join-Path $Dist 'DDM-SNOC-WINDOWS-MOTOR-2.0.16.zip.sha256'),
+              (Join-Path $Dist 'DDM-SNOC-WINDOWS-AD-SEED-2.0.16.zip'),
+              (Join-Path $Dist 'DDM-SNOC-WINDOWS-AD-SEED-2.0.16.zip.sha256'),
+              (Join-Path $Dist 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.16.json'),
+              (Join-Path $Dist 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.16.json.sha256')
+          )
+
+          $PreviousErrorActionPreference = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+          & gh release view $Tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+          $ViewCode = $LASTEXITCODE
+          $ErrorActionPreference = $PreviousErrorActionPreference
+
+          if ($ViewCode -eq 0) {
+              & gh release upload $Tag @Files --repo $env:GITHUB_REPOSITORY --clobber
           }
+          else {
+              & gh release create $Tag @Files --repo $env:GITHUB_REPOSITORY --target $env:MAIN_SHA --title 'DDM SNOC Windows 2.0.16' --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) {
+              throw "Release publication returned $LASTEXITCODE"
+          }
+
+          $Release = gh release view $Tag --repo $env:GITHUB_REPOSITORY --json tagName,targetCommitish,assets | ConvertFrom-Json
+          $Names = @($Release.assets | ForEach-Object name)
+          foreach ($Required in @('DDM-SNOC-WINDOWS-MOTOR-2.0.16.zip','DDM-SNOC-WINDOWS-MOTOR-2.0.16.zip.sha256','DDM-SNOC-WINDOWS-AD-SEED-2.0.16.zip','DDM-SNOC-WINDOWS-AD-SEED-2.0.16.zip.sha256','DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.16.json','DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.16.json.sha256')) {
+              if ($Names -notcontains $Required) {
+                  throw "Release asset missing: $Required"
+              }
+          }
+          Write-Host "RELEASE_PUBLISHED=$Tag"
+          Write-Host "RELEASE_TARGET=$($Release.targetCommitish)"
