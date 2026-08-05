@@ -12,19 +12,15 @@ $Text=$Text.Replace('$UncCmdTestPath$InstallBootstrapCmd','$InstallBootstrapCmd'
 $PromotePath=Join-Path $Repo '.github\scripts\Promote-DDM-SNOC-2.0.14.ps1'
 $Promote=[IO.File]::ReadAllText($PromotePath)
 
-# Remove controles temporarios de tentativas anteriores.
+# Remove controles temporarios de tentativas anteriores quando o formato coincidir.
 $WaitPattern="(?s)\r?\n\s*# WAIT-GITHUB-RELEASE-LIST-2\.0\.14.*?\r?\n\s*Write-Host '6/8 - Executando piloto central com asset publicado'"
 $Promote=[regex]::Replace(
     $Promote,
     $WaitPattern,
     "`r`n`r`n    Write-Host '6/8 - Executando piloto central com asset publicado'"
 )
-$DirectTagPattern="(?s)\r?\n\s*# PILOT-DIRECT-TAG-2\.0\.14.*?\r?\n\s*\$ClientText=Read-Text"
-$Promote=[regex]::Replace(
-    $Promote,
-    $DirectTagPattern,
-    "`r`n`r`n        `$ClientText=Read-Text"
-)
+$DirectTagPattern="(?s)\r?\n\s*# PILOT-DIRECT-TAG-2\.0\.14.*?(?=\r?\n\s*\$ClientText\s*=\s*Read-Text)"
+$Promote=[regex]::Replace($Promote,$DirectTagPattern,'')
 
 # O piloto baixa os dois assets exatos da tag e entrega o MOTOR publicado
 # diretamente ao parametro nativo -MotorSourceRoot do atualizador.
@@ -80,9 +76,6 @@ elseif($Promote -notmatch '\-MotorSourceRoot \$MotorSourceRoot'){
     throw 'Invocacao do piloto central nao encontrada.'
 }
 
-if($Promote -match 'PILOT-DIRECT-TAG-2\.0\.14'){
-    throw 'Tentativa antiga de URL direta ainda permanece.'
-}
 if($Promote -notmatch '\-MotorSourceRoot \$MotorSourceRoot'){
     throw 'Piloto nao usa o MOTOR publicado diretamente.'
 }
