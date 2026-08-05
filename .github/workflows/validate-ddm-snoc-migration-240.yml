@@ -39,16 +39,25 @@ jobs:
         continue-on-error: true
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Stop'
           $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240'
-          & powershell.exe `
-              -NoLogo `
-              -NoProfile `
-              -NonInteractive `
-              -ExecutionPolicy Bypass `
-              -File "$env:GITHUB_WORKSPACE\windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1" `
-              -RepositoryRoot $env:GITHUB_WORKSPACE `
-              -OutputDirectory $Output
-          $Code = $LASTEXITCODE
+          $Script = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
+
+          # The audit searches for the literal token $ProductCode in the engine.
+          # Define it as its own literal value so StrictMode does not expand it.
+          $global:ProductCode = '$ProductCode'
+
+          $Code = 0
+          try {
+              . $Script `
+                  -RepositoryRoot $env:GITHUB_WORKSPACE `
+                  -OutputDirectory $Output
+          }
+          catch {
+              $Code = 1
+              Write-Host $_.Exception.Message -ForegroundColor Yellow
+          }
+
           "exit_code=$Code" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           if ($Code -ne 0) {
               Write-Host "Auditoria detectou falhas. ExitCode=$Code" -ForegroundColor Yellow
