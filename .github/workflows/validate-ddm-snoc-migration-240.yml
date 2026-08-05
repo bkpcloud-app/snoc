@@ -205,12 +205,17 @@ jobs:
               (Join-Path $Dist 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.15.json.sha256')
           )
 
-          gh release view $Tag --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) {
-              gh release upload $Tag @Files --repo $env:GITHUB_REPOSITORY --clobber
+          $PreviousErrorActionPreference = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+          & gh release view $Tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+          $ViewCode = $LASTEXITCODE
+          $ErrorActionPreference = $PreviousErrorActionPreference
+
+          if ($ViewCode -eq 0) {
+              & gh release upload $Tag @Files --repo $env:GITHUB_REPOSITORY --clobber
           }
           else {
-              gh release create $Tag @Files --repo $env:GITHUB_REPOSITORY --target $env:MAIN_SHA --title 'DDM SNOC Windows 2.0.15' --generate-notes
+              & gh release create $Tag @Files --repo $env:GITHUB_REPOSITORY --target $env:MAIN_SHA --title 'DDM SNOC Windows 2.0.15' --generate-notes
           }
           if ($LASTEXITCODE -ne 0) {
               throw "Release publication returned $LASTEXITCODE"
