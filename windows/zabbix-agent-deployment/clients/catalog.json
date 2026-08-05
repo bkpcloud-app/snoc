@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "product": "DDM SNOC Windows",
-  "catalogVersion": "1.0.1",
+  "catalogVersion": "1.0.2",
   "repository": "bkpcloud-app/snoc",
   "branch": "main",
   "clients": [
     {
       "id": "AGL",
       "displayName": "Mizu / AGL",
-      "configVersion": "3.1.0",
+      "configVersion": "3.1.1",
       "path": "windows/zabbix-agent-deployment/clients/AGL/CLIENTE.ps1",
-      "sha256": "979FEC00AA2955890D1430DAACB2D3E91D4EAA103DC583861D8E2BD626020FF4",
+      "sha256": "340F8744A36F9BEFF591E361AFC1233CBD5798F4B7012E800764DDF1B0CFDAF9",
       "enabled": true
     },
     {
