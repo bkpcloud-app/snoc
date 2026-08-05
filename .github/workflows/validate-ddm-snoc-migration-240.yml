@@ -68,12 +68,8 @@ jobs:
               "Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.15') 'ProductVersion deve ser 2.0.15.'"
           )
 
-          $OldOrderAssertion = @'
-Assert-DDMTest ($Engine.LastIndexOf('Stop-Agents') -lt $Engine.LastIndexOf('Backup-State $Products')) 'Backup ocorre antes da parada do agente.'
-'@.Trim()
-          $NewOrderAssertion = @'
-Assert-DDMTest ($Engine.LastIndexOf('Backup-State $Products') -lt $Engine.LastIndexOf('Stop-Agents')) 'Backup deve ocorrer antes da parada do agente.'
-'@.Trim()
+          $OldOrderAssertion = 'Assert-DDMTest ($Engine.LastIndexOf(''Stop-Agents'') -lt $Engine.LastIndexOf(''Backup-State $Products'')) ''Backup ocorre antes da parada do agente.'''
+          $NewOrderAssertion = 'Assert-DDMTest ($Engine.LastIndexOf(''Backup-State $Products'') -lt $Engine.LastIndexOf(''Stop-Agents'')) ''Backup deve ocorrer antes da parada do agente.'''
           $RepositoryTestText = $RepositoryTestText.Replace($OldOrderAssertion,$NewOrderAssertion)
 
           if ($RepositoryTestText -notmatch "ProductVersion -eq '2\.0\.15'") {
