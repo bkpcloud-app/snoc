@@ -26,7 +26,26 @@ function Read-NormalizedText {
 
 function Write-NormalizedText {
     param([string]$Path,[string]$Text)
-    [IO.File]::WriteAllText($Path,($Text -replace "`r`n","`n" -replace "`r","`n"),$Utf8NoBom)
+    [IO.File]::WriteAllText(
+        $Path,
+        ($Text -replace "`r`n","`n" -replace "`r","`n"),
+        $Utf8NoBom
+    )
+}
+
+function Replace-ExactOnce {
+    param(
+        [string]$Text,
+        [string]$Old,
+        [string]$New,
+        [string]$Name
+    )
+
+    $Count = [regex]::Matches($Text,[regex]::Escape($Old)).Count
+    if ($Count -ne 1) {
+        throw "$Name replacement count must be one. Count=$Count"
+    }
+    return $Text.Replace($Old,$New)
 }
 
 $Engine = Read-NormalizedText $EnginePath
@@ -56,11 +75,11 @@ if (-not $AlreadyPromoted) {
     }
 '@
 
-    $OldRestore = @'
-function Get-RestoreProperties($Product){$Properties=@('ADDLOCAL=ALL','DONOTSTART=1','SKIP=fw');if(@('AGENT1','AGENT2') -contains [string]$Product.Family){$Properties+='STARTUPTYPE=automatic'};if(-not(Test-DDMBlank $Product.InstallLocation)){$Properties+=('INSTALLFOLDER="'+[string]$Product.InstallLocation+'"')};return $Properties}
+    $OldBackupSignature = @'
+function Backup-State($Products,$Agent1Snapshot,$Agent2Snapshot,[bool]$RequireMsi){
 '@
-    $NewRestore = @'
-function Get-RestoreProperties($Product,$Snapshot){$Properties=@('ADDLOCAL=ALL','DONOTSTART=1','SKIP=fw');if(@('AGENT1','AGENT2') -contains [string]$Product.Family){$Properties+='STARTUPTYPE=automatic';$RollbackIdentity=$Snapshot.RollbackIdentity;if($RollbackIdentity){$Properties+=('SERVER="'+[string]$RollbackIdentity.Server+'"'),('SERVERACTIVE="'+[string]$RollbackIdentity.ServerActive+'"'),('HOSTNAME="'+[string]$RollbackIdentity.Hostname+'"'),('HOSTMETADATA="'+[string]$RollbackIdentity.HostMetadata+'"'),('LISTENPORT="'+[string]$RollbackIdentity.ListenPort+'"')}};if(-not(Test-DDMBlank $Product.InstallLocation)){$Properties+=('INSTALLFOLDER="'+[string]$Product.InstallLocation+'"')};return $Properties}
+    $NewBackupSignature = @'
+function Backup-State($Products,$Agent1Snapshot,$Agent2Snapshot,[bool]$RequireMsi,$Identity,$Client){
 '@
 
     $OldSnapshot = @'
@@ -70,40 +89,63 @@ function Get-RestoreProperties($Product,$Snapshot){$Properties=@('ADDLOCAL=ALL',
     $ListenPort=if($Client.Communication.ListenPort){[int]$Client.Communication.ListenPort}else{[int]$DDMProduct.ListenPort};$RollbackIdentity=New-Object PSObject -Property @{Server=[string]$Identity.Proxy;ServerActive=[string]$Identity.ProxyActive;Hostname=[string]$Identity.Hostname;HostMetadata=[string]$Identity.Metadata;ListenPort=$ListenPort};$Snapshot=New-Object PSObject -Property @{Products=$ProductBackups;Agent1Service=$Agent1Snapshot;Agent2Service=$Agent2Snapshot;RollbackIdentity=$RollbackIdentity;MsiChanged=$RequireMsi;CreatedAt=(Get-Date).ToUniversalTime().ToString('o')}
 '@
 
-    $Replacements = @(
-        @($OldRegistryExport,$NewRegistryExport),
-        @('function Backup-State($Products,$Agent1Snapshot,$Agent2Snapshot,[bool]$RequireMsi){','function Backup-State($Products,$Agent1Snapshot,$Agent2Snapshot,[bool]$RequireMsi,$Identity,$Client){'),
-        @($OldSnapshot,$NewSnapshot),
-        @($OldRestore,$NewRestore),
-        @('(Get-RestoreProperties $P) $P.DisplayName','(Get-RestoreProperties $P $Snap) $P.DisplayName'),
-        @('$Backup=Backup-State $Products $A1 $A2 $NeedMsi','$Backup=Backup-State $Products $A1 $A2 $NeedMsi $Identity $Client'),
-        @("Invoke-Msi 'REMOVE' `$P.ProductCode @() `$F.DisplayName","Invoke-Msi 'REMOVE' `$P.ProductCode @() `$P.DisplayName")
-    )
+    $OldRestoreFunction = @'
+function Get-RestoreProperties($Product){$Properties=@('ADDLOCAL=ALL','DONOTSTART=1','SKIP=fw');if(@('AGENT1','AGENT2') -contains [string]$Product.Family){$Properties+='STARTUPTYPE=automatic'};if(-not(Test-DDMBlank $Product.InstallLocation)){$Properties+=('INSTALLFOLDER="'+[string]$Product.InstallLocation+'"')};return $Properties}
+'@
+    $NewRestoreFunction = @'
+function Get-RestoreProperties($Product,$Snapshot){$Properties=@('ADDLOCAL=ALL','DONOTSTART=1','SKIP=fw');if(@('AGENT1','AGENT2') -contains [string]$Product.Family){$Properties+='STARTUPTYPE=automatic';$RollbackIdentity=$Snapshot.RollbackIdentity;if($RollbackIdentity){$Properties+=('SERVER="'+[string]$RollbackIdentity.Server+'"'),('SERVERACTIVE="'+[string]$RollbackIdentity.ServerActive+'"'),('HOSTNAME="'+[string]$RollbackIdentity.Hostname+'"'),('HOSTMETADATA="'+[string]$RollbackIdentity.HostMetadata+'"'),('LISTENPORT="'+[string]$RollbackIdentity.ListenPort+'"')}};if(-not(Test-DDMBlank $Product.InstallLocation)){$Properties+=('INSTALLFOLDER="'+[string]$Product.InstallLocation+'"')};return $Properties}
+'@
 
-    foreach ($Pair in $Replacements) {
-        $Old = [string]$Pair[0]
-        $New = [string]$Pair[1]
-        $Count = [regex]::Matches($Engine,[regex]::Escape($Old)).Count
-        if ($Count -ne 1) {
-            throw "Engine replacement count must be one. Count=$Count Old=$Old"
-        }
-        $Engine = $Engine.Replace($Old,$New)
-    }
+    $Engine = Replace-ExactOnce $Engine $OldRegistryExport $NewRegistryExport 'Registry export guard'
+    $Engine = Replace-ExactOnce $Engine $OldBackupSignature $NewBackupSignature 'Backup signature'
+    $Engine = Replace-ExactOnce $Engine $OldSnapshot $NewSnapshot 'Rollback identity snapshot'
+    $Engine = Replace-ExactOnce $Engine $OldRestoreFunction $NewRestoreFunction 'Rollback MSI properties'
+    $Engine = Replace-ExactOnce $Engine '(Get-RestoreProperties $P) $P.DisplayName' '(Get-RestoreProperties $P $Snap) $P.DisplayName' 'Rollback restore invocation'
+    $Engine = Replace-ExactOnce $Engine '$Backup=Backup-State $Products $A1 $A2 $NeedMsi' '$Backup=Backup-State $Products $A1 $A2 $NeedMsi $Identity $Client' 'Backup invocation'
+    $Engine = Replace-ExactOnce $Engine "Invoke-Msi 'REMOVE' `$P.ProductCode @() `$F.DisplayName" "Invoke-Msi 'REMOVE' `$P.ProductCode @() `$P.DisplayName" 'MSI removal display name'
 
-    $Config = $Config.Replace("ProductVersion           = '2.0.15'","ProductVersion           = '2.0.16'")
-    $RepositoryTest = $RepositoryTest.Replace("ProductVersion -eq '2.0.15'","ProductVersion -eq '2.0.16'").Replace('ProductVersion deve ser 2.0.15.','ProductVersion deve ser 2.0.16.')
-    $ScenarioTest = $ScenarioTest.Replace(
-        "Add-Contains 52 'Service registry keys are exported' `$Engine '& reg.exe export'",
-        "Add-Regex 52 'Only existing service registry keys are exported' `$Engine 'Test-Path -LiteralPath \`$ServiceRegistryPath.*?reg\.exe export.*?LASTEXITCODE -ne 0'"
-    )
-    $ScenarioTest = $ScenarioTest.Replace(
-        "Add-Contains 58 'Rollback reinstall uses DONOTSTART' `$Engine \"'DONOTSTART=1'\"",
-        "Add-Regex 58 'Rollback reinstall uses DONOTSTART and SERVER identity' `$Engine \"Get-RestoreProperties.*?DONOTSTART=1.*?SERVER=\""
-    )
-    $ScenarioTest = $ScenarioTest.Replace(
-        "'Backup-State `$Products `$A1 `$A2 `$NeedMsi' 'Stop-Agents'",
-        "'Backup-State `$Products `$A1 `$A2 `$NeedMsi `$Identity `$Client' 'Stop-Agents'"
-    )
+    $Config = Replace-ExactOnce \
+        $Config \
+        "ProductVersion           = '2.0.15'" \
+        "ProductVersion           = '2.0.16'" \
+        'Product version'
+
+    $RepositoryTest = Replace-ExactOnce \
+        $RepositoryTest \
+        "ProductVersion -eq '2.0.15'" \
+        "ProductVersion -eq '2.0.16'" \
+        'Repository version assertion'
+
+    $RepositoryTest = Replace-ExactOnce \
+        $RepositoryTest \
+        'ProductVersion deve ser 2.0.15.' \
+        'ProductVersion deve ser 2.0.16.' \
+        'Repository version message'
+
+    $OldScenario52 = @'
+Add-Contains 52 'Service registry keys are exported' $Engine '& reg.exe export'
+'@
+    $NewScenario52 = @'
+Add-Regex 52 'Only existing service registry keys are exported' $Engine 'Test-Path -LiteralPath \$ServiceRegistryPath.*?reg\.exe export.*?LASTEXITCODE -ne 0'
+'@
+
+    $OldScenario58 = @'
+Add-Contains 58 'Rollback reinstall uses DONOTSTART' $Engine "'DONOTSTART=1'"
+'@
+    $NewScenario58 = @'
+Add-Regex 58 'Rollback reinstall uses DONOTSTART and SERVER identity' $Engine 'Get-RestoreProperties.*?DONOTSTART=1.*?SERVER='
+'@
+
+    $OldScenario73 = @'
+Add-Order 73 'Rollback backup completes before stopping agents' $Transaction 'Backup-State $Products $A1 $A2 $NeedMsi' 'Stop-Agents'
+'@
+    $NewScenario73 = @'
+Add-Order 73 'Rollback backup completes before stopping agents' $Transaction 'Backup-State $Products $A1 $A2 $NeedMsi $Identity $Client' 'Stop-Agents'
+'@
+
+    $ScenarioTest = Replace-ExactOnce $ScenarioTest $OldScenario52 $NewScenario52 'Scenario 52'
+    $ScenarioTest = Replace-ExactOnce $ScenarioTest $OldScenario58 $NewScenario58 'Scenario 58'
+    $ScenarioTest = Replace-ExactOnce $ScenarioTest $OldScenario73 $NewScenario73 'Scenario 73'
 
     if ($ChangeLog -notmatch '(?m)^## 2\.0\.16 ') {
         $Header = "## 2.0.16 - 2026-08-05`n- Exporta somente chaves de servicos realmente existentes durante o backup transacional.`n- Preserva SERVER, SERVERACTIVE, HOSTNAME, HOSTMETADATA e LISTENPORT na reinstalacao de rollback.`n- Corrige o nome do produto usado no log da remocao MSI.`n- Reexecuta os 240 cenarios e a validacao completa sobre o pacote final.`n`n"
@@ -119,15 +161,23 @@ function Get-RestoreProperties($Product,$Snapshot){$Properties=@('ADDLOCAL=ALL',
     if (Test-Path -LiteralPath $OldReleaseDoc) {
         Remove-Item -LiteralPath $OldReleaseDoc -Force
     }
-    Write-NormalizedText $NewReleaseDoc "# DDM SNOC Windows 2.0.16`n`nRelease de producao da migracao auditada do Zabbix Agent 1 para Agent 2.`n`nInclui protecao para servicos ainda inexistentes no backup do registro e identidade completa no rollback MSI.`n"
+    Write-NormalizedText \
+        $NewReleaseDoc \
+        "# DDM SNOC Windows 2.0.16`n`nRelease de producao da migracao auditada do Zabbix Agent 1 para Agent 2.`n`nInclui protecao para servicos ainda inexistentes no backup do registro e identidade completa no rollback MSI.`n"
 }
 
 foreach ($Path in @($EnginePath,$ConfigPath,$RepositoryTestPath,$ScenarioTestPath)) {
     $Tokens = $null
     $Errors = $null
-    [void][Management.Automation.Language.Parser]::ParseFile($Path,[ref]$Tokens,[ref]$Errors)
+    [void][Management.Automation.Language.Parser]::ParseFile(
+        $Path,
+        [ref]$Tokens,
+        [ref]$Errors
+    )
     if (@($Errors).Count -gt 0) {
-        throw (@($Errors | ForEach-Object { "$Path L$($_.Extent.StartLineNumber): $($_.Message)" }) -join "`r`n")
+        throw (@($Errors | ForEach-Object {
+            "$Path L$($_.Extent.StartLineNumber): $($_.Message)"
+        }) -join "`r`n")
     }
 }
 
