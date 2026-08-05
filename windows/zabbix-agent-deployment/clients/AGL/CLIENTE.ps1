@@ -4,7 +4,7 @@
 
 $DDMClient = @{
     SchemaVersion        = 3
-    ConfigVersion        = '3.1.0'
+    ConfigVersion        = '3.1.1'
     ClientId             = 'AGL'
     DisplayName          = 'Mizu / AGL'
     Status               = 'PILOT_READY'
@@ -108,6 +108,7 @@ $DDMClient = @{
 
     Legacy = @{
         ManagedFiles = @(
+            'zabbix_agentd.d\adds.conf',
             'zabbix_agentd.d\adds_health.conf',
             'zabbix_agentd.d\adds_replsummary.conf',
             'zabbix_agentd.d\bkpcloud-product.conf',
