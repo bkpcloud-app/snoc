@@ -8,6 +8,7 @@ on:
       - 'windows/zabbix-agent-deployment/CHANGELOG.md'
       - 'windows/zabbix-agent-deployment/lib/DDM-Common.ps1'
       - 'windows/zabbix-agent-deployment/tools/Build-DDM-SNOC-MigrationCandidate.ps1'
+      - 'windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1'
       - 'windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1'
       - '.github/workflows/validate-ddm-snoc-migration-240.yml'
   workflow_dispatch:
@@ -35,6 +36,7 @@ jobs:
           $Engine = Join-Path $Root 'engine\Install-DDM-Zabbix-Windows.ps1'
           $Config = Join-Path $Root 'config\DDM-Product.ps1'
           $ChangeLog = Join-Path $Root 'CHANGELOG.md'
+          $RepositoryTest = Join-Path $Root 'tools\Test-DDM-Repository.ps1'
           $Builder = Join-Path $Root 'tools\Build-DDM-SNOC-MigrationCandidate.ps1'
           $ExpectedEngineHash = 'E034E3D6026414BA64ECDD8DAE16215D8E4AC0266D7583284900340FBE633EBD'
 
@@ -59,6 +61,16 @@ jobs:
           if ([IO.File]::ReadAllText($Config) -notmatch "ProductVersion\s*=\s*'2\.0\.15'") {
               throw 'ProductVersion 2.0.15 is not active.'
           }
+
+          $RepositoryTestText = [IO.File]::ReadAllText($RepositoryTest)
+          $RepositoryTestText = $RepositoryTestText.Replace(
+              "Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.14') 'ProductVersion deve ser 2.0.14.'",
+              "Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.15') 'ProductVersion deve ser 2.0.15.'"
+          )
+          if ($RepositoryTestText -notmatch "ProductVersion -eq '2\.0\.15'") {
+              throw 'Repository test was not aligned to 2.0.15.'
+          }
+          [IO.File]::WriteAllText($RepositoryTest,$RepositoryTestText,(New-Object Text.UTF8Encoding($false)))
 
           $ChangeText = [IO.File]::ReadAllText($ChangeLog)
           if ($ChangeText -notmatch '(?m)^## 2\.0\.15 ') {
@@ -133,6 +145,7 @@ jobs:
             windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1
             windows/zabbix-agent-deployment/config/DDM-Product.ps1
             windows/zabbix-agent-deployment/CHANGELOG.md
+            windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1
           if-no-files-found: error
           retention-days: 30
@@ -147,6 +160,7 @@ jobs:
           git add -- 'windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1'
           git add -- 'windows/zabbix-agent-deployment/config/DDM-Product.ps1'
           git add -- 'windows/zabbix-agent-deployment/CHANGELOG.md'
+          git add -- 'windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1'
           git add -- 'windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1'
           if (-not (git diff --cached --quiet)) {
               git commit -m 'fix(windows): promote audited migration engine 2.0.15'
