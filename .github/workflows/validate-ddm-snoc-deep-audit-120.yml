@@ -1,0 +1,29 @@
+name: Validate DDM SNOC Deep Audit 120
+
+on:
+  pull_request:
+    paths:
+      - 'windows/zabbix-agent-deployment/tools/Invoke-DDM-SNOC-DeepAudit-120.ps1'
+      - '.github/workflows/validate-ddm-snoc-deep-audit-120.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  self-test:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate wrapper, payload SHA, parser, 120 IDs and read-only contract
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Script = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Invoke-DDM-SNOC-DeepAudit-120.ps1'
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Script -SelfTest
+          if ($LASTEXITCODE -ne 0) {
+              throw "Deep audit self-test returned $LASTEXITCODE"
+          }

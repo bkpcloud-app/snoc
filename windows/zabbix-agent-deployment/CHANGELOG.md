@@ -1,3 +1,9 @@
+## 2.0.15 - 2026-08-05
+- Corrige a ordem transacional: backup completo antes de parar os agentes.
+- Envia SERVER, SERVERACTIVE, HOSTNAME, HOSTMETADATA e LISTENPORT ao MSI do Agent 2.
+- Mantem o Agent 1 ate validar configuracao, servico, porta e plugins do Agent 2.
+- Valida 240 cenarios de migracao, falha e rollback sem reprovacoes.
+
 ## 2.0.14 - 2026-08-05
 - Corrige a execucao do instalador do bootstrap diretamente pelo NETLOGON/UNC.
 - INSTALAR-BOOTSTRAP.cmd usa pushd e executa o PowerShell por unidade temporaria local.

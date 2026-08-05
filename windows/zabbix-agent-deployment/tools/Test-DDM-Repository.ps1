@@ -138,7 +138,7 @@ Write-Host '3/12 Contrato global do produto'
 . (Join-Path $ProductRoot 'config\DDM-Product.ps1')
 Assert-DDMTest ($DDMProduct.ProductName -eq 'DDM SNOC Windows') 'ProductName invalido.'
 Assert-DDMTest ($DDMProduct.ProductCode -eq 'DDM-SNOC-WINDOWS') 'ProductCode invalido.'
-Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.14') 'ProductVersion deve ser 2.0.14.'
+Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.15') 'ProductVersion deve ser 2.0.15.'
 Assert-DDMTest ($DDMProduct.ClientSchemaVersion -eq 3) 'Schema deve ser 3.'
 Assert-DDMTest ([bool]$DDMProduct.AllowAgent2OnServer2012) 'Server 2012 deve permanecer habilitado para Agent 2.'
 Assert-DDMTest ([bool]$DDMProduct.InstallAgent2Plugins) 'Plugins Agent 2 devem permanecer habilitados.'
@@ -392,7 +392,7 @@ foreach ($Required in @(
 )) {
     Assert-DDMTest ($Engine.Contains($Required)) "Motor sem invariante: $Required"
 }
-Assert-DDMTest ($Engine.LastIndexOf('Stop-Agents') -lt $Engine.LastIndexOf('Backup-State $Products')) 'Backup ocorre antes da parada do agente.'
+Assert-DDMTest ($Engine.LastIndexOf('Backup-State $Products') -lt $Engine.LastIndexOf('Stop-Agents')) 'Backup deve ocorrer antes da parada do agente.'
 Assert-DDMTest ($Engine.LastIndexOf('$TransactionCommitted=$true') -gt $Engine.LastIndexOf('Export-Clixml -LiteralPath $Temp')) 'Commit ocorre antes do estado final.'
 Assert-DDMTest ($Engine -notmatch '(?i)Set-ItemProperty[^\r\n]*\s-Type\b') 'Rollback usa parametro invalido Set-ItemProperty -Type.'
 Assert-DDMTest ($Engine.Contains('try{Remove-OldState}catch')) 'Limpeza pos-commit ainda pode acionar rollback.'
