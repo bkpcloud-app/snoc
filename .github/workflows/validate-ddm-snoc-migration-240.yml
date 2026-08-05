@@ -137,6 +137,11 @@ jobs:
           Remove-Item $Expanded -Recurse -Force -ErrorAction SilentlyContinue
           Expand-Archive -LiteralPath $MotorZip -DestinationPath $Expanded -Force
           $ExpandedProduct = Join-Path $Expanded (Split-Path -Leaf $Motor)
+          $ExpandedRepoRoot = Split-Path -Parent (Split-Path -Parent $ExpandedProduct)
+          $ExpandedWorkflowRoot = Join-Path $ExpandedRepoRoot '.github\workflows'
+          New-Item $ExpandedWorkflowRoot -ItemType Directory -Force | Out-Null
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-windows-validation.yml') $ExpandedWorkflowRoot -Force
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-windows-release.yml') $ExpandedWorkflowRoot -Force
           & (Join-Path $ExpandedProduct 'tools\Test-DDM-Repository.ps1') -ProductRoot $ExpandedProduct
 
           git fetch origin main --no-tags
