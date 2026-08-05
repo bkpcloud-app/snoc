@@ -254,9 +254,24 @@ $UncCmdTestPath = Join-Path $ProductRoot 'tools\Test-DDM-UncCmd.ps1'
     Write-Host '6/8 - Executando piloto central com asset publicado'
     $Download=Join-Path $env:RUNNER_TEMP ('ddm-2014-download-'+[guid]::NewGuid().ToString('N'))
     New-Item $Download -ItemType Directory -Force|Out-Null
-    & gh release download $Tag --pattern "DDM-SNOC-WINDOWS-AD-SEED-$Version.zip" --dir $Download
-    if($LASTEXITCODE -ne 0){throw 'Falha ao baixar AD-SEED publicado.'}
+    & gh release download $Tag `
+        --pattern "DDM-SNOC-WINDOWS-AD-SEED-$Version.zip" `
+        --pattern "DDM-SNOC-WINDOWS-MOTOR-$Version.zip" `
+        --dir $Download
+    if($LASTEXITCODE -ne 0){throw 'Falha ao baixar AD-SEED/MOTOR publicados.'}
     $SeedZip=Join-Path $Download "DDM-SNOC-WINDOWS-AD-SEED-$Version.zip"
+    $MotorZip=Join-Path $Download "DDM-SNOC-WINDOWS-MOTOR-$Version.zip"
+    foreach($PublishedZip in @($SeedZip,$MotorZip)){
+        if(-not(Test-Path -LiteralPath $PublishedZip -PathType Leaf)){
+            throw "Asset publicado ausente no piloto: $PublishedZip"
+        }
+    }
+    $MotorExpanded=Join-Path $Download 'MOTOR-EXPANDED'
+    Expand-Archive -LiteralPath $MotorZip -DestinationPath $MotorExpanded -Force
+    $MotorSourceRoot=Join-Path $MotorExpanded "DDM-SNOC-WINDOWS-MOTOR-$Version"
+    if(-not(Test-Path -LiteralPath (Join-Path $MotorSourceRoot 'config\DDM-Product.ps1') -PathType Leaf)){
+        throw "MOTOR publicado invalido no piloto: $MotorSourceRoot"
+    }
 
     $PilotRoot=Join-Path 'C:\' ('DDM-SNOC-E2E-'+[guid]::NewGuid().ToString('N'))
     $Central=Join-Path $PilotRoot 'ZBX'
@@ -283,7 +298,14 @@ $UncCmdTestPath = Join-Path $ProductRoot 'tools\Test-DDM-UncCmd.ps1'
         $ClientText=$ClientText.Replace('\\mizu.local\NETLOGON\SCRIPTS\ZBX',$Central)
         Save-Text (Join-Path $Central 'CLIENTE.ps1') $ClientText
         $Updater=Join-Path $Central 'CENTRAL-UPDATER\central\Update-DDM-SNOC-Central.ps1'
-        & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Updater -CentralRoot $Central
+        & powershell.exe `
+            -NoLogo `
+            -NoProfile `
+            -NonInteractive `
+            -ExecutionPolicy Bypass `
+            -File $Updater `
+            -CentralRoot $Central `
+            -MotorSourceRoot $MotorSourceRoot
         if($LASTEXITCODE -ne 0){throw "Piloto central retornou $LASTEXITCODE"}
         $Current=(Get-Content (Join-Path $Central 'CURRENT.txt') -First 1).Trim()
         if($Current -notlike "$Version`__*"){throw "CURRENT inesperado no piloto: $Current"}
