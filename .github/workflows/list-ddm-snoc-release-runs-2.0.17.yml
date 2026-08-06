@@ -1,0 +1,69 @@
+name: List DDM SNOC Release Runs 2.0.17
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/list-ddm-snoc-release-runs-2.0.17.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  list-runs:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Export release workflow runs
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Headers = @{
+              'User-Agent' = 'DDM-SNOC-Windows-Run-Inspector'
+              'Accept' = 'application/vnd.github+json'
+              'Authorization' = 'Bearer ' + $env:GH_TOKEN
+              'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $Uri = 'https://api.github.com/repos/bkpcloud-app/snoc/actions/workflows/ddm-snoc-windows-release.yml/runs?per_page=30'
+          $Response = Invoke-RestMethod -Uri $Uri -Headers $Headers -TimeoutSec 30
+          $Branch = 'diagnostic-release-runs-2.0.17'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -B $Branch
+          $Path = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\docs\RELEASE-2.0.17-RUNS.md'
+          $Lines = @(
+              '# DDM SNOC Windows - últimos runs do workflow de release',
+              '',
+              ('Gerado em UTC: `' + (Get-Date).ToUniversalTime().ToString('o') + '`'),
+              ''
+          )
+          foreach ($Run in @($Response.workflow_runs)) {
+              $Lines += @(
+                  ('## Run ' + [string]$Run.id),
+                  '',
+                  ('- Name: `' + [string]$Run.name + '`'),
+                  ('- Event: `' + [string]$Run.event + '`'),
+                  ('- Head branch: `' + [string]$Run.head_branch + '`'),
+                  ('- Head SHA: `' + [string]$Run.head_sha + '`'),
+                  ('- Status: `' + [string]$Run.status + '`'),
+                  ('- Conclusion: `' + [string]$Run.conclusion + '`'),
+                  ('- Created: `' + [string]$Run.created_at + '`'),
+                  ('- Updated: `' + [string]$Run.updated_at + '`'),
+                  ('- URL: ' + [string]$Run.html_url),
+                  ''
+              )
+          }
+          $Lines | Set-Content -LiteralPath $Path -Encoding UTF8
+          git add -- 'windows/zabbix-agent-deployment/docs/RELEASE-2.0.17-RUNS.md'
+          git commit -m 'docs(windows): export release workflow runs'
+          git push --force origin ("HEAD:" + $Branch)
