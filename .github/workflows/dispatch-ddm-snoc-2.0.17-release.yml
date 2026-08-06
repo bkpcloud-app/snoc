@@ -16,11 +16,12 @@ jobs:
   dispatch:
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch official release workflow on the 2.0.17 tag
+      - name: Dispatch official release workflow from main
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           gh workflow run ddm-snoc-windows-release.yml \
             --repo bkpcloud-app/snoc \
-            --ref ddm-snoc-windows-v2.0.17
+            --ref main \
+            -f release_tag=ddm-snoc-windows-v2.0.17
