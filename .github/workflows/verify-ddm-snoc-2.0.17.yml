@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - '.github/workflows/verify-ddm-snoc-2.0.17.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
