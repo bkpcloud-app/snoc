@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'ddm-snoc-windows-v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,7 +16,7 @@ concurrency:
 jobs:
   release:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -35,6 +36,8 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Tag de producao deve apontar para commit pertencente a main.'}
           & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
           if($LASTEXITCODE -ne 0){throw "Repository validation returned $LASTEXITCODE"}
+          & (Join-Path $Product 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot $Product
+          if($LASTEXITCODE -ne 0){throw "Force validation returned $LASTEXITCODE"}
 
       - name: Build motor and AD seed assets
         shell: powershell
@@ -50,7 +53,7 @@ jobs:
           foreach($Name in @('Start-DDM-SNOC.ps1','CLIENTE.example.ps1','README.md','CHANGELOG.md')){
             Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Force
           }
-          foreach($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs')){
+          foreach($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs','clients')){
             Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Recurse -Force
           }
           foreach($Name in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd')){
@@ -93,7 +96,7 @@ jobs:
             GitTag=$env:GITHUB_REF_NAME
             GeneratedAtUtc=(Get-Date).ToUniversalTime().ToString('o')
             Assets=$Assets
-            Validation=@('PowerShell parser','PowerShell 2 surface','client negative tests','central and rollback invariants','built asset','exactly 300 audit controls')
+            Validation=@('PowerShell parser','PowerShell 2 surface','client negative tests','central and rollback invariants','forced refresh','240 migration scenarios on final MOTOR','exactly 300 audit controls')
             ExternalPilotsRequired=$true
           }
           $ManifestPath=Join-Path $Dist ('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-' + $DDMProduct.ProductVersion + '.json')
@@ -101,7 +104,7 @@ jobs:
           $ManifestHash=(Get-FileHash $ManifestPath -Algorithm SHA256).Hash
           Set-Content -LiteralPath ($ManifestPath+'.sha256') -Value ($ManifestHash+' *'+(Split-Path -Leaf $ManifestPath)) -Encoding ASCII
 
-      - name: Inspect built motor
+      - name: Inspect final motor and execute 240 scenarios
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
@@ -109,12 +112,27 @@ jobs:
           . (Join-Path $Product 'config\DDM-Product.ps1')
           $Zip=Join-Path $env:GITHUB_WORKSPACE ('dist\DDM-SNOC-WINDOWS-MOTOR-'+$DDMProduct.ProductVersion+'.zip')
           $Expanded=Join-Path $env:RUNNER_TEMP 'ddm-release-expanded'
+          $FinalRepo=Join-Path $env:RUNNER_TEMP 'ddm-release-final-repo'
+          Remove-Item $Expanded,$FinalRepo -Recurse -Force -ErrorAction SilentlyContinue
           Expand-Archive -LiteralPath $Zip -DestinationPath $Expanded -Force
           $ExpandedProduct=Join-Path $Expanded ('DDM-SNOC-WINDOWS-MOTOR-'+$DDMProduct.ProductVersion)
-          & (Join-Path $ExpandedProduct 'tools\Test-DDM-Repository.ps1') -ProductRoot $ExpandedProduct
+          $FinalProduct=Join-Path $FinalRepo 'windows\zabbix-agent-deployment'
+          New-Item (Split-Path -Parent $FinalProduct) -ItemType Directory -Force | Out-Null
+          Copy-Item -LiteralPath $ExpandedProduct -Destination $FinalProduct -Recurse -Force
+          $FinalWorkflowRoot=Join-Path $FinalRepo '.github\workflows'
+          New-Item $FinalWorkflowRoot -ItemType Directory -Force | Out-Null
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-windows-validation.yml') $FinalWorkflowRoot -Force
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-windows-release.yml') $FinalWorkflowRoot -Force
+          & (Join-Path $FinalProduct 'tools\Test-DDM-Repository.ps1') -ProductRoot $FinalProduct
           if($LASTEXITCODE -ne 0){throw "Built asset validation returned $LASTEXITCODE"}
+          & (Join-Path $FinalProduct 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot $FinalProduct
+          if($LASTEXITCODE -ne 0){throw "Built asset Force validation returned $LASTEXITCODE"}
+          $global:ProductCode='$ProductCode'
+          $ScenarioOutput=Join-Path $env:RUNNER_TEMP ('DDM-SNOC-MIGRATION-240-FINAL-'+$DDMProduct.ProductVersion)
+          & (Join-Path $FinalProduct 'tools\Test-DDM-SNOC-Migration-240Scenarios.ps1') -RepositoryRoot $FinalRepo -OutputDirectory $ScenarioOutput
+          if($LASTEXITCODE -ne 0){throw "Final MOTOR migration validation returned $LASTEXITCODE"}
 
-      - name: Publish GitHub Release
+      - name: Publish and verify GitHub Release
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
@@ -122,6 +140,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           . (Join-Path $Product 'config\DDM-Product.ps1')
+          $Tag=$env:GITHUB_REF_NAME
           $Dist=Join-Path $env:GITHUB_WORKSPACE 'dist'
           $Files=@(
             (Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-'+$DDMProduct.ProductVersion+'.zip')),
@@ -131,4 +150,35 @@ jobs:
             (Join-Path $Dist ('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-'+$DDMProduct.ProductVersion+'.json')),
             (Join-Path $Dist ('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-'+$DDMProduct.ProductVersion+'.json.sha256'))
           )
-          gh release create $env:GITHUB_REF_NAME @Files --verify-tag --generate-notes --title "DDM SNOC Windows $($DDMProduct.ProductVersion)"
+          gh release view $Tag --repo bkpcloud-app/snoc *> $null
+          if($LASTEXITCODE -eq 0){
+            gh release upload $Tag @Files --repo bkpcloud-app/snoc --clobber
+            if($LASTEXITCODE -ne 0){throw "gh release upload returned $LASTEXITCODE"}
+            gh release edit $Tag --repo bkpcloud-app/snoc --title "DDM SNOC Windows $($DDMProduct.ProductVersion)" --draft=false --prerelease=false
+            if($LASTEXITCODE -ne 0){throw "gh release edit returned $LASTEXITCODE"}
+          }else{
+            gh release create $Tag @Files --repo bkpcloud-app/snoc --verify-tag --generate-notes --title "DDM SNOC Windows $($DDMProduct.ProductVersion)"
+            if($LASTEXITCODE -ne 0){throw "gh release create returned $LASTEXITCODE"}
+          }
+          $Headers=@{
+            'User-Agent'='DDM-SNOC-Windows-Release'
+            'Accept'='application/vnd.github+json'
+            'Authorization'='Bearer '+$env:GH_TOKEN
+            'X-GitHub-Api-Version'='2022-11-28'
+          }
+          $Release=Invoke-RestMethod -Uri ('https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/'+$Tag) -Headers $Headers -TimeoutSec 30
+          $Expected=@($Files|ForEach-Object{Split-Path -Leaf $_})
+          $Names=@($Release.assets|ForEach-Object{[string]$_.name})
+          $Missing=@($Expected|Where-Object{$Names -notcontains $_})
+          if([bool]$Release.draft -or [bool]$Release.prerelease -or $Missing.Count -gt 0){throw "Release incompleta. Missing=$($Missing -join ', ')"}
+          $VerifiedTag='verified-ddm-snoc-windows-'+$DDMProduct.ProductVersion
+          git fetch origin --tags
+          git rev-parse -q --verify ('refs/tags/'+$VerifiedTag) 2>$null | Out-Null
+          if($LASTEXITCODE -ne 0){
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a $VerifiedTag $env:GITHUB_SHA -m "DDM SNOC Windows $($DDMProduct.ProductVersion) official assets verified"
+            git push origin ('refs/tags/'+$VerifiedTag)
+          }
+          Write-Host "RELEASE_VERIFIED_ID=$($Release.id)"
+          foreach($Name in $Expected){Write-Host "ASSET_OK=$Name"}
