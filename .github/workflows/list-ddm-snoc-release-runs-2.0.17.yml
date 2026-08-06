@@ -75,3 +75,5 @@ jobs:
           git add -- 'windows/zabbix-agent-deployment/docs/RELEASE-2.0.17-RUNS.md'
           git commit -m 'docs(windows): export release workflow runs and jobs'
           git push --force origin ("HEAD:" + $Branch)
+
+# refresh 2026-08-06T04:10Z
