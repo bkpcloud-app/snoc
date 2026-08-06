@@ -62,10 +62,8 @@ function Get-DirectoryManifest {
             Sort-Object FullName |
             ForEach-Object {
                 $Relative = $_.FullName.Substring($Base.Length)
-                '{0}|{1}|{2}' -f \
-                    $Relative.ToLowerInvariant(), \
-                    $_.Length, \
-                    (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+                $Hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+                '{0}|{1}|{2}' -f $Relative.ToLowerInvariant(), $_.Length, $Hash
             }
     )
 }
