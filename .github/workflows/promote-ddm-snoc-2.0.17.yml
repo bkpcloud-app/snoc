@@ -1,0 +1,63 @@
+name: Promote DDM SNOC Windows 2.0.17
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'windows/zabbix-agent-deployment/config/DDM-Product.ps1'
+      - 'windows/zabbix-agent-deployment/central/Update-DDM-SNOC-Central.ps1'
+      - 'windows/zabbix-agent-deployment/tools/Test-DDM-ForceRefresh.ps1'
+      - '.github/workflows/promote-ddm-snoc-2.0.17.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-ddm-snoc-windows-2.0.17
+  cancel-in-progress: false
+
+jobs:
+  tag-validated-release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact main commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Revalidate promoted product
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          . (Join-Path $Product 'config\DDM-Product.ps1')
+          if ([string]$DDMProduct.ProductVersion -ne '2.0.17') {
+              throw "Expected ProductVersion 2.0.17; found $($DDMProduct.ProductVersion)"
+          }
+          & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
+          if ($LASTEXITCODE -ne 0) { throw "Repository validation returned $LASTEXITCODE" }
+          & (Join-Path $Product 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot $Product
+          if ($LASTEXITCODE -ne 0) { throw "Force validation returned $LASTEXITCODE" }
+
+      - name: Create official 2.0.17 tag
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Tag = 'ddm-snoc-windows-v2.0.17'
+          git fetch origin main --tags
+          $Existing = git rev-parse -q --verify ("refs/tags/" + $Tag) 2>$null
+          if ($LASTEXITCODE -eq 0) {
+              $Existing = ([string]$Existing).Trim()
+              if ($Existing -ne $env:GITHUB_SHA) {
+                  throw "Tag $Tag already exists at $Existing instead of $env:GITHUB_SHA"
+              }
+              Write-Host "Tag $Tag already points to the validated commit."
+              exit 0
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a $Tag $env:GITHUB_SHA -m 'DDM SNOC Windows 2.0.17'
+          git push origin ("refs/tags/" + $Tag)
