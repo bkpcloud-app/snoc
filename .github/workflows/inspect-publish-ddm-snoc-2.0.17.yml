@@ -1,0 +1,76 @@
+name: Inspect Publish DDM SNOC Windows 2.0.17
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/inspect-publish-ddm-snoc-2.0.17.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  inspect:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Export direct publisher status
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Headers = @{
+              'User-Agent' = 'DDM-SNOC-Windows-Publish-Inspector'
+              'Accept' = 'application/vnd.github+json'
+              'Authorization' = 'Bearer ' + $env:GH_TOKEN
+              'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $RunsUri = 'https://api.github.com/repos/bkpcloud-app/snoc/actions/workflows/publish-ddm-snoc-2.0.17-now.yml/runs?per_page=10'
+          $Runs = Invoke-RestMethod -Uri $RunsUri -Headers $Headers -TimeoutSec 30
+          $Branch = 'diagnostic-publish-2.0.17'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -B $Branch
+          $Path = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\docs\PUBLISH-2.0.17-STATUS.md'
+          $Lines = @(
+              '# Publicação DDM SNOC Windows 2.0.17',
+              '',
+              ('Gerado em UTC: `' + (Get-Date).ToUniversalTime().ToString('o') + '`'),
+              ''
+          )
+          foreach ($Run in @($Runs.workflow_runs)) {
+              $Lines += @(
+                  ('## Run ' + [string]$Run.id),
+                  '',
+                  ('- Status: `' + [string]$Run.status + '`'),
+                  ('- Conclusão: `' + [string]$Run.conclusion + '`'),
+                  ('- Evento: `' + [string]$Run.event + '`'),
+                  ('- Branch: `' + [string]$Run.head_branch + '`'),
+                  ('- SHA: `' + [string]$Run.head_sha + '`'),
+                  ('- Criado: `' + [string]$Run.created_at + '`'),
+                  ('- Atualizado: `' + [string]$Run.updated_at + '`'),
+                  ('- URL: ' + [string]$Run.html_url),
+                  ''
+              )
+              $JobsResponse = Invoke-RestMethod -Uri $Run.jobs_url -Headers $Headers -TimeoutSec 30
+              foreach ($Job in @($JobsResponse.jobs)) {
+                  $Lines += ('- Job `' + [string]$Job.name + '`: status=`' + [string]$Job.status + '` conclusão=`' + [string]$Job.conclusion + '`')
+                  foreach ($Step in @($Job.steps)) {
+                      $Lines += ('  - `' + [string]$Step.name + '`: status=`' + [string]$Step.status + '` conclusão=`' + [string]$Step.conclusion + '`')
+                  }
+              }
+              $Lines += ''
+          }
+          $Lines | Set-Content -LiteralPath $Path -Encoding UTF8
+          git add -- 'windows/zabbix-agent-deployment/docs/PUBLISH-2.0.17-STATUS.md'
+          git commit -m 'docs(windows): export direct 2.0.17 publisher status'
+          git push --force origin ("HEAD:" + $Branch)
