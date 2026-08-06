@@ -22,7 +22,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Export release workflow runs
+      - name: Export release workflow runs and jobs
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,8 +62,16 @@ jobs:
                   ('- URL: ' + [string]$Run.html_url),
                   ''
               )
+              $JobsResponse = Invoke-RestMethod -Uri $Run.jobs_url -Headers $Headers -TimeoutSec 30
+              foreach ($Job in @($JobsResponse.jobs)) {
+                  $Lines += ('- Job `' + [string]$Job.name + '`: status=`' + [string]$Job.status + '` conclusion=`' + [string]$Job.conclusion + '` id=`' + [string]$Job.id + '`')
+                  foreach ($Step in @($Job.steps)) {
+                      $Lines += ('  - `' + [string]$Step.name + '`: status=`' + [string]$Step.status + '` conclusion=`' + [string]$Step.conclusion + '`')
+                  }
+              }
+              $Lines += ''
           }
           $Lines | Set-Content -LiteralPath $Path -Encoding UTF8
           git add -- 'windows/zabbix-agent-deployment/docs/RELEASE-2.0.17-RUNS.md'
-          git commit -m 'docs(windows): export release workflow runs'
+          git commit -m 'docs(windows): export release workflow runs and jobs'
           git push --force origin ("HEAD:" + $Branch)
