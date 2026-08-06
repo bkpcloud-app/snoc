@@ -1,0 +1,19 @@
+@echo off
+setlocal EnableExtensions DisableDelayedExpansion
+set "CENTRAL=%~dp0"
+if "%CENTRAL:~-1%"=="\" set "CENTRAL=%CENTRAL:~0,-1%"
+set "RECOVERY=%CENTRAL%\CENTRAL-TOOLS\tools\Recover-DDM-CentralUpdater.ps1"
+set "LOG=%CENTRAL%\RECOVERY-AD-TASK.log"
+echo [%date% %time%] Inicio da recuperacao central >> "%LOG%"
+if not exist "%RECOVERY%" (
+  echo [%date% %time%] ERRO: script oficial de recuperacao nao encontrado: %RECOVERY% >> "%LOG%"
+  exit /b 4
+)
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%RECOVERY%" -CentralRoot "%CENTRAL%"
+set "RC=%ERRORLEVEL%"
+if "%RC%"=="0" (
+  echo [%date% %time%] OK: recuperacao central concluida >> "%LOG%"
+) else (
+  echo [%date% %time%] ERRO: recuperacao central retornou %RC% >> "%LOG%"
+)
+exit /b %RC%
