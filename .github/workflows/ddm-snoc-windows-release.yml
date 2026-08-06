@@ -5,46 +5,60 @@ on:
     tags:
       - 'ddm-snoc-windows-v*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Official release tag to publish
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: ddm-snoc-windows-release-${{ github.ref }}
+  group: ddm-snoc-windows-release-${{ inputs.release_tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
   release:
     runs-on: windows-latest
     timeout-minutes: 45
+    env:
+      DDM_RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
-      - name: Checkout repository
+      - name: Checkout exact release tag
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
 
       - name: Validate tag origin and 300-control repository audit
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
+          $ReleaseTag=[string]$env:DDM_RELEASE_TAG
           $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           . (Join-Path $Product 'config\DDM-Product.ps1')
           $ExpectedTag='ddm-snoc-windows-v' + $DDMProduct.ProductVersion
-          if($env:GITHUB_REF_NAME -ne $ExpectedTag){throw "Tag $env:GITHUB_REF_NAME nao corresponde a $ExpectedTag"}
+          if($ReleaseTag -ne $ExpectedTag){throw "Tag $ReleaseTag nao corresponde a $ExpectedTag"}
+          $TagCommit=(git rev-parse HEAD).Trim()
           git fetch origin main --no-tags
-          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+          git merge-base --is-ancestor $TagCommit origin/main
           if($LASTEXITCODE -ne 0){throw 'Tag de producao deve apontar para commit pertencente a main.'}
           & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
           if($LASTEXITCODE -ne 0){throw "Repository validation returned $LASTEXITCODE"}
           & (Join-Path $Product 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot $Product
           if($LASTEXITCODE -ne 0){throw "Force validation returned $LASTEXITCODE"}
+          Write-Host "RELEASE_TAG=$ReleaseTag"
+          Write-Host "TAG_COMMIT=$TagCommit"
 
       - name: Build motor and AD seed assets
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
+          $ReleaseTag=[string]$env:DDM_RELEASE_TAG
           $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           . (Join-Path $Product 'config\DDM-Product.ps1')
+          $TagCommit=(git rev-parse HEAD).Trim()
           $Dist=Join-Path $env:GITHUB_WORKSPACE 'dist'
           $Motor=Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-' + $DDMProduct.ProductVersion)
           $Seed=Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-' + $DDMProduct.ProductVersion)
@@ -92,8 +106,8 @@ jobs:
           $Manifest=New-Object PSObject -Property @{
             Product=$DDMProduct.ProductName
             ProductVersion=$DDMProduct.ProductVersion
-            GitCommit=$env:GITHUB_SHA
-            GitTag=$env:GITHUB_REF_NAME
+            GitCommit=$TagCommit
+            GitTag=$ReleaseTag
             GeneratedAtUtc=(Get-Date).ToUniversalTime().ToString('o')
             Assets=$Assets
             Validation=@('PowerShell parser','PowerShell 2 surface','client negative tests','central and rollback invariants','forced refresh','240 migration scenarios on final MOTOR','exactly 300 audit controls')
@@ -138,9 +152,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference='Stop'
+          $ReleaseTag=[string]$env:DDM_RELEASE_TAG
+          $TagCommit=(git rev-parse HEAD).Trim()
           $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           . (Join-Path $Product 'config\DDM-Product.ps1')
-          $Tag=$env:GITHUB_REF_NAME
           $Dist=Join-Path $env:GITHUB_WORKSPACE 'dist'
           $Files=@(
             (Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-'+$DDMProduct.ProductVersion+'.zip')),
@@ -150,14 +165,14 @@ jobs:
             (Join-Path $Dist ('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-'+$DDMProduct.ProductVersion+'.json')),
             (Join-Path $Dist ('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-'+$DDMProduct.ProductVersion+'.json.sha256'))
           )
-          gh release view $Tag --repo bkpcloud-app/snoc *> $null
+          gh release view $ReleaseTag --repo bkpcloud-app/snoc *> $null
           if($LASTEXITCODE -eq 0){
-            gh release upload $Tag @Files --repo bkpcloud-app/snoc --clobber
+            gh release upload $ReleaseTag @Files --repo bkpcloud-app/snoc --clobber
             if($LASTEXITCODE -ne 0){throw "gh release upload returned $LASTEXITCODE"}
-            gh release edit $Tag --repo bkpcloud-app/snoc --title "DDM SNOC Windows $($DDMProduct.ProductVersion)" --draft=false --prerelease=false
+            gh release edit $ReleaseTag --repo bkpcloud-app/snoc --title "DDM SNOC Windows $($DDMProduct.ProductVersion)" --draft=false --prerelease=false
             if($LASTEXITCODE -ne 0){throw "gh release edit returned $LASTEXITCODE"}
           }else{
-            gh release create $Tag @Files --repo bkpcloud-app/snoc --verify-tag --generate-notes --title "DDM SNOC Windows $($DDMProduct.ProductVersion)"
+            gh release create $ReleaseTag @Files --repo bkpcloud-app/snoc --verify-tag --generate-notes --title "DDM SNOC Windows $($DDMProduct.ProductVersion)"
             if($LASTEXITCODE -ne 0){throw "gh release create returned $LASTEXITCODE"}
           }
           $Headers=@{
@@ -166,18 +181,21 @@ jobs:
             'Authorization'='Bearer '+$env:GH_TOKEN
             'X-GitHub-Api-Version'='2022-11-28'
           }
-          $Release=Invoke-RestMethod -Uri ('https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/'+$Tag) -Headers $Headers -TimeoutSec 30
+          $Release=Invoke-RestMethod -Uri ('https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/'+$ReleaseTag) -Headers $Headers -TimeoutSec 30
           $Expected=@($Files|ForEach-Object{Split-Path -Leaf $_})
           $Names=@($Release.assets|ForEach-Object{[string]$_.name})
           $Missing=@($Expected|Where-Object{$Names -notcontains $_})
           if([bool]$Release.draft -or [bool]$Release.prerelease -or $Missing.Count -gt 0){throw "Release incompleta. Missing=$($Missing -join ', ')"}
           $VerifiedTag='verified-ddm-snoc-windows-'+$DDMProduct.ProductVersion
           git fetch origin --tags
-          git rev-parse -q --verify ('refs/tags/'+$VerifiedTag) 2>$null | Out-Null
-          if($LASTEXITCODE -ne 0){
+          $ExistingVerified=git rev-parse -q --verify ('refs/tags/'+$VerifiedTag) 2>$null
+          if($LASTEXITCODE -eq 0){
+            $ExistingVerified=([string]$ExistingVerified).Trim()
+            if($ExistingVerified -ne $TagCommit){throw "Verification tag aponta para $ExistingVerified em vez de $TagCommit"}
+          }else{
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git tag -a $VerifiedTag $env:GITHUB_SHA -m "DDM SNOC Windows $($DDMProduct.ProductVersion) official assets verified"
+            git tag -a $VerifiedTag $TagCommit -m "DDM SNOC Windows $($DDMProduct.ProductVersion) official assets verified"
             git push origin ('refs/tags/'+$VerifiedTag)
           }
           Write-Host "RELEASE_VERIFIED_ID=$($Release.id)"
