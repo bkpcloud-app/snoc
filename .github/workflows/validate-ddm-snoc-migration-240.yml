@@ -5,6 +5,8 @@ on:
     paths:
       - 'windows/zabbix-agent-deployment/**'
       - '.github/workflows/validate-ddm-snoc-migration-240.yml'
+      - '.github/workflows/ddm-snoc-windows-validation.yml'
+      - '.github/workflows/ddm-snoc-windows-release.yml'
   workflow_dispatch:
 
 permissions:
@@ -22,11 +24,11 @@ jobs:
           ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Materialize exact 2.0.18 source
+      - name: Materialize exact 2.0.19 source
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $Patch = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.18.ps1'
+          $Patch = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.19.ps1'
           & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Patch -RepositoryRoot $env:GITHUB_WORKSPACE
           if ($LASTEXITCODE -ne 0) {
               throw "Promotion patch returned $LASTEXITCODE"
@@ -52,7 +54,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $global:ProductCode = '$ProductCode'
           $Script = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
-          $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240-2.0.18'
+          $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240-2.0.19'
           . $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
 
       - name: Execute complete product validation
@@ -66,36 +68,36 @@ jobs:
           & (Join-Path $Product 'tools\Test-DDM-AclValidation.ps1') -ProductRoot $Product
           & (Join-Path $Product 'tools\Test-DDM-UncCmd.ps1') -ProductRoot $Product
           & (Join-Path $Product 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot $Product
+          & (Join-Path $Product 'tools\Test-DDM-CentralRecovery.ps1') -ProductRoot $Product
           & (Join-Path $Product 'tools\Test-DDM-BootstrapFirstInstall.ps1') -ProductRoot $Product
 
       - name: Upload validation evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
-          name: DDM-SNOC-WINDOWS-2.0.18-VALIDATION
+          name: DDM-SNOC-WINDOWS-2.0.19-VALIDATION
           path: |
-            ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-2.0.18
+            ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-2.0.19
             windows/zabbix-agent-deployment/central/Update-DDM-SNOC-Central.ps1
             windows/zabbix-agent-deployment/config/DDM-Product.ps1
+            windows/zabbix-agent-deployment/tools/Recover-DDM-CentralUpdater.ps1
+            windows/zabbix-agent-deployment/tools/Test-DDM-CentralRecovery.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-ForceRefresh.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1
-            windows/zabbix-agent-deployment/docs/RELEASE-2.0.18.md
+            windows/zabbix-agent-deployment/docs/RELEASE-2.0.19.md
           if-no-files-found: error
           retention-days: 30
 
-      - name: Commit exact validated 2.0.18 source
-        if: github.event_name == 'pull_request' && github.head_ref == 'agent/central-root-backups-2.0.18'
+      - name: Commit exact validated 2.0.19 source
+        if: github.event_name == 'pull_request' && github.head_ref == 'fix/central-updater-recovery-2.0.19'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- 'windows/zabbix-agent-deployment/config/DDM-Product.ps1'
-          git add -- 'windows/zabbix-agent-deployment/CHANGELOG.md'
-          git add -- 'windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1'
-          git add -- 'windows/zabbix-agent-deployment/docs/RELEASE-2.0.18.md'
+          git add --all
           if (-not (git diff --cached --quiet)) {
-              git commit -m 'release(windows): materialize validated 2.0.18 source'
+              git commit -m 'release(windows): materialize validated 2.0.19 source'
               git push origin HEAD:${{ github.head_ref }}
           }
