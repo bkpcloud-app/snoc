@@ -1,0 +1,87 @@
+name: Verify DDM SNOC Windows 2.0.17 Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/verify-ddm-snoc-2.0.17.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: verify-ddm-snoc-windows-2.0.17-release
+  cancel-in-progress: false
+
+jobs:
+  verify-release:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Wait for and verify official release assets
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Tag = 'ddm-snoc-windows-v2.0.17'
+          $Uri = 'https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/' + $Tag
+          $Headers = @{
+              'User-Agent' = 'DDM-SNOC-Windows-Release-Verifier'
+              'Accept' = 'application/vnd.github+json'
+              'Authorization' = 'Bearer ' + $env:GH_TOKEN
+              'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $Expected = @(
+              'DDM-SNOC-WINDOWS-MOTOR-2.0.17.zip',
+              'DDM-SNOC-WINDOWS-MOTOR-2.0.17.zip.sha256',
+              'DDM-SNOC-WINDOWS-AD-SEED-2.0.17.zip',
+              'DDM-SNOC-WINDOWS-AD-SEED-2.0.17.zip.sha256',
+              'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.17.json',
+              'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.17.json.sha256'
+          )
+          $Release = $null
+          for ($Attempt = 1; $Attempt -le 60; $Attempt++) {
+              try {
+                  $Candidate = Invoke-RestMethod -Uri $Uri -Headers $Headers -TimeoutSec 30
+                  $Names = @($Candidate.assets | ForEach-Object { [string]$_.name })
+                  $Missing = @($Expected | Where-Object { $Names -notcontains $_ })
+                  if (-not [bool]$Candidate.draft -and -not [bool]$Candidate.prerelease -and $Missing.Count -eq 0) {
+                      $Release = $Candidate
+                      break
+                  }
+                  Write-Host "Attempt $Attempt: release exists but assets are incomplete: $($Missing -join ', ')"
+              }
+              catch {
+                  Write-Host "Attempt $Attempt: release not ready: $($_.Exception.Message)"
+              }
+              Start-Sleep -Seconds 10
+          }
+          if ($null -eq $Release) {
+              throw 'Official 2.0.17 release did not become complete within the verification window.'
+          }
+          $Marker = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\docs\RELEASE-2.0.17-PUBLISHED.md'
+          @(
+              '# DDM SNOC Windows 2.0.17 - publicação confirmada',
+              '',
+              ('Tag: `' + $Tag + '`'),
+              ('Release ID: `' + [string]$Release.id + '`'),
+              ('Commit: `' + $env:GITHUB_SHA + '`'),
+              ('Publicada em UTC: `' + [string]$Release.published_at + '`'),
+              '',
+              'Assets oficiais confirmados:',
+              ''
+          ) + @($Expected | ForEach-Object { '- `' + $_ + '`' }) |
+              Set-Content -LiteralPath $Marker -Encoding UTF8
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- 'windows/zabbix-agent-deployment/docs/RELEASE-2.0.17-PUBLISHED.md'
+          git commit -m 'docs(windows): confirm published 2.0.17 assets'
+          git push origin HEAD:main
