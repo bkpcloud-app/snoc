@@ -1,0 +1,116 @@
+name: Trigger DDM SNOC Windows 2.0.19 Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/trigger-ddm-snoc-windows-2.0.19-release.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: trigger-ddm-snoc-windows-2.0.19-release
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      TARGET_COMMIT: 98547edefe4307b30aad63086b6d76d75f5f3545
+      RELEASE_TAG: ddm-snoc-windows-v2.0.19
+      RELEASE_WORKFLOW: ddm-snoc-windows-release.yml
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Create exact production tag
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin main --tags --force
+          git merge-base --is-ancestor $env:TARGET_COMMIT origin/main
+          if($LASTEXITCODE -ne 0){throw 'TARGET_COMMIT nao pertence a main.'}
+          $Existing=(git rev-list -n 1 $env:RELEASE_TAG 2>$null)
+          if($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$Existing)){
+            $Existing=([string]$Existing).Trim()
+            if($Existing -ne $env:TARGET_COMMIT){throw "Tag existente aponta para $Existing"}
+          }else{
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a $env:RELEASE_TAG $env:TARGET_COMMIT -m 'DDM SNOC Windows 2.0.19'
+            git push origin ('refs/tags/'+$env:RELEASE_TAG)
+            if($LASTEXITCODE -ne 0){throw "Tag push returned $LASTEXITCODE"}
+          }
+          Write-Host "TAG_OK=$env:RELEASE_TAG"
+          Write-Host "TAG_COMMIT=$env:TARGET_COMMIT"
+
+      - name: Dispatch official release workflow
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Started=(Get-Date).ToUniversalTime()
+          gh workflow run $env:RELEASE_WORKFLOW --repo bkpcloud-app/snoc --ref main -f release_tag=$env:RELEASE_TAG
+          if($LASTEXITCODE -ne 0){throw "Workflow dispatch returned $LASTEXITCODE"}
+          $Run=$null
+          for($I=0;$I -lt 30 -and $null -eq $Run;$I++){
+            Start-Sleep -Seconds 5
+            $Runs=@(gh run list --repo bkpcloud-app/snoc --workflow $env:RELEASE_WORKFLOW --event workflow_dispatch --limit 20 --json databaseId,createdAt,status,conclusion,headBranch | ConvertFrom-Json)
+            $Run=$Runs | Where-Object {
+              [datetime]$_.createdAt -ge $Started.AddSeconds(-10)
+            } | Sort-Object {[datetime]$_.createdAt} -Descending | Select-Object -First 1
+          }
+          if($null -eq $Run){throw 'Execucao oficial da release nao foi localizada.'}
+          $RunId=[int64]$Run.databaseId
+          Write-Host "RELEASE_RUN_ID=$RunId"
+          gh run watch $RunId --repo bkpcloud-app/snoc --exit-status
+          if($LASTEXITCODE -ne 0){throw "Official release workflow $RunId failed."}
+          "RELEASE_RUN_ID=$RunId" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify official release and record marker
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Release=gh release view $env:RELEASE_TAG --repo bkpcloud-app/snoc --json tagName,targetCommitish,isDraft,isPrerelease,assets | ConvertFrom-Json
+          if($Release.tagName -ne $env:RELEASE_TAG){throw 'Tag da release divergente.'}
+          if([bool]$Release.isDraft -or [bool]$Release.isPrerelease){throw 'Release nao esta estavel.'}
+          $Names=@($Release.assets | ForEach-Object {[string]$_.name})
+          $Required=@(
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.19.zip',
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.19.zip.sha256',
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.19.zip',
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.19.zip.sha256',
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.19.json',
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.19.json.sha256'
+          )
+          $Missing=@($Required | Where-Object {$Names -notcontains $_})
+          if($Missing.Count -gt 0){throw "Assets ausentes: $($Missing -join ', ')"}
+          git checkout main
+          git pull --ff-only origin main
+          $Marker='windows/zabbix-agent-deployment/docs/RELEASE-2.0.19-PUBLISHED.txt'
+          @(
+            'DDM SNOC Windows 2.0.19',
+            'Status: PUBLISHED_AND_VERIFIED',
+            ('Tag: '+$env:RELEASE_TAG),
+            ('TargetCommit: '+$env:TARGET_COMMIT),
+            ('WorkflowRun: '+$env:RELEASE_RUN_ID),
+            ('VerifiedAtUtc: '+(Get-Date).ToUniversalTime().ToString('o')),
+            'Assets: 6/6'
+          ) | Set-Content -LiteralPath $Marker -Encoding UTF8
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- $Marker
+          git commit -m 'docs(windows): record verified 2.0.19 publication'
+          git push origin main
+          if($LASTEXITCODE -ne 0){throw "Marker push returned $LASTEXITCODE"}
+          Write-Host 'RELEASE_2_0_19_PUBLISHED_AND_VERIFIED'
