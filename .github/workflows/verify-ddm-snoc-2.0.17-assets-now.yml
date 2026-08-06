@@ -1,0 +1,91 @@
+name: Verify DDM SNOC Windows 2.0.17 Assets Now
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/verify-ddm-snoc-2.0.17-assets-now.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  verify-assets-now:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Mark verification as started
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Tag = 'checking-ddm-snoc-windows-2.0.17'
+          git fetch origin main --tags
+          git rev-parse -q --verify ("refs/tags/" + $Tag) 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+              git config user.name 'github-actions[bot]'
+              git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+              git tag -a $Tag $env:GITHUB_SHA -m 'Checking DDM SNOC Windows 2.0.17 release assets'
+              git push origin ("refs/tags/" + $Tag)
+          }
+
+      - name: Verify official release and all assets
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ReleaseTag = 'ddm-snoc-windows-v2.0.17'
+          $VerifiedTag = 'verified-ddm-snoc-windows-2.0.17'
+          $Uri = 'https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/' + $ReleaseTag
+          $Headers = @{
+              'User-Agent' = 'DDM-SNOC-Windows-Release-Verifier'
+              'Accept' = 'application/vnd.github+json'
+              'Authorization' = 'Bearer ' + $env:GH_TOKEN
+              'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $Expected = @(
+              'DDM-SNOC-WINDOWS-MOTOR-2.0.17.zip',
+              'DDM-SNOC-WINDOWS-MOTOR-2.0.17.zip.sha256',
+              'DDM-SNOC-WINDOWS-AD-SEED-2.0.17.zip',
+              'DDM-SNOC-WINDOWS-AD-SEED-2.0.17.zip.sha256',
+              'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.17.json',
+              'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.17.json.sha256'
+          )
+          $Release = $null
+          for ($Attempt = 1; $Attempt -le 60; $Attempt++) {
+              try {
+                  $Candidate = Invoke-RestMethod -Uri $Uri -Headers $Headers -TimeoutSec 30
+                  $Names = @($Candidate.assets | ForEach-Object { [string]$_.name })
+                  $Missing = @($Expected | Where-Object { $Names -notcontains $_ })
+                  if (-not [bool]$Candidate.draft -and -not [bool]$Candidate.prerelease -and $Missing.Count -eq 0) {
+                      $Release = $Candidate
+                      break
+                  }
+                  Write-Host "Attempt $Attempt: incomplete assets: $($Missing -join ', ')"
+              }
+              catch {
+                  Write-Host "Attempt $Attempt: release not ready: $($_.Exception.Message)"
+              }
+              Start-Sleep -Seconds 10
+          }
+          if ($null -eq $Release) {
+              throw 'The official 2.0.17 release did not become complete within ten minutes.'
+          }
+          Write-Host "RELEASE_ID=$($Release.id)"
+          Write-Host "PUBLISHED_AT=$($Release.published_at)"
+          foreach ($Name in $Expected) { Write-Host "ASSET_OK=$Name" }
+          git fetch origin main --tags
+          git rev-parse -q --verify ("refs/tags/" + $VerifiedTag) 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+              git config user.name 'github-actions[bot]'
+              git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+              git tag -a $VerifiedTag $env:GITHUB_SHA -m 'DDM SNOC Windows 2.0.17 release and assets verified'
+              git push origin ("refs/tags/" + $VerifiedTag)
+          }
