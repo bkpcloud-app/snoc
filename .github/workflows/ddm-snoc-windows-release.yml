@@ -165,8 +165,23 @@ jobs:
             (Join-Path $Dist ('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-'+$DDMProduct.ProductVersion+'.json')),
             (Join-Path $Dist ('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-'+$DDMProduct.ProductVersion+'.json.sha256'))
           )
-          gh release view $ReleaseTag --repo bkpcloud-app/snoc *> $null
-          if($LASTEXITCODE -eq 0){
+          $Headers=@{
+            'User-Agent'='DDM-SNOC-Windows-Release'
+            'Accept'='application/vnd.github+json'
+            'Authorization'='Bearer '+$env:GH_TOKEN
+            'X-GitHub-Api-Version'='2022-11-28'
+          }
+          $ReleaseUri='https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/'+$ReleaseTag
+          $ReleaseExists=$false
+          try{
+            [void](Invoke-RestMethod -Uri $ReleaseUri -Headers $Headers -TimeoutSec 30)
+            $ReleaseExists=$true
+          }catch{
+            $StatusCode=0
+            try{$StatusCode=[int]$_.Exception.Response.StatusCode}catch{}
+            if($StatusCode -ne 404){throw}
+          }
+          if($ReleaseExists){
             gh release upload $ReleaseTag @Files --repo bkpcloud-app/snoc --clobber
             if($LASTEXITCODE -ne 0){throw "gh release upload returned $LASTEXITCODE"}
             gh release edit $ReleaseTag --repo bkpcloud-app/snoc --title "DDM SNOC Windows $($DDMProduct.ProductVersion)" --draft=false --prerelease=false
@@ -175,13 +190,7 @@ jobs:
             gh release create $ReleaseTag @Files --repo bkpcloud-app/snoc --verify-tag --generate-notes --title "DDM SNOC Windows $($DDMProduct.ProductVersion)"
             if($LASTEXITCODE -ne 0){throw "gh release create returned $LASTEXITCODE"}
           }
-          $Headers=@{
-            'User-Agent'='DDM-SNOC-Windows-Release'
-            'Accept'='application/vnd.github+json'
-            'Authorization'='Bearer '+$env:GH_TOKEN
-            'X-GitHub-Api-Version'='2022-11-28'
-          }
-          $Release=Invoke-RestMethod -Uri ('https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/'+$ReleaseTag) -Headers $Headers -TimeoutSec 30
+          $Release=Invoke-RestMethod -Uri $ReleaseUri -Headers $Headers -TimeoutSec 30
           $Expected=@($Files|ForEach-Object{Split-Path -Leaf $_})
           $Names=@($Release.assets|ForEach-Object{[string]$_.name})
           $Missing=@($Expected|Where-Object{$Names -notcontains $_})
