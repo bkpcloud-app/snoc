@@ -78,5 +78,65 @@ if ($ForceIf.Count -ne 1) {
     throw "Esperado exatamente um bloco operacional if (`$Force); encontrado=$($ForceIf.Count)."
 }
 
+$HygieneFragments = @(
+    'BACKUPS\CENTRAL-CONTROLS',
+    'function Repair-DDMLegacyControlBackups',
+    'function Move-DDMControlDirectoryToBackup',
+    'function Invoke-DDMControlBackupRetention',
+    'function Test-DDMFixedDirectoryEquivalent',
+    'function Publish-DDMFixedDirectory',
+    '$DDMProduct.KeepBackupSets',
+    'Backup legado retirado da raiz',
+    'Controle central restaurado de troca interrompida'
+)
+
+foreach ($Fragment in $HygieneFragments) {
+    if (-not $Raw.Contains($Fragment)) {
+        throw "Regressao na higiene da raiz central: fragmento ausente: $Fragment"
+    }
+}
+
+$ExpectedFunctions = @(
+    'Repair-DDMLegacyControlBackups',
+    'Move-DDMControlDirectoryToBackup',
+    'Invoke-DDMControlBackupRetention',
+    'Test-DDMFixedDirectoryEquivalent',
+    'Publish-DDMFixedDirectory'
+)
+
+foreach ($Name in $ExpectedFunctions) {
+    $Functions = @(
+        $Ast.FindAll(
+            {
+                param($Node)
+                $Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                $Node.Name -eq $Name
+            },
+            $true
+        )
+    )
+
+    if ($Functions.Count -ne 1) {
+        throw "Funcao de higiene central ausente ou duplicada: $Name; encontrado=$($Functions.Count)."
+    }
+}
+
+$SupplyLoad = $Raw.IndexOf(
+    ". (Join-Path `$CentralScriptRoot 'lib\DDM-Central-Supply.ps1')"
+)
+$Override = $Raw.IndexOf('function Publish-DDMFixedDirectory')
+
+if ($SupplyLoad -lt 0 -or $Override -le $SupplyLoad) {
+    throw 'A troca segura organizada deve substituir a funcao carregada de DDM-Central-Supply.ps1.'
+}
+
+if ([regex]::IsMatch(
+    $Raw,
+    '\$DestinationRoot\s*\+\s*''\.previous-'''
+)) {
+    throw 'O atualizador voltou a criar backups *.previous-* soltos na raiz.'
+}
+
 Write-Host 'FORCE_REFRESH_TEST_OK'
+Write-Host 'CENTRAL_ROOT_HYGIENE_TEST_OK'
 exit 0

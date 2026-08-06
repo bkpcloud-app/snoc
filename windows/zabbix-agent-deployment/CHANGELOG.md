@@ -1,3 +1,10 @@
+## 2.0.18 - 2026-08-06
+- Remove backups `*.previous-*` soltos da raiz do NETLOGON.
+- Organiza trocas dos controles centrais em `BACKUPS\CENTRAL-CONTROLS\<CONTROLE>`.
+- Mantem no maximo cinco backups por controle usando `KeepBackupSets`.
+- Nao cria novo backup quando o conteudo publicado ja e identico.
+- Repara troca interrompida e recolhe automaticamente residuos legados da raiz.
+
 ## 2.0.17 - 2026-08-06
 - Faz o parametro -Force executar nova validacao integral do MOTOR oficial.
 - Baixa novamente e valida os quatro artefatos oficiais do Zabbix 7.0.
