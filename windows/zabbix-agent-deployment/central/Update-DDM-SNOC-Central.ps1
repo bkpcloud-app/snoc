@@ -41,6 +41,280 @@ if (-not (Test-Path -LiteralPath $BootstrapCommonPath)) {
 . (Join-Path $CentralScriptRoot 'lib\DDM-Central-Client.ps1')
 . (Join-Path $CentralScriptRoot 'lib\DDM-Central-Supply.ps1')
 
+function Get-DDMControlBackupContainer {
+    param([Parameter(Mandatory = $true)][string]$DestinationRoot)
+
+    $Leaf = Split-Path -Leaf $DestinationRoot
+    if ([string]::IsNullOrWhiteSpace($Leaf) -or
+        $Leaf -notmatch '^[A-Za-z0-9._-]+$') {
+        throw "Nome de controle central invalido para backup: $Leaf"
+    }
+
+    return Join-Path `
+        (Join-Path $CentralRoot 'BACKUPS\CENTRAL-CONTROLS') `
+        $Leaf
+}
+
+function Invoke-DDMControlBackupRetention {
+    param([Parameter(Mandatory = $true)][string]$Container)
+
+    if (-not (Test-Path -LiteralPath $Container)) {
+        return
+    }
+
+    $Keep = 5
+    if ($DDMProduct -and $DDMProduct.KeepBackupSets) {
+        $Keep = [int]$DDMProduct.KeepBackupSets
+    }
+    if ($Keep -lt 1) {
+        $Keep = 1
+    }
+
+    $Backups = @(
+        Get-ChildItem -LiteralPath $Container -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.PSIsContainer } |
+            Sort-Object LastWriteTimeUtc -Descending
+    )
+
+    foreach ($Old in @($Backups | Select-Object -Skip $Keep)) {
+        try {
+            Remove-Item `
+                -LiteralPath $Old.FullName `
+                -Recurse `
+                -Force `
+                -ErrorAction Stop
+            Write-CentralLog (
+                'Backup central excedente removido: ' + $Old.FullName
+            ) 'INFO'
+        }
+        catch {
+            Write-CentralLog (
+                'Nao foi possivel remover backup central excedente: ' +
+                $Old.FullName + '; ' + $_.Exception.Message
+            ) 'WARN'
+        }
+    }
+}
+
+function Move-DDMControlDirectoryToBackup {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$DestinationRoot,
+        [string]$Prefix = ''
+    )
+
+    $Container = Get-DDMControlBackupContainer $DestinationRoot
+    New-Item -Path $Container -ItemType Directory -Force | Out-Null
+
+    $Stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmssfff')
+    $Name = $Stamp + '-' + [guid]::NewGuid().ToString('N')
+    if (-not [string]::IsNullOrWhiteSpace($Prefix)) {
+        $Name = $Prefix + '-' + $Name
+    }
+
+    $BackupPath = Join-Path $Container $Name
+    Move-Item -LiteralPath $Source -Destination $BackupPath -ErrorAction Stop
+    Invoke-DDMControlBackupRetention $Container
+    return $BackupPath
+}
+
+function Repair-DDMLegacyControlBackups {
+    $Legacy = @()
+
+    foreach ($Item in @(
+        Get-ChildItem -LiteralPath $CentralRoot -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.PSIsContainer }
+    )) {
+        $Match = [regex]::Match(
+            $Item.Name,
+            '^(?<base>[A-Za-z0-9._-]+)\.previous-[A-Za-z0-9-]+$'
+        )
+        if ($Match.Success) {
+            $Legacy += New-Object PSObject -Property @{
+                BaseName = $Match.Groups['base'].Value
+                Item     = $Item
+            }
+        }
+    }
+
+    foreach ($Group in @($Legacy | Group-Object BaseName)) {
+        $BaseName = [string]$Group.Name
+        $LivePath = Join-Path $CentralRoot $BaseName
+        $Entries = @(
+            $Group.Group |
+                Sort-Object { $_.Item.LastWriteTimeUtc } -Descending
+        )
+
+        $RestoredPath = ''
+        if (-not (Test-Path -LiteralPath $LivePath) -and $Entries.Count -gt 0) {
+            $Restore = $Entries[0].Item
+            try {
+                Move-Item `
+                    -LiteralPath $Restore.FullName `
+                    -Destination $LivePath `
+                    -ErrorAction Stop
+                $RestoredPath = $Restore.FullName
+                Write-CentralLog (
+                    'Controle central restaurado de troca interrompida: ' +
+                    $BaseName
+                ) 'WARN'
+            }
+            catch {
+                Write-CentralLog (
+                    'Nao foi possivel restaurar controle central interrompido: ' +
+                    $Restore.FullName + '; ' + $_.Exception.Message
+                ) 'WARN'
+            }
+        }
+
+        foreach ($Entry in $Entries) {
+            $Path = $Entry.Item.FullName
+            if ($Path -eq $RestoredPath -or
+                -not (Test-Path -LiteralPath $Path)) {
+                continue
+            }
+
+            try {
+                $Archived = Move-DDMControlDirectoryToBackup `
+                    -Source $Path `
+                    -DestinationRoot $LivePath `
+                    -Prefix 'legacy'
+                Write-CentralLog (
+                    'Backup legado retirado da raiz: ' + $Path +
+                    '; destino=' + $Archived
+                ) 'OK'
+            }
+            catch {
+                Write-CentralLog (
+                    'Nao foi possivel retirar backup legado da raiz: ' +
+                    $Path + '; ' + $_.Exception.Message
+                ) 'WARN'
+            }
+        }
+    }
+}
+
+function Test-DDMFixedDirectoryEquivalent {
+    param(
+        [Parameter(Mandatory = $true)][string]$Left,
+        [Parameter(Mandatory = $true)][string]$Right
+    )
+
+    if (-not (Test-Path -LiteralPath $Left) -or
+        -not (Test-Path -LiteralPath $Right)) {
+        return $false
+    }
+
+    $LeftManifest = @(New-DDMDirectoryManifest $Left)
+    $RightManifest = @(New-DDMDirectoryManifest $Right)
+
+    if ($LeftManifest.Count -ne $RightManifest.Count) {
+        return $false
+    }
+
+    $RightByPath = @{}
+    foreach ($Item in $RightManifest) {
+        $Key = ([string]$Item.Path).ToLowerInvariant()
+        $RightByPath[$Key] = $Item
+    }
+
+    foreach ($Item in $LeftManifest) {
+        $Key = ([string]$Item.Path).ToLowerInvariant()
+        if (-not $RightByPath.ContainsKey($Key)) {
+            return $false
+        }
+
+        $Other = $RightByPath[$Key]
+        if ([int64]$Item.Size -ne [int64]$Other.Size -or
+            [string]$Item.Sha256 -ne [string]$Other.Sha256) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
+# Substitui a troca antiga que deixava *.previous-* solto na raiz.
+function Publish-DDMFixedDirectory {
+    param(
+        [string]$SourceRoot,
+        [string]$DestinationRoot,
+        [string[]]$RelativeFiles
+    )
+
+    $Stage = $DestinationRoot + '.staging-' + [guid]::NewGuid().ToString('N')
+    $BackupPath = ''
+
+    New-Item $Stage -ItemType Directory -Force | Out-Null
+
+    try {
+        foreach ($Relative in $RelativeFiles) {
+            $Source = Join-Path $SourceRoot $Relative
+            if (-not (Test-Path -LiteralPath $Source)) {
+                throw "Arquivo fixo ausente: $Relative"
+            }
+
+            $Destination = Join-Path $Stage $Relative
+            $Parent = Split-Path -Parent $Destination
+
+            if (-not (Test-Path -LiteralPath $Parent)) {
+                New-Item $Parent -ItemType Directory -Force | Out-Null
+            }
+
+            Copy-Item -LiteralPath $Source -Destination $Destination -Force
+        }
+
+        if ((Test-Path -LiteralPath $DestinationRoot) -and
+            (Test-DDMFixedDirectoryEquivalent $Stage $DestinationRoot)) {
+            Write-CentralLog (
+                'Controle central ja esta atualizado: ' +
+                (Split-Path -Leaf $DestinationRoot)
+            ) 'INFO'
+            return
+        }
+
+        if (Test-Path -LiteralPath $DestinationRoot) {
+            $BackupPath = Move-DDMControlDirectoryToBackup `
+                -Source $DestinationRoot `
+                -DestinationRoot $DestinationRoot
+        }
+
+        try {
+            Move-Item `
+                -LiteralPath $Stage `
+                -Destination $DestinationRoot `
+                -ErrorAction Stop
+        }
+        catch {
+            if (-not [string]::IsNullOrWhiteSpace($BackupPath) -and
+                (Test-Path -LiteralPath $BackupPath)) {
+                if (Test-Path -LiteralPath $DestinationRoot) {
+                    Remove-Item `
+                        -LiteralPath $DestinationRoot `
+                        -Recurse `
+                        -Force `
+                        -ErrorAction SilentlyContinue
+                }
+                Move-Item `
+                    -LiteralPath $BackupPath `
+                    -Destination $DestinationRoot `
+                    -Force `
+                    -ErrorAction Stop
+            }
+            throw
+        }
+    }
+    finally {
+        Remove-Item `
+            -LiteralPath $Stage `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
+}
+
+Repair-DDMLegacyControlBackups
+
 if ($Force) {
     try {
         New-Item -Path $RunRoot -ItemType Directory -Force | Out-Null
