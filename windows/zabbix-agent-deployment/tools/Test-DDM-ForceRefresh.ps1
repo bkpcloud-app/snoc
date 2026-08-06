@@ -78,5 +78,15 @@ if ($ForceIf.Count -ne 1) {
     throw "Esperado exatamente um bloco operacional if (`$Force); encontrado=$($ForceIf.Count)."
 }
 
+$BackupLayoutTest = Join-Path `
+    $ProductRoot `
+    'tools\Test-DDM-CentralBackupLayout.ps1'
+
+if (-not (Test-Path -LiteralPath $BackupLayoutTest)) {
+    throw "Teste de organizacao dos backups ausente: $BackupLayoutTest"
+}
+
+& $BackupLayoutTest -ProductRoot $ProductRoot
+
 Write-Host 'FORCE_REFRESH_TEST_OK'
 exit 0
