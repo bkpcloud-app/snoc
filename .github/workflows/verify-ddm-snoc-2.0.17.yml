@@ -33,6 +33,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $Tag = 'ddm-snoc-windows-v2.0.17'
+          $VerificationTag = 'verified-ddm-snoc-windows-2.0.17'
           $Uri = 'https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/' + $Tag
           $Headers = @{
               'User-Agent' = 'DDM-SNOC-Windows-Release-Verifier'
@@ -68,21 +69,15 @@ jobs:
           if ($null -eq $Release) {
               throw 'Official 2.0.17 release did not become complete within the verification window.'
           }
-          $Marker = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\docs\RELEASE-2.0.17-PUBLISHED.md'
-          @(
-              '# DDM SNOC Windows 2.0.17 - publicação confirmada',
-              '',
-              ('Tag: `' + $Tag + '`'),
-              ('Release ID: `' + [string]$Release.id + '`'),
-              ('Commit: `' + $env:GITHUB_SHA + '`'),
-              ('Publicada em UTC: `' + [string]$Release.published_at + '`'),
-              '',
-              'Assets oficiais confirmados:',
-              ''
-          ) + @($Expected | ForEach-Object { '- `' + $_ + '`' }) |
-              Set-Content -LiteralPath $Marker -Encoding UTF8
+          Write-Host "Release ID=$($Release.id) PublishedAt=$($Release.published_at)"
+          Write-Host "Assets confirmed: $($Expected -join ', ')"
+          git fetch origin main --tags
+          $Existing = git rev-parse -q --verify ("refs/tags/" + $VerificationTag) 2>$null
+          if ($LASTEXITCODE -eq 0) {
+              Write-Host "Verification tag already exists: $VerificationTag"
+              exit 0
+          }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- 'windows/zabbix-agent-deployment/docs/RELEASE-2.0.17-PUBLISHED.md'
-          git commit -m 'docs(windows): confirm published 2.0.17 assets'
-          git push origin HEAD:main
+          git tag -a $VerificationTag $env:GITHUB_SHA -m 'DDM SNOC Windows 2.0.17 release assets verified'
+          git push origin ("refs/tags/" + $VerificationTag)
