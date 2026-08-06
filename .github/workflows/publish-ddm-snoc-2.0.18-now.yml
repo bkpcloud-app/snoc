@@ -1,0 +1,48 @@
+name: Publish DDM SNOC Windows 2.0.18 Now
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/publish-ddm-snoc-2.0.18-now.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  dispatch-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout main with tags
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Create exact tag and dispatch official release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ddm-snoc-windows-v2.0.18
+          TARGET_SHA: 9649153140031b4d7f1040329073cdbbf39dbdd8
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags
+          git merge-base --is-ancestor "$TARGET_SHA" origin/main
+          VERSION="$(git show "$TARGET_SHA:windows/zabbix-agent-deployment/config/DDM-Product.ps1" | sed -n "s/.*ProductVersion[[:space:]]*=[[:space:]]*'\([^']*\)'.*/\1/p" | head -n1)"
+          test "$VERSION" = "2.0.18"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            EXISTING="$(git rev-list -n 1 "$TAG")"
+            test "$EXISTING" = "$TARGET_SHA"
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a "$TAG" "$TARGET_SHA" -m 'DDM SNOC Windows 2.0.18'
+            git push origin "refs/tags/$TAG"
+          fi
+          gh workflow run ddm-snoc-windows-release.yml \
+            --repo bkpcloud-app/snoc \
+            --ref main \
+            -f release_tag="$TAG"
