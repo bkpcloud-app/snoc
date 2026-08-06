@@ -1,0 +1,26 @@
+name: Dispatch DDM SNOC Windows 2.0.17 Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/ddm-snoc-windows-release.yml'
+      - '.github/workflows/dispatch-ddm-snoc-2.0.17-release.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch official release workflow on the 2.0.17 tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run ddm-snoc-windows-release.yml \
+            --repo bkpcloud-app/snoc \
+            --ref ddm-snoc-windows-v2.0.17
