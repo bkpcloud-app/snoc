@@ -1,3 +1,8 @@
+## 2.0.17 - 2026-08-06
+- Faz o parametro -Force executar nova validacao integral do MOTOR oficial.
+- Baixa novamente e valida os quatro artefatos oficiais do Zabbix 7.0.
+- Compara os hashes baixados com os artefatos publicados e bloqueia divergencia silenciosa.
+- Registra FORCE_VALIDATED no log e adiciona teste dedicado contra parametro morto.
 ## 2.0.16 - 2026-08-05
 - Exporta somente chaves de servicos realmente existentes durante o backup transacional.
 - Preserva SERVER, SERVERACTIVE, HOSTNAME, HOSTMETADATA e LISTENPORT na reinstalacao de rollback.
