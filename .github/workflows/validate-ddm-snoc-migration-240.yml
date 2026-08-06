@@ -22,11 +22,11 @@ jobs:
           ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Materialize exact 2.0.17 source
+      - name: Materialize exact 2.0.18 source
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $Patch = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.17.ps1'
+          $Patch = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.18.ps1'
           & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Patch -RepositoryRoot $env:GITHUB_WORKSPACE
           if ($LASTEXITCODE -ne 0) {
               throw "Promotion patch returned $LASTEXITCODE"
@@ -52,7 +52,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $global:ProductCode = '$ProductCode'
           $Script = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
-          $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240-2.0.17'
+          $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240-2.0.18'
           . $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
 
       - name: Execute complete product validation
@@ -72,19 +72,20 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: DDM-SNOC-WINDOWS-2.0.17-VALIDATION
+          name: DDM-SNOC-WINDOWS-2.0.18-VALIDATION
           path: |
-            ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-2.0.17
+            ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-2.0.18
             windows/zabbix-agent-deployment/central/Update-DDM-SNOC-Central.ps1
             windows/zabbix-agent-deployment/config/DDM-Product.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-ForceRefresh.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1
+            windows/zabbix-agent-deployment/docs/RELEASE-2.0.18.md
           if-no-files-found: error
           retention-days: 30
 
-      - name: Commit exact validated 2.0.17 source
-        if: github.event_name == 'pull_request' && github.head_ref == 'agent/release-2.0.17'
+      - name: Commit exact validated 2.0.18 source
+        if: github.event_name == 'pull_request' && github.head_ref == 'agent/central-root-backups-2.0.18'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -93,8 +94,8 @@ jobs:
           git add -- 'windows/zabbix-agent-deployment/config/DDM-Product.ps1'
           git add -- 'windows/zabbix-agent-deployment/CHANGELOG.md'
           git add -- 'windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1'
-          git add -- 'windows/zabbix-agent-deployment/docs/RELEASE-2.0.17.md'
+          git add -- 'windows/zabbix-agent-deployment/docs/RELEASE-2.0.18.md'
           if (-not (git diff --cached --quiet)) {
-              git commit -m 'release(windows): materialize validated 2.0.17 source'
+              git commit -m 'release(windows): materialize validated 2.0.18 source'
               git push origin HEAD:${{ github.head_ref }}
           }
