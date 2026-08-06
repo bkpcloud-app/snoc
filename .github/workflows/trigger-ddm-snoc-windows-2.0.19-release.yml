@@ -114,3 +114,5 @@ jobs:
           git push origin main
           if($LASTEXITCODE -ne 0){throw "Marker push returned $LASTEXITCODE"}
           Write-Host 'RELEASE_2_0_19_PUBLISHED_AND_VERIFIED'
+
+# activation: 2026-08-06T19:40-03:00
