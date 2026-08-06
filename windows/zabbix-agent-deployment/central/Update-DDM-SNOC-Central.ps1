@@ -41,6 +41,259 @@ if (-not (Test-Path -LiteralPath $BootstrapCommonPath)) {
 . (Join-Path $CentralScriptRoot 'lib\DDM-Central-Client.ps1')
 . (Join-Path $CentralScriptRoot 'lib\DDM-Central-Supply.ps1')
 
+# BEGIN DDM CENTRAL CONTROL BACKUP LAYOUT
+function Get-DDMControlBackupSettings {
+    param([string]$DestinationRoot)
+
+    $ProductConfig = Get-Variable `
+        -Name DDMProduct `
+        -ValueOnly `
+        -ErrorAction SilentlyContinue
+
+    $BackupFolder = if ($ProductConfig -and $ProductConfig.CentralBackupFolder) {
+        [string]$ProductConfig.CentralBackupFolder
+    }
+    else {
+        'BACKUPS'
+    }
+
+    $ControlFolder = if (
+        $ProductConfig -and
+        $ProductConfig.CentralControlBackupFolder
+    ) {
+        [string]$ProductConfig.CentralControlBackupFolder
+    }
+    else {
+        'ACTIVE-CONTROLS'
+    }
+
+    $Keep = if (
+        $ProductConfig -and
+        $ProductConfig.KeepCentralControlBackups
+    ) {
+        [int]$ProductConfig.KeepCentralControlBackups
+    }
+    else {
+        3
+    }
+
+    if ($Keep -lt 1) {
+        $Keep = 3
+    }
+
+    $StaleHours = if ($ProductConfig -and $ProductConfig.StaleStagingHours) {
+        [int]$ProductConfig.StaleStagingHours
+    }
+    else {
+        24
+    }
+
+    if ($StaleHours -lt 1) {
+        $StaleHours = 24
+    }
+
+    $CentralBase = Split-Path -Parent $DestinationRoot
+    $Component = Split-Path -Leaf $DestinationRoot
+    $BackupBase = Join-Path $CentralBase $BackupFolder
+    $ControlBase = Join-Path $BackupBase $ControlFolder
+    $ComponentRoot = Join-Path $ControlBase $Component
+
+    New-Item -Path $ComponentRoot -ItemType Directory -Force | Out-Null
+
+    return New-Object PSObject -Property @{
+        CentralBase   = $CentralBase
+        Component     = $Component
+        ComponentRoot = $ComponentRoot
+        Keep          = $Keep
+        StaleHours    = $StaleHours
+    }
+}
+
+function Move-DDMLegacyControlBackups {
+    param($Settings)
+
+    foreach ($Pattern in @(
+        ($Settings.Component + '.previous-*'),
+        ($Settings.Component + '.staging-*')
+    )) {
+        foreach ($Item in @(
+            Get-ChildItem `
+                -LiteralPath $Settings.CentralBase `
+                -Directory `
+                -Filter $Pattern `
+                -ErrorAction SilentlyContinue
+        )) {
+            $Kind = if ($Item.Name -like '*.previous-*') {
+                'legacy-backup'
+            }
+            else {
+                'legacy-staging'
+            }
+
+            $Stamp = $Item.LastWriteTime.ToString('yyyyMMdd-HHmmss')
+            $Target = Join-Path $Settings.ComponentRoot (
+                $Kind + '-' + $Stamp + '-' +
+                [guid]::NewGuid().ToString('N')
+            )
+
+            try {
+                Move-Item `
+                    -LiteralPath $Item.FullName `
+                    -Destination $Target `
+                    -ErrorAction Stop
+
+                Write-CentralLog (
+                    'Historico central organizado: ' +
+                    $Item.Name + ' -> BACKUPS\ACTIVE-CONTROLS\' +
+                    $Settings.Component
+                ) 'OK'
+            }
+            catch {
+                Write-CentralLog (
+                    'Nao foi possivel organizar historico central ' +
+                    $Item.FullName + ': ' + $_.Exception.Message
+                ) 'WARN'
+            }
+        }
+    }
+}
+
+function Invoke-DDMControlBackupRetention {
+    param($Settings)
+
+    $Backups = @(
+        Get-ChildItem `
+            -LiteralPath $Settings.ComponentRoot `
+            -Directory `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Name -like 'backup-*' -or
+                $_.Name -like 'legacy-backup-*'
+            } |
+            Sort-Object LastWriteTime -Descending
+    )
+
+    foreach ($Old in @($Backups | Select-Object -Skip $Settings.Keep)) {
+        try {
+            Remove-Item `
+                -LiteralPath $Old.FullName `
+                -Recurse `
+                -Force `
+                -ErrorAction Stop
+        }
+        catch {
+            Write-CentralLog (
+                'Nao foi possivel remover backup central excedente ' +
+                $Old.FullName + ': ' + $_.Exception.Message
+            ) 'WARN'
+        }
+    }
+
+    $StaleCutoff = (Get-Date).AddHours(-[int]$Settings.StaleHours)
+
+    foreach ($Stage in @(
+        Get-ChildItem `
+            -LiteralPath $Settings.ComponentRoot `
+            -Directory `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+                ($_.Name -like '.staging-*' -or
+                 $_.Name -like 'legacy-staging-*') -and
+                $_.LastWriteTime -lt $StaleCutoff
+            }
+    )) {
+        try {
+            Remove-Item `
+                -LiteralPath $Stage.FullName `
+                -Recurse `
+                -Force `
+                -ErrorAction Stop
+        }
+        catch {
+            Write-CentralLog (
+                'Nao foi possivel remover staging central antigo ' +
+                $Stage.FullName + ': ' + $_.Exception.Message
+            ) 'WARN'
+        }
+    }
+}
+
+function Publish-DDMFixedDirectory {
+    param(
+        [string]$SourceRoot,
+        [string]$DestinationRoot,
+        [string[]]$RelativeFiles
+    )
+
+    $Settings = Get-DDMControlBackupSettings $DestinationRoot
+    Move-DDMLegacyControlBackups $Settings
+
+    $Stage = Join-Path $Settings.ComponentRoot (
+        '.staging-' + [guid]::NewGuid().ToString('N')
+    )
+    $Previous = Join-Path $Settings.ComponentRoot (
+        'backup-' + (Get-Date -Format 'yyyyMMdd-HHmmssfff') + '-' +
+        [guid]::NewGuid().ToString('N')
+    )
+
+    New-Item $Stage -ItemType Directory -Force | Out-Null
+
+    try {
+        foreach ($Relative in $RelativeFiles) {
+            $Source = Join-Path $SourceRoot $Relative
+            if (-not (Test-Path -LiteralPath $Source)) {
+                throw "Arquivo fixo ausente: $Relative"
+            }
+
+            $Destination = Join-Path $Stage $Relative
+            $Parent = Split-Path -Parent $Destination
+
+            if (-not (Test-Path -LiteralPath $Parent)) {
+                New-Item $Parent -ItemType Directory -Force | Out-Null
+            }
+
+            Copy-Item `
+                -LiteralPath $Source `
+                -Destination $Destination `
+                -Force
+        }
+
+        if (Test-Path -LiteralPath $DestinationRoot) {
+            Move-Item `
+                -LiteralPath $DestinationRoot `
+                -Destination $Previous `
+                -ErrorAction Stop
+        }
+
+        try {
+            Move-Item `
+                -LiteralPath $Stage `
+                -Destination $DestinationRoot `
+                -ErrorAction Stop
+        }
+        catch {
+            if (Test-Path -LiteralPath $Previous) {
+                Move-Item `
+                    -LiteralPath $Previous `
+                    -Destination $DestinationRoot `
+                    -Force `
+                    -ErrorAction Stop
+            }
+            throw
+        }
+
+        Invoke-DDMControlBackupRetention $Settings
+    }
+    finally {
+        Remove-Item `
+            -LiteralPath $Stage `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
+}
+# END DDM CENTRAL CONTROL BACKUP LAYOUT
+
 if ($Force) {
     try {
         New-Item -Path $RunRoot -ItemType Directory -Force | Out-Null
