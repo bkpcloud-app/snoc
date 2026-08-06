@@ -1,0 +1,148 @@
+name: Diagnose DDM SNOC Windows 2.0.17 Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/diagnose-ddm-snoc-2.0.17-release.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  diagnose-release:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Diagnose release workflow and publication
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ReleaseTag = 'ddm-snoc-windows-v2.0.17'
+          $VerifiedTag = 'verified-ddm-snoc-windows-2.0.17'
+          $FailedTag = 'failed-ddm-snoc-windows-2.0.17'
+          $DiagnosticBranch = 'diagnostic-ddm-snoc-2.0.17'
+          $ReleaseUri = 'https://api.github.com/repos/bkpcloud-app/snoc/releases/tags/' + $ReleaseTag
+          $RunsUri = 'https://api.github.com/repos/bkpcloud-app/snoc/actions/workflows/ddm-snoc-windows-release.yml/runs?per_page=30'
+          $Headers = @{
+              'User-Agent' = 'DDM-SNOC-Windows-Release-Diagnostics'
+              'Accept' = 'application/vnd.github+json'
+              'Authorization' = 'Bearer ' + $env:GH_TOKEN
+              'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $Expected = @(
+              'DDM-SNOC-WINDOWS-MOTOR-2.0.17.zip',
+              'DDM-SNOC-WINDOWS-MOTOR-2.0.17.zip.sha256',
+              'DDM-SNOC-WINDOWS-AD-SEED-2.0.17.zip',
+              'DDM-SNOC-WINDOWS-AD-SEED-2.0.17.zip.sha256',
+              'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.17.json',
+              'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.17.json.sha256'
+          )
+
+          function Push-StatusTag {
+              param([string]$Tag,[string]$Message)
+              git fetch origin main --tags
+              git rev-parse -q --verify ("refs/tags/" + $Tag) 2>$null | Out-Null
+              if ($LASTEXITCODE -ne 0) {
+                  git config user.name 'github-actions[bot]'
+                  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+                  git tag -a $Tag $env:GITHUB_SHA -m $Message
+                  git push origin ("refs/tags/" + $Tag)
+              }
+          }
+
+          function Publish-Diagnostic {
+              param(
+                  [string]$State,
+                  [string]$Message,
+                  $Run,
+                  $Jobs
+              )
+              git config user.name 'github-actions[bot]'
+              git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+              git checkout -B $DiagnosticBranch
+              $Path = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\docs\RELEASE-2.0.17-DIAGNOSTIC.md'
+              $Lines = @(
+                  '# DDM SNOC Windows 2.0.17 - diagnóstico da publicação',
+                  '',
+                  ('Estado: `' + $State + '`'),
+                  ('Mensagem: ' + $Message),
+                  ('Gerado em UTC: `' + (Get-Date).ToUniversalTime().ToString('o') + '`'),
+                  ''
+              )
+              if ($null -ne $Run) {
+                  $Lines += @(
+                      ('Workflow run ID: `' + [string]$Run.id + '`'),
+                      ('Status: `' + [string]$Run.status + '`'),
+                      ('Conclusão: `' + [string]$Run.conclusion + '`'),
+                      ('URL: ' + [string]$Run.html_url),
+                      ('Head branch: `' + [string]$Run.head_branch + '`'),
+                      ('Head SHA: `' + [string]$Run.head_sha + '`'),
+                      ''
+                  )
+              }
+              foreach ($Job in @($Jobs)) {
+                  $Lines += ('- Job `' + [string]$Job.name + '`: `' + [string]$Job.conclusion + '`')
+                  foreach ($Step in @($Job.steps | Where-Object { [string]$_.conclusion -eq 'failure' })) {
+                      $Lines += ('  - Falha no passo `' + [string]$Step.name + '`')
+                  }
+              }
+              $Lines | Set-Content -LiteralPath $Path -Encoding UTF8
+              git add -- 'windows/zabbix-agent-deployment/docs/RELEASE-2.0.17-DIAGNOSTIC.md'
+              git commit -m 'docs(windows): publish 2.0.17 release diagnostic'
+              git push --force origin ("HEAD:" + $DiagnosticBranch)
+          }
+
+          $LastRun = $null
+          $LastJobs = @()
+          for ($Attempt = 1; $Attempt -le 60; $Attempt++) {
+              try {
+                  $Release = Invoke-RestMethod -Uri $ReleaseUri -Headers $Headers -TimeoutSec 30
+                  $AssetNames = @($Release.assets | ForEach-Object { [string]$_.name })
+                  $Missing = @($Expected | Where-Object { $AssetNames -notcontains $_ })
+                  if (-not [bool]$Release.draft -and -not [bool]$Release.prerelease -and $Missing.Count -eq 0) {
+                      Push-StatusTag $VerifiedTag 'DDM SNOC Windows 2.0.17 release and all official assets verified'
+                      Write-Host "RELEASE_VERIFIED ID=$($Release.id)"
+                      exit 0
+                  }
+              }
+              catch {
+                  Write-Host "Release attempt $Attempt: $($_.Exception.Message)"
+              }
+
+              $Runs = Invoke-RestMethod -Uri $RunsUri -Headers $Headers -TimeoutSec 30
+              $LastRun = @(
+                  $Runs.workflow_runs |
+                      Where-Object { [string]$_.head_branch -eq $ReleaseTag } |
+                      Sort-Object created_at -Descending |
+                      Select-Object -First 1
+              )[0]
+
+              if ($null -ne $LastRun) {
+                  Write-Host "RUN ID=$($LastRun.id) STATUS=$($LastRun.status) CONCLUSION=$($LastRun.conclusion)"
+                  if ([string]$LastRun.status -eq 'completed') {
+                      $JobResponse = Invoke-RestMethod -Uri $LastRun.jobs_url -Headers $Headers -TimeoutSec 30
+                      $LastJobs = @($JobResponse.jobs)
+                      if ([string]$LastRun.conclusion -ne 'success') {
+                          Publish-Diagnostic ([string]$LastRun.conclusion) 'Workflow oficial de release terminou sem sucesso.' $LastRun $LastJobs
+                          Push-StatusTag $FailedTag 'DDM SNOC Windows 2.0.17 release workflow failed; see diagnostic branch'
+                          throw "Release workflow failed: $($LastRun.conclusion)"
+                      }
+                  }
+              }
+              Start-Sleep -Seconds 10
+          }
+
+          Publish-Diagnostic 'timeout' 'Release ou assets não ficaram completos dentro da janela.' $LastRun $LastJobs
+          Push-StatusTag $FailedTag 'DDM SNOC Windows 2.0.17 release verification timed out; see diagnostic branch'
+          throw 'Release verification timed out.'
