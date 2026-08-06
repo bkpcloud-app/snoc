@@ -25,7 +25,10 @@ $UrlZip = $BaseRelease + '/' + $ZipName
 $UrlSha = $UrlZip + '.sha256'
 $UrlClient = 'https://raw.githubusercontent.com/bkpcloud-app/snoc/' + $Tag + '/windows/zabbix-agent-deployment/clients/AGL/CLIENTE.ps1'
 $ExpectedClientHash = '0AC3D2B282E262329E49E4EEEC624FAC4889E323FDF2479C931089111E436E3F'
-$CentralWasCleaned = $false
+
+$CentralWasPrepared = $false
+$HadOriginalContent = $false
+$BackupValidated = $false
 
 function Assert-Administrator {
     $Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -35,7 +38,7 @@ function Assert-Administrator {
     }
 }
 
-function Invoke-RobocopyChecked {
+function Copy-DirectoryContent {
     param(
         [Parameter(Mandatory = $true)][string]$Source,
         [Parameter(Mandatory = $true)][string]$Destination
@@ -43,11 +46,20 @@ function Invoke-RobocopyChecked {
 
     New-Item -Path $Destination -ItemType Directory -Force | Out-Null
 
-    & robocopy.exe $Source $Destination /E /COPY:DAT /DCOPY:DAT /R:2 /W:2 /XJ /NP /NFL /NDL | Out-Host
-    $Code = $LASTEXITCODE
+    foreach ($Item in @(Get-ChildItem -LiteralPath $Source -Force -ErrorAction Stop)) {
+        Copy-Item -LiteralPath $Item.FullName -Destination $Destination -Recurse -Force -ErrorAction Stop
+    }
+}
 
-    if ($Code -gt 7) {
-        throw "Robocopy falhou. Codigo=$Code Origem=$Source Destino=$Destination"
+function Clear-DirectoryContent {
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    foreach ($Item in @(Get-ChildItem -LiteralPath $Root -Force -ErrorAction Stop)) {
+        Remove-Item -LiteralPath $Item.FullName -Recurse -Force -ErrorAction Stop
+    }
+
+    if (@(Get-ChildItem -LiteralPath $Root -Force -ErrorAction Stop).Count -ne 0) {
+        throw "A pasta nao ficou vazia: $Root"
     }
 }
 
@@ -62,21 +74,19 @@ function Get-DirectoryManifest {
             Sort-Object FullName |
             ForEach-Object {
                 $Relative = $_.FullName.Substring($Base.Length)
-                $Hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
-                '{0}|{1}|{2}' -f $Relative.ToLowerInvariant(), $_.Length, $Hash
+                '{0}|{1}|{2}' -f `
+                    $Relative.ToLowerInvariant(), `
+                    $_.Length, `
+                    (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
             }
     )
 }
 
 Assert-Administrator
 
-if (-not (Test-Path -LiteralPath $CentralRoot -PathType Container)) {
-    throw "Pasta central inexistente: $CentralRoot"
-}
-
 try {
     Write-Host ''
-    Write-Host '1/8 - Baixando a instalacao oficial antes de apagar qualquer coisa' -ForegroundColor Cyan
+    Write-Host '1/8 - Baixando a instalacao oficial antes de alterar o AD' -ForegroundColor Cyan
 
     New-Item -Path $Work -ItemType Directory -Force | Out-Null
     New-Item -Path $BackupBase -ItemType Directory -Force | Out-Null
@@ -125,40 +135,44 @@ try {
         }
     }
 
-    Write-Host 'Estrutura nova validada antes da limpeza.' -ForegroundColor Green
+    Write-Host 'Estrutura nova validada antes da copia.' -ForegroundColor Green
 
     Write-Host ''
-    Write-Host '4/8 - Copiando a instalacao atual para C:\temp' -ForegroundColor Cyan
+    Write-Host '4/8 - Preparando a pasta central' -ForegroundColor Cyan
 
-    $SourceManifest = @(Get-DirectoryManifest $CentralRoot)
-    Invoke-RobocopyChecked -Source $CentralRoot -Destination $Backup
-    $BackupManifest = @(Get-DirectoryManifest $Backup)
-
-    $Differences = @(Compare-Object $SourceManifest $BackupManifest)
-    if ($Differences.Count -gt 0) {
-        throw 'O backup copiado para C:\temp nao corresponde ao conteudo da central.'
+    if (-not (Test-Path -LiteralPath $CentralRoot -PathType Container)) {
+        New-Item -Path $CentralRoot -ItemType Directory -Force -ErrorAction Stop | Out-Null
+        Write-Host "Pasta central recriada: $CentralRoot" -ForegroundColor Green
     }
 
-    Write-Host "Backup validado: $Backup" -ForegroundColor Green
+    $CentralWasPrepared = $true
+    $OriginalItems = @(Get-ChildItem -LiteralPath $CentralRoot -Force -ErrorAction Stop)
+    $HadOriginalContent = $OriginalItems.Count -gt 0
+
+    if ($HadOriginalContent) {
+        Write-Host 'Conteudo anterior encontrado. Criando backup por copia...' -ForegroundColor Cyan
+        $SourceManifest = @(Get-DirectoryManifest $CentralRoot)
+        Copy-DirectoryContent -Source $CentralRoot -Destination $Backup
+        $BackupManifest = @(Get-DirectoryManifest $Backup)
+        $Differences = @(Compare-Object $SourceManifest $BackupManifest)
+        if ($Differences.Count -gt 0) {
+            throw 'O backup copiado para C:\temp nao corresponde ao conteudo da central.'
+        }
+        $BackupValidated = $true
+        Write-Host "Backup validado: $Backup" -ForegroundColor Green
+    }
+    else {
+        Write-Host 'A pasta central esta vazia. Nao existe conteudo anterior para backup.' -ForegroundColor Green
+    }
 
     Write-Host ''
-    Write-Host '5/8 - Apagando somente o conteudo da pasta ZBX' -ForegroundColor Yellow
-
-    Get-ChildItem -LiteralPath $CentralRoot -Force -ErrorAction Stop |
-        Remove-Item -Recurse -Force -ErrorAction Stop
-
-    if (@(Get-ChildItem -LiteralPath $CentralRoot -Force -ErrorAction Stop).Count -ne 0) {
-        throw 'A pasta ZBX nao ficou vazia.'
-    }
-
-    $CentralWasCleaned = $true
-    Write-Host 'Conteudo antigo removido. A pasta raiz ZBX foi preservada.' -ForegroundColor Green
+    Write-Host '5/8 - Limpando somente o conteudo da pasta ZBX' -ForegroundColor Yellow
+    Clear-DirectoryContent -Root $CentralRoot
 
     Write-Host ''
     Write-Host '6/8 - Copiando a instalacao nova para o AD' -ForegroundColor Cyan
-
-    Invoke-RobocopyChecked -Source $Seed -Destination $CentralRoot
-    Copy-Item -LiteralPath $Client -Destination (Join-Path $CentralRoot 'CLIENTE.ps1') -Force
+    Copy-DirectoryContent -Source $Seed -Destination $CentralRoot
+    Copy-Item -LiteralPath $Client -Destination (Join-Path $CentralRoot 'CLIENTE.ps1') -Force -ErrorAction Stop
 
     Write-Host ''
     Write-Host '7/8 - Executando o atualizador oficial' -ForegroundColor Cyan
@@ -186,21 +200,33 @@ try {
     Write-Host ''
     Write-Host 'REINSTALL_SUCCESS' -ForegroundColor Green
     Write-Host "Release ativa: $ActiveRelease" -ForegroundColor Green
-    Write-Host "Backup anterior: $Backup" -ForegroundColor Green
+    if ($BackupValidated) {
+        Write-Host "Backup anterior: $Backup" -ForegroundColor Green
+    }
+    else {
+        Write-Host 'Backup anterior: nao aplicavel; a pasta estava ausente ou vazia.' -ForegroundColor Green
+    }
     exit 0
 }
 catch {
     Write-Host ''
     Write-Host "ERRO: $($_.Exception.Message)" -ForegroundColor Red
 
-    if ($CentralWasCleaned -and (Test-Path -LiteralPath $Backup -PathType Container)) {
-        Write-Host 'Restaurando os arquivos anteriores somente por copia...' -ForegroundColor Yellow
+    if ($CentralWasPrepared -and (Test-Path -LiteralPath $CentralRoot -PathType Container)) {
+        try {
+            Clear-DirectoryContent -Root $CentralRoot
 
-        Get-ChildItem -LiteralPath $CentralRoot -Force -ErrorAction SilentlyContinue |
-            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-
-        Invoke-RobocopyChecked -Source $Backup -Destination $CentralRoot
-        Write-Host 'Arquivos anteriores restaurados por copia.' -ForegroundColor Yellow
+            if ($HadOriginalContent -and $BackupValidated -and (Test-Path -LiteralPath $Backup -PathType Container)) {
+                Copy-DirectoryContent -Source $Backup -Destination $CentralRoot
+                Write-Host 'Arquivos anteriores restaurados somente por copia.' -ForegroundColor Yellow
+            }
+            else {
+                Write-Host 'A pasta central foi mantida vazia apos a falha.' -ForegroundColor Yellow
+            }
+        }
+        catch {
+            Write-Host "Falha durante a restauracao por copia: $($_.Exception.Message)" -ForegroundColor Red
+        }
     }
 
     throw
