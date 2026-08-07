@@ -7,7 +7,6 @@ on:
       - '.github/workflows/validate-ddm-snoc-migration-240.yml'
       - '.github/workflows/ddm-snoc-windows-validation.yml'
       - '.github/workflows/ddm-snoc-windows-release.yml'
-      - '.github/workflows/audit-ddm-snoc-windows-2.0.20.yml'
   workflow_dispatch:
 
 permissions:
@@ -24,14 +23,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify materialized 2.0.20 source
+      - name: Verify materialized 2.0.21 source
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           . (Join-Path $Product 'config\DDM-Product.ps1')
-          if ([string]$DDMProduct.ProductVersion -ne '2.0.20') {
-              throw "ProductVersion must be 2.0.20. Current=$($DDMProduct.ProductVersion)"
+          if ([string]$DDMProduct.ProductVersion -ne '2.0.21') {
+              throw "ProductVersion must be 2.0.21. Current=$($DDMProduct.ProductVersion)"
           }
 
       - name: Parse all PowerShell sources
@@ -54,7 +53,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $global:ProductCode = '$ProductCode'
           $Script = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
-          $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240-2.0.20'
+          $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240-2.0.21'
           & $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
           if (-not $?) {
               throw 'Migration validation returned failure.'
@@ -73,6 +72,7 @@ jobs:
               'Test-DDM-UncCmd.ps1',
               'Test-DDM-ForceRefresh.ps1',
               'Test-DDM-CentralRecovery.ps1',
+              'Test-DDM-CentralPathIdentity.ps1',
               'Test-DDM-BootstrapFirstInstall.ps1'
           )) {
               & (Join-Path $Product ('tools\' + $Test)) -ProductRoot $Product
@@ -85,14 +85,15 @@ jobs:
         if: always()
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
-          name: DDM-SNOC-WINDOWS-2.0.20-MIGRATION-VALIDATION
+          name: DDM-SNOC-WINDOWS-2.0.21-MIGRATION-VALIDATION
           path: |
-            ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-2.0.20
+            ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-2.0.21
             windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1
             windows/zabbix-agent-deployment/config/DDM-Product.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-CentralRecovery.ps1
-            windows/zabbix-agent-deployment/docs/RELEASE-2.0.20.md
+            windows/zabbix-agent-deployment/tools/Test-DDM-CentralPathIdentity.ps1
+            windows/zabbix-agent-deployment/docs/RELEASE-2.0.21.md
           if-no-files-found: error
           retention-days: 30

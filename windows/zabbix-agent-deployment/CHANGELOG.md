@@ -1,3 +1,8 @@
+## 2.0.21 - 2026-08-07
+- Corrige a validacao de CentralRoot que tratava o namespace de dominio NETLOGON e o NETLOGON do proprio DC como caminhos diferentes.
+- Aceita somente a equivalencia segura entre \\DOMINIO\NETLOGON\caminho e \\DC-LOCAL\NETLOGON\mesmo-caminho, preservando o bloqueio para outro servidor, share ou caminho relativo.
+- Adiciona teste funcional reproduzindo \\mizu.local\NETLOGON\SCRIPTS\ZBX versus \\SRV-AE\NETLOGON\SCRIPTS\ZBX e casos negativos.
+- Mantem intacta a migracao transacional Agent 1 para Agent 2 e exige novamente a suite completa e 240 cenarios no MOTOR final.
 ## 2.0.20 - 2026-08-07
 - Invalida operacionalmente a candidata 2.0.19, cuja publicacao final parou antes dos 240 cenarios por contrato de versao inconsistente.
 - Alinha ProductVersion e o teste oficial de repositorio na mesma versao.
