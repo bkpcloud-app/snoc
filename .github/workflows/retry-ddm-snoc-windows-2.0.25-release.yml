@@ -1,0 +1,27 @@
+name: Retry DDM SNOC Windows 2.0.25 Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/retry-ddm-snoc-windows-2.0.25-release.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch clean official release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run ddm-snoc-windows-release.yml \
+            --repo bkpcloud-app/snoc \
+            --ref main \
+            -f release_tag=ddm-snoc-windows-v2.0.25
+          echo "DISPATCHED=ddm-snoc-windows-v2.0.25"
