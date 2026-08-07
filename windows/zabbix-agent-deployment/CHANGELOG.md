@@ -1,3 +1,8 @@
+## 2.0.25 - 2026-08-07
+- Corrige falso negativo do teste local agent.ping no Zabbix Agent 2 7.0.29.
+- Aceita o marcador de tipo real retornado por -t agent.ping, incluindo [s|1], mantendo a exigencia de valor 1 e ExitCode 0.
+- Adiciona regressao que bloqueia o padrao antigo restrito a [t|1].
+
 ## 2.0.23 - 2026-08-07
 - Migracao Windows forward-only: sem criar backup de migracao e sem rollback automatico.
 - Em falha, grava lastapply.status e encerra no ponto atual para ajuste manual.
