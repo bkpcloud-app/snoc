@@ -149,7 +149,8 @@ Assert-DDMTest ($EnginePingRegression.Contains('\p{C}') -and $EnginePingRegressi
 Assert-DDMTest ($EnginePingRegression.Contains('$VendorPluginConfig')) 'Configuracoes oficiais do pacote Agent2 Plugins devem ser reconhecidas no estado parcial do piloto.'
 Assert-DDMTest ($EnginePingRegression.Contains("@('ember.conf','mssql.conf','mongodb.conf','postgresql.conf')")) 'Lista oficial de configuracoes Agent2 Plugins incompleta.'
 $BomRegression = ((([char]0x200E).ToString() + '# comment') -replace '^(?:\u00EF\u00BB\u00BF)+','' -replace '^[\p{C}\p{Z}\s]+','').Trim()
-Assert-DDMTest ($BomRegression.StartsWith('#')) 'Regressao Unicode: comentario com caractere invisivel nao foi reconhecido.'Assert-DDMTest ('agent.ping                                    [s|1]' -match '(?i)\bagent\.ping\b.*\[[A-Za-z]\|1\]') 'Regressao agent.ping: resposta real [s|1] nao foi reconhecida.'
+Assert-DDMTest ($BomRegression.StartsWith('#')) 'Regressao Unicode: comentario com caractere invisivel nao foi reconhecido.'
+Assert-DDMTest ('agent.ping                                    [s|1]' -match '(?i)\bagent\.ping\b.*\[[A-Za-z]\|1\]') 'Regressao agent.ping: resposta real [s|1] nao foi reconhecida.'
 Assert-DDMTest ($DDMProduct.ClientSchemaVersion -eq 3) 'Schema deve ser 3.'
 Assert-DDMTest ([bool]$DDMProduct.AllowAgent2OnServer2012) 'Server 2012 deve permanecer habilitado para Agent 2.'
 Assert-DDMTest ([bool]$DDMProduct.InstallAgent2Plugins) 'Plugins Agent 2 devem permanecer habilitados.'
