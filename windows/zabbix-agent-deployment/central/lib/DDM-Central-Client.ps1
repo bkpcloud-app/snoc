@@ -33,6 +33,62 @@ function Assert-DDMNoSecrets($Value,[string]$Path='DDMClient') {
     }
 }
 
+function Get-DDMUncPathParts([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+    try { $Full=[System.IO.Path]::GetFullPath($Path).TrimEnd('\') }
+    catch { return $null }
+
+    $Match=[regex]::Match($Full,'^\\\\(?<server>[^\\]+)\\(?<share>[^\\]+)(?<tail>(?:\\.*)?)$')
+    if (-not $Match.Success) { return $null }
+
+    return New-Object PSObject -Property @{
+        Full   = $Full
+        Server = ([string]$Match.Groups['server'].Value).Trim().TrimEnd('.').ToLowerInvariant()
+        Share  = ([string]$Match.Groups['share'].Value).Trim().ToLowerInvariant()
+        Tail   = ([string]$Match.Groups['tail'].Value).TrimEnd('\').ToLowerInvariant()
+    }
+}
+
+function Test-DDMCentralRootEquivalent {
+    param(
+        [Parameter(Mandatory=$true)][string]$DeclaredPath,
+        [Parameter(Mandatory=$true)][string]$ExecutedPath,
+        [string]$LocalComputerName='',
+        [string]$LocalDomainName=''
+    )
+
+    try { $DeclaredFull=[System.IO.Path]::GetFullPath($DeclaredPath).TrimEnd('\') }
+    catch { return $false }
+    try { $ExecutedFull=[System.IO.Path]::GetFullPath($ExecutedPath).TrimEnd('\') }
+    catch { return $false }
+
+    if ($DeclaredFull.ToLowerInvariant() -eq $ExecutedFull.ToLowerInvariant()) { return $true }
+
+    $Declared=Get-DDMUncPathParts $DeclaredFull
+    $Executed=Get-DDMUncPathParts $ExecutedFull
+    if ($null -eq $Declared -or $null -eq $Executed) { return $false }
+    if ($Declared.Share -ne 'netlogon' -or $Executed.Share -ne 'netlogon') { return $false }
+    if ($Declared.Tail -ne $Executed.Tail) { return $false }
+
+    if ([string]::IsNullOrWhiteSpace($LocalComputerName)) { $LocalComputerName=[string]$env:COMPUTERNAME }
+    if ([string]::IsNullOrWhiteSpace($LocalDomainName)) {
+        try { $LocalDomainName=[string](Get-WmiObject -Class Win32_ComputerSystem -ErrorAction Stop).Domain }
+        catch { $LocalDomainName=[string]$env:USERDNSDOMAIN }
+    }
+
+    $LocalComputerName=$LocalComputerName.Trim().TrimEnd('.').ToLowerInvariant()
+    $LocalDomainName=$LocalDomainName.Trim().TrimEnd('.').ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($LocalComputerName) -or [string]::IsNullOrWhiteSpace($LocalDomainName)) { return $false }
+
+    $LocalShort=($LocalComputerName -split '\.')[0]
+    $LocalFqdn=if($LocalComputerName.Contains('.')){$LocalComputerName}else{$LocalShort+'.'+$LocalDomainName}
+    $DeclaredIsDomain=($Declared.Server -eq $LocalDomainName)
+    $ExecutedIsDomain=($Executed.Server -eq $LocalDomainName)
+    $DeclaredIsLocal=(@($LocalShort,$LocalFqdn) -contains $Declared.Server)
+    $ExecutedIsLocal=(@($LocalShort,$LocalFqdn) -contains $Executed.Server)
+
+    return (($DeclaredIsDomain -and $ExecutedIsLocal) -or ($ExecutedIsDomain -and $DeclaredIsLocal))
+}
 function Assert-DDMHostOrIp([string]$Value,[string]$Label) {
     if ([string]::IsNullOrWhiteSpace($Value)) { throw "$Label vazio." }
     if ($Value -match '[\s,;]') { throw "$Label deve conter um unico host ou IP: $Value" }

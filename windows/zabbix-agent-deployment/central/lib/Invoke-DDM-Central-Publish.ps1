@@ -775,9 +775,14 @@ try {
             [string]$Client.Update.CentralPath
         ).TrimEnd('\')
 
-        if ($Declared.ToLowerInvariant() -ne
-            $CentralRoot.TrimEnd('\').ToLowerInvariant()) {
+        $Executed = [System.IO.Path]::GetFullPath($CentralRoot).TrimEnd('\')
+
+        if (-not (Test-DDMCentralRootEquivalent $Declared $Executed)) {
             throw "CentralRoot divergente. Declarado=$Declared; executado=$CentralRoot"
+        }
+
+        if ($Declared.ToLowerInvariant() -ne $Executed.ToLowerInvariant()) {
+            Write-CentralLog "CentralRoot equivalente via NETLOGON do DC. Declarado=$Declared; executado=$Executed" 'OK'
         }
     }
 
