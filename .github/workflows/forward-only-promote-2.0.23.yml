@@ -1,0 +1,56 @@
+name: Materialize DDM SNOC 2.0.23 Forward Only
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'windows/zabbix-agent-deployment/**'
+      - '.github/workflows/forward-only-promote-2.0.23.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ddm-snoc-forward-only-2.0.23-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.event.pull_request.head.ref == 'fix/ddm-snoc-windows-2.0.23-forward-only'
+    runs-on: windows-2025
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/ddm-snoc-windows-2.0.23-forward-only
+          fetch-depth: 0
+      - name: Materialize forward-only source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.23-ForwardOnly-v2.ps1 -RepositoryRoot $env:GITHUB_WORKSPACE
+      - name: Validate 240 scenarios
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          & .\windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1 -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory (Join-Path $env:RUNNER_TEMP 'DDM-SNOC-240-2.0.23')
+      - name: Validate complete product
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $p=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          & (Join-Path $p 'tools\Test-DDM-Repository.ps1') -ProductRoot $p
+          & (Join-Path $p 'tools\Test-DDM-RuntimeLexing.ps1') -ProductRoot $p
+          & (Join-Path $p 'tools\Test-DDM-CentralBootstrapLoad.ps1') -ProductRoot $p
+          & (Join-Path $p 'tools\Test-DDM-AclValidation.ps1') -ProductRoot $p
+          & (Join-Path $p 'tools\Test-DDM-UncCmd.ps1') -ProductRoot $p
+      - name: Commit validated source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git config user.name 'bkpcloud-app'
+          git config user.email 'actions@github.com'
+          git add windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1 windows/zabbix-agent-deployment/config/DDM-Product.ps1 windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1 windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1 windows/zabbix-agent-deployment/CHANGELOG.md
+          if (-not (git status --porcelain)) { Write-Host 'No materialized changes to commit.'; exit 0 }
+          git commit -m 'fix(windows): 2.0.23 forward-only sem backup ou rollback'
+          git push origin HEAD:fix/ddm-snoc-windows-2.0.23-forward-only
