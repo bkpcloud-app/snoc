@@ -1,0 +1,102 @@
+name: Verify Published DDM SNOC Windows 2.0.25
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/verify-ddm-snoc-windows-2.0.25-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Verify release assets, hashes and final motor
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Tag='ddm-snoc-windows-v2.0.25'
+          $Required=@(
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.25.zip',
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.25.zip.sha256',
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.25.zip',
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.25.zip.sha256',
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.25.json',
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.25.json.sha256'
+          )
+          $ReleaseJson=gh release view $Tag --repo $env:GITHUB_REPOSITORY --json tagName,targetCommitish,assets
+          if($LASTEXITCODE -ne 0){throw "Release $Tag nao encontrada."}
+          $Release=$ReleaseJson | ConvertFrom-Json
+          $Names=@($Release.assets | ForEach-Object name)
+          foreach($Name in $Required){if($Names -notcontains $Name){throw "Asset ausente: $Name"}}
+
+          $Dist=Join-Path $env:RUNNER_TEMP 'ddm-release-2.0.25'
+          Remove-Item $Dist -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item $Dist -ItemType Directory -Force | Out-Null
+          foreach($Name in $Required){
+            gh release download $Tag --repo $env:GITHUB_REPOSITORY --dir $Dist --pattern $Name
+            if($LASTEXITCODE -ne 0){throw "Falha ao baixar asset: $Name"}
+          }
+
+          foreach($ZipName in @('DDM-SNOC-WINDOWS-MOTOR-2.0.25.zip','DDM-SNOC-WINDOWS-AD-SEED-2.0.25.zip')){
+            $Zip=Join-Path $Dist $ZipName
+            $ShaFile=$Zip+'.sha256'
+            $Expected=((Get-Content -LiteralPath $ShaFile -ErrorAction Stop | Select-Object -First 1) -split '\s+')[0].Trim().ToUpperInvariant()
+            $Actual=(Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToUpperInvariant()
+            if($Actual -ne $Expected){throw "SHA256 divergente para $ZipName. Expected=$Expected Actual=$Actual"}
+            Write-Host "ASSET_SHA256_OK=$ZipName:$Actual"
+          }
+
+          $ManifestPath=Join-Path $Dist 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.25.json'
+          $ManifestShaPath=$ManifestPath+'.sha256'
+          $ManifestExpected=((Get-Content -LiteralPath $ManifestShaPath | Select-Object -First 1) -split '\s+')[0].Trim().ToUpperInvariant()
+          $ManifestActual=(Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
+          if($ManifestActual -ne $ManifestExpected){throw 'Manifest SHA256 divergente.'}
+
+          $Expanded=Join-Path $env:RUNNER_TEMP 'ddm-release-2.0.25-expanded'
+          Remove-Item $Expanded -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath (Join-Path $Dist 'DDM-SNOC-WINDOWS-MOTOR-2.0.25.zip') -DestinationPath $Expanded -Force
+          $ExpandedProduct=Join-Path $Expanded 'DDM-SNOC-WINDOWS-MOTOR-2.0.25'
+          if(-not(Test-Path -LiteralPath $ExpandedProduct)){throw 'Raiz do MOTOR final ausente.'}
+
+          $ConfigPath=Join-Path $ExpandedProduct 'config\DDM-Product.ps1'
+          . $ConfigPath
+          if([string]$DDMProduct.ProductVersion -ne '2.0.25'){throw "MOTOR final nao e 2.0.25: $($DDMProduct.ProductVersion)"}
+          $EnginePath=Join-Path $ExpandedProduct 'engine\Install-DDM-Zabbix-Windows.ps1'
+          $Engine=[IO.File]::ReadAllText($EnginePath)
+          if($Engine.Contains("\[t\|1\]")){throw 'MOTOR publicado ainda contem o falso teste restrito a [t|1].'}
+          if(-not $Engine.Contains("\[[A-Za-z]\|1\]")){throw 'MOTOR publicado nao contem a correcao de agent.ping.'}
+          $Tokens=$null;$Errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile($EnginePath,[ref]$Tokens,[ref]$Errors)
+          if(@($Errors).Count -gt 0){throw 'Parser do engine publicado falhou.'}
+
+          $FinalRepo=Join-Path $env:RUNNER_TEMP 'ddm-release-2.0.25-finalrepo'
+          $FinalProduct=Join-Path $FinalRepo 'windows\zabbix-agent-deployment'
+          Remove-Item $FinalRepo -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item (Split-Path -Parent $FinalProduct) -ItemType Directory -Force | Out-Null
+          Copy-Item -LiteralPath $ExpandedProduct -Destination $FinalProduct -Recurse -Force
+          $WorkflowRoot=Join-Path $FinalRepo '.github\workflows'
+          New-Item $WorkflowRoot -ItemType Directory -Force | Out-Null
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-windows-validation.yml') $WorkflowRoot -Force
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-windows-release.yml') $WorkflowRoot -Force
+
+          & (Join-Path $FinalProduct 'tools\Test-DDM-Repository.ps1') -ProductRoot $FinalProduct
+          if(-not $?){throw 'Test-DDM-Repository falhou no MOTOR publicado.'}
+          $global:ProductCode='$ProductCode'
+          $ScenarioOutput=Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240-PUBLISHED-2.0.25'
+          & (Join-Path $FinalProduct 'tools\Test-DDM-SNOC-Migration-240Scenarios.ps1') -RepositoryRoot $FinalRepo -OutputDirectory $ScenarioOutput
+          if(-not $?){throw '240 cenarios falharam no MOTOR publicado.'}
+
+          Write-Host "RELEASE_VERIFIED=$Tag"
+          Write-Host "RELEASE_TARGET=$($Release.targetCommitish)"
+          Write-Host 'AGENT_PING_REGRESSION=PASS'
+          Write-Host 'PUBLISHED_MOTOR_240=240/240'
