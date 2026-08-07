@@ -1,0 +1,66 @@
+name: Materialize DDM SNOC 2.0.24
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'windows/zabbix-agent-deployment/**'
+      - '.github/workflows/materialize-ddm-snoc-2.0.24.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  materialize-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/windows-2.0.24-gpo-error-path
+          fetch-depth: 0
+
+      - name: Materialize exact test contract
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Root=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          $RepoTest=Join-Path $Root 'tools\Test-DDM-Repository.ps1'
+          $UncTest=Join-Path $Root 'tools\Test-DDM-UncCmd.ps1'
+          $Gpo=Join-Path $Root 'templates\central\GPO-DIARIA.cmd'
+
+          $Text=[IO.File]::ReadAllText($RepoTest)
+          $Text=$Text.Replace("Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.23') 'ProductVersion deve ser 2.0.23.'","Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.24') 'ProductVersion deve ser 2.0.24.'")
+          [IO.File]::WriteAllText($RepoTest,$Text,(New-Object Text.UTF8Encoding($false)))
+
+          $Text=[IO.File]::ReadAllText($UncTest)
+          if(-not $Text.Contains("GPO-DIARIA.cmd contem caret literal")){
+            $Anchor="Assert-DDMUncTest (`$AutomaticText.Contains('SINCRONIZAR-CLIENTE.ps1')) 'ATUALIZAR-AD-AUTOMATICO.cmd nao contempla sincronizacao do cliente.'"
+            $Insert=$Anchor+"`r`n`r`n"+'$GpoText = [IO.File]::ReadAllText((Join-Path $ProductRoot ''templates\central\GPO-DIARIA.cmd''))'+"`r`n"+'Assert-DDMUncTest (-not $GpoText.Contains(''^|'')) ''GPO-DIARIA.cmd contem caret literal antes de pipe dentro do PowerShell -Command.'''+"`r`n"+'Assert-DDMUncTest ($GpoText.Contains(''-ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1'')) ''GPO-DIARIA.cmd nao contem o pipeline PowerShell valido do diagnostico.'''
+            if(-not $Text.Contains($Anchor)){throw 'Anchor UNC test not found.'}
+            $Text=$Text.Replace($Anchor,$Insert)
+          }
+          [IO.File]::WriteAllText($UncTest,$Text,(New-Object Text.UTF8Encoding($false)))
+
+          $GpoText=[IO.File]::ReadAllText($Gpo)
+          if($GpoText.Contains('^|')){throw 'GPO-DIARIA ainda contem ^|.'}
+          if(-not $GpoText.Contains('-ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1')){throw 'Pipeline corrigido ausente.'}
+
+          git config user.name 'bkpcloud-app'
+          git config user.email 'bkpcloud-app@users.noreply.github.com'
+          git add windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1 windows/zabbix-agent-deployment/tools/Test-DDM-UncCmd.ps1
+          git diff --cached --quiet
+          if($LASTEXITCODE -ne 0){
+            git commit -m 'test(windows): cobrir pipeline de erro do GPO na 2.0.24'
+            git push origin HEAD:fix/windows-2.0.24-gpo-error-path
+          }
+
+      - name: Run complete source validation
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
+          & (Join-Path $Product 'tools\Test-DDM-UncCmd.ps1') -ProductRoot $Product
+          $global:ProductCode='$ProductCode'
+          & (Join-Path $Product 'tools\Test-DDM-SNOC-Migration-240Scenarios.ps1') -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory (Join-Path $env:RUNNER_TEMP 'DDM-SNOC-240-2.0.24')
