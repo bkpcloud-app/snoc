@@ -61,12 +61,12 @@ Assert-Contains $Validation "& (Join-Path `$ExpandedProduct 'tools\Test-DDM-Cent
 
 $Release=Read-NormalizedText $ReleasePath
 foreach($Required in @(
-    "'Test-DDM-CentralRecovery.ps1'",
-    "'Test-DDM-SNOC-Migration-240Scenarios.ps1'",
-    "'RECUPERAR-AD.cmd'",
-    "'ATUALIZAR-AD-AUTOMATICO.cmd'",
-    "'SINCRONIZAR-CLIENTE.ps1'",
-    "'Recover-DDM-CentralUpdater.ps1'",
+    'Test-DDM-CentralRecovery.ps1',
+    'Test-DDM-SNOC-Migration-240Scenarios.ps1',
+    'RECUPERAR-AD.cmd',
+    'ATUALIZAR-AD-AUTOMATICO.cmd',
+    'SINCRONIZAR-CLIENTE.ps1',
+    'Recover-DDM-CentralUpdater.ps1',
     'RUN_RELEASE_SOURCE_TEST=',
     'RUN_RELEASE_FINAL_TEST=',
     'FINAL_ENGINE_SHA256='
