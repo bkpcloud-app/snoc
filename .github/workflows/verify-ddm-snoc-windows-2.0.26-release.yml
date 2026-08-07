@@ -1,0 +1,109 @@
+name: Verify DDM SNOC Windows 2.0.26 Published Release
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/verify-ddm-snoc-windows-2.0.26-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout verifier
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Verify published 2.0.26 release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Tag='ddm-snoc-windows-v2.0.26'
+          $Required=@(
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.26.zip',
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.26.zip.sha256',
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.26.zip',
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.26.zip.sha256',
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.26.json',
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.26.json.sha256'
+          )
+          $ReleaseJson=gh release view $Tag --repo $env:GITHUB_REPOSITORY --json tagName,targetCommitish,assets
+          if($LASTEXITCODE -ne 0){throw "Release $Tag nao encontrada ou indisponivel."}
+          $Release=$ReleaseJson | ConvertFrom-Json
+          if([string]$Release.tagName -ne $Tag){throw "Tag divergente na release: $($Release.tagName)"}
+          $Names=@($Release.assets | ForEach-Object {[string]$_.name})
+          foreach($Name in $Required){if($Names -notcontains $Name){throw "Asset ausente: $Name"}}
+
+          $Root=Join-Path $env:RUNNER_TEMP 'DDM-SNOC-2.0.26-PUBLISHED'
+          Remove-Item $Root -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item $Root -ItemType Directory -Force|Out-Null
+          gh release download $Tag --repo $env:GITHUB_REPOSITORY --dir $Root
+          if($LASTEXITCODE -ne 0){throw "Download da release falhou: $LASTEXITCODE"}
+
+          function Assert-DDMHash([string]$Data,[string]$HashFile){
+            if(-not(Test-Path -LiteralPath $Data -PathType Leaf)){throw "Arquivo ausente: $Data"}
+            if(-not(Test-Path -LiteralPath $HashFile -PathType Leaf)){throw "Hash ausente: $HashFile"}
+            $Expected=(([IO.File]::ReadAllText($HashFile)).Trim() -split '\s+')[0].ToUpperInvariant()
+            $Actual=(Get-FileHash -LiteralPath $Data -Algorithm SHA256).Hash.ToUpperInvariant()
+            if($Expected -ne $Actual){throw "SHA256 divergente: $(Split-Path -Leaf $Data) Expected=$Expected Actual=$Actual"}
+            Write-Host "HASH_OK=$(Split-Path -Leaf $Data) SHA256=$Actual"
+          }
+          Assert-DDMHash (Join-Path $Root 'DDM-SNOC-WINDOWS-MOTOR-2.0.26.zip') (Join-Path $Root 'DDM-SNOC-WINDOWS-MOTOR-2.0.26.zip.sha256')
+          Assert-DDMHash (Join-Path $Root 'DDM-SNOC-WINDOWS-AD-SEED-2.0.26.zip') (Join-Path $Root 'DDM-SNOC-WINDOWS-AD-SEED-2.0.26.zip.sha256')
+          Assert-DDMHash (Join-Path $Root 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.26.json') (Join-Path $Root 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.26.json.sha256')
+
+          $Manifest=Get-Content -LiteralPath (Join-Path $Root 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.26.json') -Raw | ConvertFrom-Json
+          if([string]$Manifest.ProductVersion -ne '2.0.26'){throw "Manifest version divergente: $($Manifest.ProductVersion)"}
+          if([string]$Manifest.GitTag -ne $Tag){throw "Manifest tag divergente: $($Manifest.GitTag)"}
+
+          $Expanded=Join-Path $env:RUNNER_TEMP 'DDM-SNOC-2.0.26-PUBLISHED-EXPANDED'
+          $FinalRepo=Join-Path $env:RUNNER_TEMP 'DDM-SNOC-2.0.26-PUBLISHED-REPO'
+          Remove-Item $Expanded,$FinalRepo -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath (Join-Path $Root 'DDM-SNOC-WINDOWS-MOTOR-2.0.26.zip') -DestinationPath $Expanded -Force
+          $ExpandedProduct=Join-Path $Expanded 'DDM-SNOC-WINDOWS-MOTOR-2.0.26'
+          $FinalProduct=Join-Path $FinalRepo 'windows\zabbix-agent-deployment'
+          New-Item (Split-Path -Parent $FinalProduct) -ItemType Directory -Force|Out-Null
+          Copy-Item -LiteralPath $ExpandedProduct -Destination $FinalProduct -Recurse -Force
+          $WorkflowRoot=Join-Path $FinalRepo '.github\workflows'
+          New-Item $WorkflowRoot -ItemType Directory -Force|Out-Null
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-windows-validation.yml') $WorkflowRoot -Force
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-windows-release.yml') $WorkflowRoot -Force
+
+          . (Join-Path $FinalProduct 'config\DDM-Product.ps1')
+          if([string]$DDMProduct.ProductVersion -ne '2.0.26'){throw "MOTOR publicado nao e 2.0.26: $($DDMProduct.ProductVersion)"}
+          $EnginePath=Join-Path $FinalProduct 'engine\Install-DDM-Zabbix-Windows.ps1'
+          $Engine=[IO.File]::ReadAllText($EnginePath)
+          foreach($RequiredEngine in @(
+            'function Normalize-DDMLegacyConfigLine',
+            '$VendorPluginConfig',
+            '$AgentPingExitCode=$LASTEXITCODE',
+            "@('ember.conf','mssql.conf','mongodb.conf','postgresql.conf')"
+          )){
+            if(-not $Engine.Contains($RequiredEngine)){throw "Correcao ausente no MOTOR publicado: $RequiredEngine"}
+          }
+          if($Engine.Contains('$LASTEXITCODE -ne 0 -or ($Out -join')){throw 'Logica antiga de falso negativo agent.ping presente no MOTOR publicado.'}
+
+          & (Join-Path $FinalProduct 'tools\Test-DDM-Repository.ps1') -ProductRoot $FinalProduct
+          if(-not $?){throw 'Test-DDM-Repository falhou no MOTOR publicado.'}
+          $global:ProductCode='$ProductCode'
+          $ScenarioOut=Join-Path $env:RUNNER_TEMP 'DDM-SNOC-2.0.26-PUBLISHED-240'
+          & (Join-Path $FinalProduct 'tools\Test-DDM-SNOC-Migration-240Scenarios.ps1') -RepositoryRoot $FinalRepo -OutputDirectory $ScenarioOut
+          if(-not $?){throw '240 cenarios falharam no MOTOR publicado.'}
+          $EngineHash=(Get-FileHash -LiteralPath $EnginePath -Algorithm SHA256).Hash.ToUpperInvariant()
+          Write-Host 'PUBLISHED_RELEASE_VERIFIED=2.0.26'
+          Write-Host "PUBLISHED_ENGINE_SHA256=$EngineHash"
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: DDM-SNOC-WINDOWS-2.0.26-PUBLISHED-VERIFICATION
+          path: ${{ runner.temp }}/DDM-SNOC-2.0.26-PUBLISHED-240
+          if-no-files-found: warn
+          retention-days: 30
