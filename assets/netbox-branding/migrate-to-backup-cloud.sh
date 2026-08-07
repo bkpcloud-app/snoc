@@ -2,8 +2,10 @@
 set -Eeuo pipefail
 umask 022
 
+VERSION="2026.08.07.1"
 APP="/opt/netbox/netbox"
 VENV="/opt/netbox/venv"
+CONFIG="$APP/netbox/configuration.py"
 PLUGIN_ROOT="/opt/netbox/local/ddm-netbox-branding"
 PKG="${PLUGIN_ROOT}/ddm_netbox_branding"
 STATIC="${PKG}/static/ddm_netbox_branding"
@@ -11,62 +13,85 @@ INIT="${PKG}/__init__.py"
 TC="${PKG}/template_content.py"
 FQDN="inventory.bkpcloud.app.br"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP="/opt/netbox/backups/backup-cloud-netbox-branding-${STAMP}"
-TMPDIR="$(mktemp -d /tmp/backup-cloud-netbox.XXXXXX)"
-RAW="https://raw.githubusercontent.com/bkpcloud-app/snoc/main/assets/backup-cloud/gestao-movel/branding/web"
+BACKUP="/opt/netbox/backups/backupcloud-netbox-branding-${STAMP}"
+TMPDIR="$(mktemp -d /tmp/backupcloud-netbox.XXXXXX)"
+RAW="${BC_RAW_BASE:-https://raw.githubusercontent.com/bkpcloud-app/snoc/main/assets/backup-cloud/gestao-movel/branding/web}"
+LOGO_B64="$RAW/backup-cloud-logo-dark-transparent.png.b64"
+LOGO_FILE="$STATIC/backupcloud-logo.png"
+CHANGED=0
 
 fail(){ echo "ERRO: $*" >&2; exit 1; }
 cleanup(){ rm -rf "$TMPDIR"; }
+rollback(){
+  rc=$?
+  trap - ERR
+  set +e
+  if [[ "$CHANGED" == "1" && -d "$BACKUP/plugin-anterior" ]]; then
+    echo "ROLLBACK: restaurando branding anterior..."
+    rm -rf "$PKG"
+    cp -a "$BACKUP/plugin-anterior" "$PKG"
+    [[ -f "$BACKUP/configuration.py" ]] && cp -a "$BACKUP/configuration.py" "$CONFIG"
+    cd "$APP"
+    "$VENV/bin/python" manage.py collectstatic --no-input >/dev/null 2>&1 || true
+    systemctl restart netbox netbox-rq >/dev/null 2>&1 || true
+    echo "ROLLBACK concluido: $BACKUP"
+  fi
+  exit "$rc"
+}
 trap cleanup EXIT
+trap rollback ERR
 
 [[ "$(id -u)" -eq 0 ]] || fail "execute como root"
 [[ -x "$VENV/bin/python" ]] || fail "venv do NetBox nao encontrado"
+[[ -f "$CONFIG" ]] || fail "configuration.py nao encontrado"
 [[ -d "$PKG" ]] || fail "plugin de branding atual nao encontrado"
 [[ -f "$INIT" ]] || fail "__init__.py do plugin nao encontrado"
 [[ -f "$TC" ]] || fail "template_content.py do plugin nao encontrado"
-command -v curl >/dev/null 2>&1 || fail "curl ausente"
-command -v base64 >/dev/null 2>&1 || fail "base64 ausente"
+for c in curl python3 grep install cp rm mkdir; do command -v "$c" >/dev/null || fail "comando ausente: $c"; done
 
 cd "$APP"
-VERSION="$($VENV/bin/python manage.py shell -c 'from django.conf import settings; print(settings.VERSION)' 2>/dev/null | tail -n1)"
-[[ "$VERSION" == "4.6.5" ]] || fail "ajuste homologado para NetBox 4.6.5; detectado: $VERSION"
+NETBOX_VERSION="$($VENV/bin/python manage.py shell -c 'from django.conf import settings; print(settings.VERSION)' 2>/dev/null | tail -n1)"
+[[ "$NETBOX_VERSION" == "4.6.5" ]] || fail "ajuste homologado para NetBox 4.6.5; detectado: $NETBOX_VERSION"
 
 for svc in netbox netbox-rq nginx; do
   systemctl is-active --quiet "$svc" || fail "servico $svc nao esta ativo"
 done
 
-mkdir -p "$BACKUP"
-cp -a "$PKG" "$BACKUP/plugin-anterior"
-echo "Backup: $BACKUP"
+echo "============================================================"
+echo " BACKUPCLOUD | INVENTARIO"
+echo " Instalador: $VERSION"
+echo " NetBox: $NETBOX_VERSION"
+echo "============================================================"
 
-decode_asset(){
-  local src="$1" dst="$2" tmp="$3"
-  curl -fsSL "$src" -o "$tmp"
-  base64 -d "$tmp" > "$dst"
-  [[ -s "$dst" ]] || fail "asset vazio: $src"
-}
-
-decode_asset "$RAW/backup-cloud-logo-dark-transparent.png.b64" "$TMPDIR/backup-cloud-logo.png" "$TMPDIR/logo.b64"
-decode_asset "$RAW/backup-cloud-icon.png.b64" "$TMPDIR/backup-cloud-icon.png" "$TMPDIR/icon.b64"
-decode_asset "$RAW/backup-cloud-favicon.ico.b64" "$TMPDIR/backup-cloud-favicon.ico" "$TMPDIR/favicon.b64"
-
-python3 - "$TMPDIR/backup-cloud-logo.png" "$TMPDIR/backup-cloud-icon.png" "$TMPDIR/backup-cloud-favicon.ico" <<'PY'
+echo "[1/7] Pre-validando logo - nenhuma alteracao ainda"
+curl -fLsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 "$LOGO_B64" -o "$TMPDIR/logo.b64"
+python3 - "$TMPDIR/logo.b64" "$TMPDIR/backupcloud-logo.png" <<'PY'
 from pathlib import Path
-import sys
-logo, icon, fav = map(Path, sys.argv[1:])
-for p, minimum, label in [(logo, 5000, 'logo'), (icon, 2000, 'icone')]:
-    data = p.read_bytes()
-    if not data.startswith(b'\x89PNG\r\n\x1a\n') or len(data) < minimum:
-        raise SystemExit(f'{label} PNG invalido: {p}')
-data = fav.read_bytes()
-if len(data) < 1000 or data[:4] != b'\x00\x00\x01\x00':
-    raise SystemExit(f'favicon ICO invalido: {fav}')
-print('Assets Backup Cloud: OK')
+import base64,re,struct,sys
+src,dst=map(Path,sys.argv[1:])
+s=re.sub(r'\s+','',src.read_text(encoding='ascii'))
+if not re.fullmatch(r'[A-Za-z0-9+/]*={0,2}',s) or len(s)%4:
+    raise SystemExit('Base64 da logo invalido')
+data=base64.b64decode(s,validate=True)
+if not data.startswith(b'\x89PNG\r\n\x1a\n') or data[12:16] != b'IHDR' or b'IEND' not in data[-32:]:
+    raise SystemExit('logo PNG invalida')
+w,h=struct.unpack('>II',data[16:24])
+if w < 300 or h < 100:
+    raise SystemExit(f'dimensoes inesperadas da logo: {w}x{h}')
+dst.write_bytes(data)
+print(f'   Logo OK: {w}x{h} | {len(data)} bytes')
 PY
 
-install -m 0644 "$TMPDIR/backup-cloud-logo.png" "$STATIC/backup-cloud-logo.png"
-install -m 0644 "$TMPDIR/backup-cloud-icon.png" "$STATIC/backup-cloud-icon.png"
-install -m 0644 "$TMPDIR/backup-cloud-favicon.ico" "$STATIC/backup-cloud-favicon.ico"
+echo "[2/7] Criando backup"
+mkdir -p "$BACKUP"
+cp -a "$PKG" "$BACKUP/plugin-anterior"
+cp -a "$CONFIG" "$BACKUP/configuration.py"
+CHANGED=1
+echo "   $BACKUP"
+
+echo "[3/7] Aplicando identidade BackupCloud"
+install -d -m 0755 "$STATIC"
+install -m 0644 "$TMPDIR/backupcloud-logo.png" "$LOGO_FILE"
 
 cat > "$INIT" <<'PY'
 from netbox.plugins import PluginConfig
@@ -74,10 +99,10 @@ from netbox.plugins import PluginConfig
 
 class BackupCloudNetBoxBrandingConfig(PluginConfig):
     name = "ddm_netbox_branding"
-    verbose_name = "Backup Cloud Branding"
-    description = "Identidade visual Backup Cloud para NetBox"
-    version = "2.0.0"
-    author = "Backup Cloud"
+    verbose_name = "BackupCloud | Inventário"
+    description = "Identidade visual BackupCloud para o produto Inventário"
+    version = "3.0.0"
+    author = "BackupCloud"
     min_version = "4.6.0"
     max_version = "4.6.99"
 
@@ -93,204 +118,305 @@ from netbox.plugins.templates import PluginTemplateExtension
 
 class BackupCloudGlobalBranding(PluginTemplateExtension):
     def head(self):
-        css = static("ddm_netbox_branding/backup-cloud-branding.css")
-        js = static("ddm_netbox_branding/backup-cloud-branding.js")
-        favicon = static("ddm_netbox_branding/backup-cloud-favicon.ico")
+        css = static("ddm_netbox_branding/backupcloud-branding.css")
+        js = static("ddm_netbox_branding/backupcloud-branding.js")
+        logo = static("ddm_netbox_branding/backupcloud-logo.png")
         return format_html(
-            '<link rel="stylesheet" href="{}?v=2.0.0">'
-            '<link rel="icon" type="image/x-icon" href="{}?v=2.0.0">'
-            '<script defer src="{}?v=2.0.0"></script>'
-            '<style id="backup-cloud-hide-netbox-release">'
+            '<link rel="stylesheet" href="{}?v=3.0.0">'
+            '<link rel="icon" type="image/png" href="{}?v=3.0.0">'
+            '<script defer src="{}?v=3.0.0"></script>'
+            '<style id="backupcloud-netbox-release">'
             '#sidebar-menu > .text-muted.text-center.fs-5.my-3.px-3{{display:none!important;}}'
             '</style>',
-            css, favicon, js
+            css, logo, js
         )
 
 
 template_extensions = [BackupCloudGlobalBranding]
 PY
 
-cat > "$STATIC/backup-cloud-branding.css" <<'CSS'
-/* Backup Cloud - NetBox Branding 2.0 */
+cat > "$STATIC/backupcloud-branding.css" <<'CSS'
+/* === BACKUPCLOUD INVENTARIO FINAL - INICIO === */
 :root,
 [data-bs-theme="light"],
-[data-bs-theme="dark"] {
-  --bc-navy:#0B1323;
-  --bc-surface:#111827;
-  --bc-surface-2:#172033;
-  --bc-purple:#3E4095;
-  --bc-purple-light:#5659C7;
-  --bc-blue:#2563EB;
-  --bc-cyan:#06B6D4;
-  --bc-gray:#8C8D90;
-  --bc-light:#E5E7EB;
-  --bc-white:#FFFFFF;
-  --tblr-primary:#3E4095;
-  --tblr-primary-rgb:62,64,149;
-  --tblr-link-color:#2563EB;
-  --tblr-link-hover-color:#5659C7;
+[data-bs-theme="dark"]{
+  --bc-bg:#111a2c;
+  --bc-bg2:#182640;
+  --bc-panel:#243552;
+  --bc-panel2:#1d2c47;
+  --bc-purple:#5659c7;
+  --bc-blue:#3578f6;
+  --bc-text:#e8eef9;
+  --bc-muted:#aebbd0;
+  --bc-border:rgba(148,163,184,.28);
+  --tblr-primary:#5659c7;
+  --tblr-primary-rgb:86,89,199;
+  --tblr-link-color:#64b5f6;
+  --tblr-link-hover-color:#91c9ff;
 }
 
-/* Barra lateral */
-.navbar-vertical {
-  background:linear-gradient(180deg,var(--bc-navy) 0%,var(--bc-surface) 100%)!important;
-  border-right:3px solid var(--bc-purple-light)!important;
+body{
+  color:var(--bc-text)!important;
+  background:
+    radial-gradient(circle at 16% 22%,rgba(86,89,199,.30),transparent 31%),
+    radial-gradient(circle at 82% 70%,rgba(53,120,246,.18),transparent 34%),
+    linear-gradient(135deg,var(--bc-bg) 0%,var(--bc-bg2) 52%,#25295c 100%) fixed!important;
+}
+
+.navbar-vertical{
+  background:linear-gradient(180deg,#111a2c 0%,#182640 65%,#20264d 100%)!important;
+  border-right:1px solid rgba(148,163,184,.20)!important;
+  box-shadow:4px 0 18px rgba(4,9,20,.15)!important;
 }
 .navbar-vertical .nav-link,
 .navbar-vertical .nav-link .nav-link-icon,
-.navbar-vertical .navbar-brand {color:#e5e7eb!important}
+.navbar-vertical .navbar-brand{color:#dfe8f5!important}
+.navbar-vertical .nav-link:hover,
 .navbar-vertical .nav-link.active,
-.navbar-vertical .nav-item.active>.nav-link,
-.navbar-vertical .nav-link:hover {color:#fff!important;background:rgba(86,89,199,.14)!important}
-.navbar-vertical .nav-link.active .nav-link-icon,
-.navbar-vertical .nav-link:hover .nav-link-icon {color:var(--bc-cyan)!important}
-
-/* Cabeçalho */
-header.navbar {
-  background:var(--bc-surface)!important;
-  border-bottom:2px solid rgba(86,89,199,.65)!important;
+.navbar-vertical .nav-item.active>.nav-link{
+  color:#fff!important;
+  background:rgba(86,89,199,.18)!important;
 }
-header.navbar .form-control:focus,
-.form-control:focus {border-color:var(--bc-blue)!important;box-shadow:0 0 0 .2rem rgba(37,99,235,.14)!important}
+.navbar-vertical .nav-link:hover .nav-link-icon,
+.navbar-vertical .nav-link.active .nav-link-icon{color:#91c9ff!important}
 
-/* Acoes e cor primaria */
-.btn-primary,
-.bg-primary {
-  background:linear-gradient(90deg,var(--bc-blue),var(--bc-purple-light))!important;
-  border-color:var(--bc-blue)!important;
+header.navbar{
+  background:linear-gradient(90deg,#111a2c,#182640 60%,#25295c)!important;
+  border-bottom:1px solid rgba(148,163,184,.18)!important;
+  box-shadow:0 2px 12px rgba(4,9,20,.20)!important;
+}
+header.navbar a,header.navbar button{color:#f8fbff!important}
+
+.page-wrapper,.page-body,.container-xl,.container-fluid,.container{background:transparent!important}
+
+.card,.modal-content,.dropdown-menu{
+  background:rgba(36,53,82,.94)!important;
+  color:var(--bc-text)!important;
+  border:1px solid var(--bc-border)!important;
+  border-radius:10px!important;
+  box-shadow:0 12px 32px rgba(0,0,0,.16)!important;
+}
+.card-header,.modal-header,.modal-footer{border-color:rgba(148,163,184,.20)!important}
+.card-title,.card-header,.modal-title,label,.form-label{color:#edf4ff!important}
+.text-secondary,.text-muted,.help-text,.form-hint{color:var(--bc-muted)!important}
+
+.table{--tblr-table-color:#dfe8f5;--tblr-table-bg:transparent;color:#dfe8f5!important}
+.table>:not(caption)>*>*{background:transparent!important;border-color:rgba(148,163,184,.18)!important;color:#dfe8f5!important}
+.table-hover>tbody>tr:hover>*{background:rgba(255,255,255,.045)!important;color:#fff!important}
+.table a{color:#64b5f6!important}
+
+.form-control,.form-select,.ts-control,input.form-control,textarea.form-control{
+  background:#f8fafc!important;
+  color:#26364e!important;
+  border:1px solid #bac8da!important;
+  border-radius:6px!important;
+  box-shadow:none!important;
+}
+.form-control::placeholder{color:#6b7b91!important}
+.form-control:focus,.form-select:focus,.ts-control:focus-within{
+  border-color:#6e8cff!important;
+  box-shadow:0 0 0 3px rgba(86,89,199,.15)!important;
+}
+
+.btn-primary,.bg-primary{
+  background:linear-gradient(90deg,var(--bc-blue),var(--bc-purple))!important;
+  border-color:transparent!important;
   color:#fff!important;
 }
-.btn-primary:hover,.btn-primary:focus,.btn-primary:active {
-  background:linear-gradient(90deg,#1d4ed8,var(--bc-purple))!important;
-  border-color:#1d4ed8!important;
+.btn-primary:hover,.btn-primary:focus,.btn-primary:active{
+  background:linear-gradient(90deg,#2669e8,#4a4db5)!important;
+  color:#fff!important;
 }
-.text-primary {color:var(--bc-cyan)!important}
-a:not(.btn):not(.nav-link):not(.dropdown-item) {color:var(--bc-blue)}
-a:not(.btn):not(.nav-link):not(.dropdown-item):hover {color:var(--bc-purple-light)}
-.form-check-input:checked,.page-item.active .page-link {background-color:var(--bc-purple)!important;border-color:var(--bc-purple)!important}
+.form-check-input:checked,.page-item.active .page-link{
+  background-color:var(--bc-purple)!important;
+  border-color:var(--bc-purple)!important;
+}
 
-/* Logo */
-.navbar-brand-image.backup-cloud-brand-image {
-  width:220px!important;
-  height:auto!important;
+a:not(.btn):not(.nav-link):not(.dropdown-item){color:#64b5f6}
+a:not(.btn):not(.nav-link):not(.dropdown-item):hover{color:#91c9ff}
+
+.navbar-brand-image.backupcloud-brand-image{
+  width:205px!important;
   max-width:100%!important;
-  max-height:62px!important;
-  object-fit:contain!important;
-}
-.page-center img.logo.backup-cloud-brand-image {
-  width:min(390px,84vw)!important;
+  max-height:56px!important;
   height:auto!important;
-  max-height:none!important;
   object-fit:contain!important;
 }
 
-/* Login */
-.page-center {
+.page-center{
   background:
-    radial-gradient(circle at top right,rgba(86,89,199,.18),transparent 34%),
-    radial-gradient(circle at bottom left,rgba(6,182,212,.10),transparent 38%),
-    var(--bc-navy)!important;
+    radial-gradient(circle at 16% 22%,rgba(86,89,199,.34),transparent 31%),
+    radial-gradient(circle at 82% 70%,rgba(53,120,246,.22),transparent 34%),
+    linear-gradient(135deg,var(--bc-bg) 0%,var(--bc-bg2) 52%,#25295c 100%) fixed!important;
 }
-.page-center .card {
-  border:1px solid rgba(148,163,184,.16)!important;
-  border-top:3px solid var(--bc-purple-light)!important;
-  border-radius:12px!important;
-  box-shadow:0 18px 48px rgba(0,0,0,.28)!important;
+.page-center img.logo.backupcloud-brand-image{
+  width:min(360px,68vw)!important;
+  max-width:360px!important;
+  max-height:none!important;
+  height:auto!important;
+  margin:0 auto 8px!important;
+  background:transparent!important;
+  box-shadow:none!important;
 }
-.page-center .netbox-edition {color:#aeb7c7!important;margin-top:8px}
+.page-center .card{
+  width:min(500px,calc(100vw - 28px))!important;
+  background:rgba(36,53,82,.94)!important;
+  border:1px solid rgba(153,170,205,.46)!important;
+  border-top:2px solid #7377e6!important;
+  box-shadow:0 20px 52px rgba(0,0,0,.24)!important;
+}
+.page-center .netbox-edition{
+  color:#cfd7e6!important;
+  font-size:14px!important;
+  letter-spacing:.26em!important;
+  text-transform:uppercase!important;
+  font-weight:500!important;
+  margin-top:4px!important;
+}
 
-/* Cards, tabelas e detalhes */
-.card {border-radius:9px}
-.card-header {border-bottom-color:rgba(86,89,199,.20)}
-.table-hover tbody tr:hover {--tblr-table-hover-bg:rgba(86,89,199,.055)}
-.badge.bg-primary {background:var(--bc-purple)!important}
+.badge.bg-primary{background:var(--bc-purple)!important}
 
 @media(max-width:991.98px){
-  .navbar-brand-image.backup-cloud-brand-image{width:178px!important;max-height:50px!important}
+  .navbar-brand-image.backupcloud-brand-image{width:165px!important;max-height:48px!important}
 }
+@media(max-width:760px){
+  .page-center img.logo.backupcloud-brand-image{width:min(320px,72vw)!important}
+  .page-center .netbox-edition{font-size:12px!important;letter-spacing:.20em!important}
+}
+/* === BACKUPCLOUD INVENTARIO FINAL - FIM === */
 CSS
 
-cat > "$STATIC/backup-cloud-branding.js" <<'JS'
+cat > "$STATIC/backupcloud-branding.js" <<'JS'
 (() => {
   "use strict";
-  const logo = "/static/ddm_netbox_branding/backup-cloud-logo.png?v=2.0.0";
+  const logo = "/static/ddm_netbox_branding/backupcloud-logo.png?v=3.0.0";
   const apply = () => {
-    document.querySelectorAll('img[src*="logo_netbox_dark_teal"],img[src*="logo_netbox_bright_teal"],img.ddm-brand-image').forEach(img => {
+    document.querySelectorAll('img[src*="logo_netbox_dark_teal"],img[src*="logo_netbox_bright_teal"],img.ddm-brand-image,img.backup-cloud-brand-image').forEach(img => {
       img.src = logo;
-      img.alt = "Backup Cloud";
+      img.alt = "BackupCloud";
       img.removeAttribute("height");
-      img.classList.remove("ddm-brand-image");
-      img.classList.add("backup-cloud-brand-image");
+      img.classList.remove("ddm-brand-image","backup-cloud-brand-image");
+      img.classList.add("backupcloud-brand-image");
     });
-    document.querySelectorAll(".netbox-edition").forEach(el => el.textContent = "Inventário de Infraestrutura");
+
+    document.querySelectorAll(".netbox-edition").forEach(el => {
+      el.textContent = "Inventário";
+    });
+
     if (document.title) {
       document.title = document.title
-        .replace(/\s*\|\s*NetBox\s*$/i, " | Backup Cloud")
-        .replace(/\s*\|\s*DDMTI\s*$/i, " | Backup Cloud");
+        .replace(/\s*\|\s*NetBox\s*$/i, " | BackupCloud | Inventário")
+        .replace(/\s*\|\s*DDMTI\s*$/i, " | BackupCloud | Inventário")
+        .replace(/\s*\|\s*Backup Cloud\s*$/i, " | BackupCloud | Inventário");
+      if (!/BackupCloud/i.test(document.title)) {
+        document.title = document.title + " | BackupCloud | Inventário";
+      }
     }
   };
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", apply); else apply();
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", apply);
+  } else {
+    apply();
+  }
   document.addEventListener("htmx:afterSwap", apply);
 })();
 JS
 
-# Remove fontes visuais DDMTI antigas do source do plugin.
-rm -f "$STATIC/ddm-branding.css" "$STATIC/ddm-branding.js" "$STATIC/ddm-brand.svg" "$STATIC/ddm-favicon.svg"
+rm -f \
+  "$STATIC/ddm-branding.css" \
+  "$STATIC/ddm-branding.js" \
+  "$STATIC/ddm-brand.svg" \
+  "$STATIC/ddm-favicon.svg" \
+  "$STATIC/backup-cloud-branding.css" \
+  "$STATIC/backup-cloud-branding.js" \
+  "$STATIC/backup-cloud-logo.png" \
+  "$STATIC/backup-cloud-icon.png" \
+  "$STATIC/backup-cloud-favicon.ico"
 
-echo "[1/5] Validando plugin Backup Cloud..."
-$VENV/bin/python manage.py check
-$VENV/bin/python manage.py shell -c 'import ddm_netbox_branding as p; print("PLUGIN=" + p.config.verbose_name + " VERSION=" + p.config.version)' | tail -n1
+echo "[4/7] Validando plugin e publicando estaticos"
+"$VENV/bin/python" manage.py check
+"$VENV/bin/python" manage.py shell -c 'import ddm_netbox_branding as p; print("PLUGIN=" + p.config.verbose_name + " VERSION=" + p.config.version)' | tail -n1
+"$VENV/bin/python" manage.py collectstatic --no-input >/dev/null
+[[ -s "$APP/static/ddm_netbox_branding/backupcloud-branding.css" ]] || fail "CSS BackupCloud nao publicado"
+[[ -s "$APP/static/ddm_netbox_branding/backupcloud-branding.js" ]] || fail "JS BackupCloud nao publicado"
+[[ -s "$APP/static/ddm_netbox_branding/backupcloud-logo.png" ]] || fail "logo BackupCloud nao publicada"
 
-echo "[2/5] Publicando arquivos estaticos..."
-$VENV/bin/python manage.py collectstatic --no-input >/dev/null
-[[ -s "$APP/static/ddm_netbox_branding/backup-cloud-branding.css" ]] || fail "CSS Backup Cloud nao publicado"
-[[ -s "$APP/static/ddm_netbox_branding/backup-cloud-logo.png" ]] || fail "logo Backup Cloud nao publicada"
-[[ -s "$APP/static/ddm_netbox_branding/backup-cloud-favicon.ico" ]] || fail "favicon Backup Cloud nao publicado"
-rm -f "$APP/static/ddm_netbox_branding/ddm-branding.css" "$APP/static/ddm_netbox_branding/ddm-branding.js" "$APP/static/ddm_netbox_branding/ddm-brand.svg" "$APP/static/ddm_netbox_branding/ddm-favicon.svg"
+# remove sobras antigas do diretório final de static
+rm -f \
+  "$APP/static/ddm_netbox_branding/ddm-branding.css" \
+  "$APP/static/ddm_netbox_branding/ddm-branding.js" \
+  "$APP/static/ddm_netbox_branding/ddm-brand.svg" \
+  "$APP/static/ddm_netbox_branding/ddm-favicon.svg" \
+  "$APP/static/ddm_netbox_branding/backup-cloud-branding.css" \
+  "$APP/static/ddm_netbox_branding/backup-cloud-branding.js" \
+  "$APP/static/ddm_netbox_branding/backup-cloud-logo.png" \
+  "$APP/static/ddm_netbox_branding/backup-cloud-icon.png" \
+  "$APP/static/ddm_netbox_branding/backup-cloud-favicon.ico"
 
-echo "[3/5] Reiniciando NetBox..."
+echo "[5/7] Reiniciando NetBox"
 systemctl restart netbox netbox-rq
 sleep 4
 systemctl is-active --quiet netbox || fail "netbox nao voltou"
 systemctl is-active --quiet netbox-rq || fail "netbox-rq nao voltou"
 
-echo "[4/5] Validando HTML..."
-HTTP="$(curl -sS -H "Host: $FQDN" -o /tmp/backup-cloud-netbox.html -w '%{http_code}' http://127.0.0.1:8001/)"
+echo "[6/7] Validando HTML e arquivos estaticos"
+HTTP="$(curl -sS -H "Host: $FQDN" -o "$TMPDIR/netbox.html" -w '%{http_code}' http://127.0.0.1:8001/)"
 [[ "$HTTP" =~ ^(200|301|302)$ ]] || fail "NetBox respondeu HTTP $HTTP"
-grep -q 'backup-cloud-branding.css' /tmp/backup-cloud-netbox.html || fail "CSS Backup Cloud nao apareceu no HTML"
-grep -q 'backup-cloud-favicon.ico' /tmp/backup-cloud-netbox.html || fail "favicon Backup Cloud nao apareceu no HTML"
-if grep -q 'ddm-branding.css' /tmp/backup-cloud-netbox.html; then fail "HTML ainda referencia CSS DDMTI antigo"; fi
+grep -q 'backupcloud-branding.css' "$TMPDIR/netbox.html" || fail "CSS BackupCloud nao apareceu no HTML"
+grep -q 'backupcloud-branding.js' "$TMPDIR/netbox.html" || fail "JS BackupCloud nao apareceu no HTML"
+if grep -Eq 'ddm-branding|backup-cloud-branding' "$TMPDIR/netbox.html"; then fail "HTML ainda referencia branding antigo"; fi
 
-echo "[5/5] Validando HTTPS..."
-HTTPS_CSS="$(curl -ksS --resolve "$FQDN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$FQDN/static/ddm_netbox_branding/backup-cloud-branding.css?v=2.0.0")"
-HTTPS_LOGO="$(curl -ksS --resolve "$FQDN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$FQDN/static/ddm_netbox_branding/backup-cloud-logo.png?v=2.0.0")"
-[[ "$HTTPS_CSS" == "200" ]] || fail "CSS HTTPS respondeu $HTTPS_CSS"
-[[ "$HTTPS_LOGO" == "200" ]] || fail "logo HTTPS respondeu $HTTPS_LOGO"
+STATIC_CSS="$(curl -ksS --resolve "$FQDN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$FQDN/static/ddm_netbox_branding/backupcloud-branding.css?v=3.0.0")"
+STATIC_JS="$(curl -ksS --resolve "$FQDN:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://$FQDN/static/ddm_netbox_branding/backupcloud-branding.js?v=3.0.0")"
+STATIC_LOGO="$(curl -ksS --resolve "$FQDN:443:127.0.0.1" -o "$TMPDIR/live-logo.png" -w '%{http_code}' "https://$FQDN/static/ddm_netbox_branding/backupcloud-logo.png?v=3.0.0")"
+[[ "$STATIC_CSS" == "200" ]] || fail "CSS HTTPS respondeu $STATIC_CSS"
+[[ "$STATIC_JS" == "200" ]] || fail "JS HTTPS respondeu $STATIC_JS"
+[[ "$STATIC_LOGO" == "200" ]] || fail "logo HTTPS respondeu $STATIC_LOGO"
+python3 - "$TMPDIR/live-logo.png" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); data=p.read_bytes()
+if not data.startswith(b'\x89PNG\r\n\x1a\n') or b'IEND' not in data[-32:]:
+    raise SystemExit('logo servida por HTTPS invalida')
+print('   HTTPS: CSS + JS + logo OK')
+PY
 
-cat > /root/rollback-backup-cloud-netbox-branding.sh <<EOF
+echo "[7/7] Criando rollback"
+cat > /root/rollback-backupcloud-netbox-branding.sh <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
-rm -rf "$PKG"
-cp -a "$BACKUP/plugin-anterior" "$PKG"
-cd "$APP"
-"$VENV/bin/python" manage.py check
-"$VENV/bin/python" manage.py collectstatic --no-input >/dev/null
+APP="$APP"
+VENV="$VENV"
+CONFIG="$CONFIG"
+PKG="$PKG"
+BACKUP="$BACKUP"
+rm -rf "\$PKG"
+cp -a "\$BACKUP/plugin-anterior" "\$PKG"
+cp -a "\$BACKUP/configuration.py" "\$CONFIG"
+cd "\$APP"
+"\$VENV/bin/python" manage.py check
+"\$VENV/bin/python" manage.py collectstatic --no-input >/dev/null
 systemctl restart netbox netbox-rq
-echo "Branding anterior restaurado a partir de: $BACKUP"
+echo "Branding anterior restaurado: \$BACKUP"
 EOF
-chmod 700 /root/rollback-backup-cloud-netbox-branding.sh
+chmod 700 /root/rollback-backupcloud-netbox-branding.sh
+
+CHANGED=0
+trap - ERR
 
 echo
 echo "============================================================"
-echo " BACKUP CLOUD NETBOX BRANDING - CONCLUIDO"
+echo " SUCESSO - BACKUPCLOUD | INVENTARIO"
 echo "============================================================"
-echo "NetBox       : $VERSION"
-echo "Marca        : Backup Cloud"
-echo "Produto      : Inventario de Infraestrutura"
-echo "App HTTP     : $HTTP"
-echo "CSS HTTPS    : $HTTPS_CSS"
-echo "Logo HTTPS   : $HTTPS_LOGO"
-echo "Backup       : $BACKUP"
-echo "Rollback     : /root/rollback-backup-cloud-netbox-branding.sh"
-echo "Core NetBox  : intacto"
+echo "NetBox      : $NETBOX_VERSION"
+echo "Marca       : BackupCloud"
+echo "Produto     : Inventario"
+echo "App HTTP    : $HTTP"
+echo "CSS HTTPS   : $STATIC_CSS"
+echo "JS HTTPS    : $STATIC_JS"
+echo "Logo HTTPS  : $STATIC_LOGO"
+echo "Backup      : $BACKUP"
+echo "Rollback    : /root/rollback-backupcloud-netbox-branding.sh"
+echo "Core NetBox : intacto"
 echo "============================================================"
