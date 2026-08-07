@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 022
 
-VERSION="2026.08.07.10"
+VERSION="2026.08.07.11"
 BASE="${BC_BASE:-/home/suporte}"
 TOMCAT="${BC_TOMCAT:-/var/lib/tomcat9}"
 CTX="$TOMCAT/conf/Catalina/localhost/ROOT.xml"
@@ -32,7 +32,7 @@ rollback(){
 }
 trap cleanup EXIT
 trap 'r=$?; [ $r -eq 0 ] || rollback; exit $r' ERR
-fail(){ echo "ERRO: $*" >&2; exit 1; }
+fail(){ echo "ERRO: $*" >&2; if [ "$CHANGED" = 1 ]; then rollback; CHANGED=0; fi; exit 1; }
 fetch(){ curl -fLsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 90 "$1" -o "$2"; }
 
 [ "$TEST_MODE" = 1 ] || [ "$(id -u)" = 0 ] || fail "execute como root"
