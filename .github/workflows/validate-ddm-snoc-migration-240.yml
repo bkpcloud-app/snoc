@@ -23,15 +23,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify materialized 2.0.22 source
+      - name: Resolve product version
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           . (Join-Path $Product 'config\DDM-Product.ps1')
-          if ([string]$DDMProduct.ProductVersion -ne '2.0.22') {
-              throw "ProductVersion must be 2.0.22. Current=$($DDMProduct.ProductVersion)"
+          $Version = [string]$DDMProduct.ProductVersion
+          if ($Version -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+              throw "Invalid ProductVersion: $Version"
           }
+          "DDM_PRODUCT_VERSION=$Version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "PRODUCT_VERSION=$Version"
 
       - name: Parse all PowerShell sources
         shell: powershell
@@ -53,7 +56,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $global:ProductCode = '$ProductCode'
           $Script = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
-          $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240-2.0.22'
+          $Output = Join-Path $env:RUNNER_TEMP ('DDM-SNOC-MIGRATION-240-' + $env:DDM_PRODUCT_VERSION)
           & $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
           if (-not $?) { throw 'Migration validation returned failure.' }
 
@@ -81,15 +84,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
-          name: DDM-SNOC-WINDOWS-2.0.22-MIGRATION-VALIDATION
+          name: DDM-SNOC-WINDOWS-MIGRATION-VALIDATION
           path: |
-            ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-2.0.22
+            ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-*
             windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1
             windows/zabbix-agent-deployment/config/DDM-Product.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-CentralRecovery.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-CentralPathIdentity.ps1
-            windows/zabbix-agent-deployment/docs/RELEASE-2.0.22.md
           if-no-files-found: error
           retention-days: 30
