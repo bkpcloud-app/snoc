@@ -30,7 +30,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          $Patch=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.21-v2.ps1'
+          $Patch=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.21-v3.ps1'
           & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Patch -RepositoryRoot $env:GITHUB_WORKSPACE
           if($LASTEXITCODE -ne 0){throw "Promotion patch returned $LASTEXITCODE"}
 
