@@ -1,0 +1,282 @@
+{
+  "runs": [
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-07T23:25:22Z",
+      "databaseId": 31227076064,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "7f288fa9d4ff77f47a59148ffeb4cdc7754382dd",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31227076064"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-07T22:36:47Z",
+      "databaseId": 31224424044,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "b0b6a3a678a9d65491055e52efd1560831186e68",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31224424044"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-07T21:23:19Z",
+      "databaseId": 31219835579,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "b1fe310bed514e78680039afab587bc058f17f18",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31219835579"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-07T21:19:45Z",
+      "databaseId": 31219593300,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "a62df1211c583bbd0ce29568f707fc1a6236431d",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31219593300"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-07T20:54:55Z",
+      "databaseId": 31217894024,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "26a4f59f05791fe3f19d31b24a22f2fa38913a6d",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31217894024"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-07T20:33:10Z",
+      "databaseId": 31216361165,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "5f72dcf48b094173a0e6d0d1c607cdc741433d7e",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31216361165"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-07T20:08:20Z",
+      "databaseId": 31214544626,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "7b8c676fb429e0af0830fc96ba097ef3a7fc096c",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31214544626"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-07T18:03:52Z",
+      "databaseId": 31205218001,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "481e32ec4b6be11cb4cce3eb9fd35a25164bcfc1",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31205218001"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-07T18:03:32Z",
+      "databaseId": 31205191863,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "481e32ec4b6be11cb4cce3eb9fd35a25164bcfc1",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31205191863"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-07T03:56:10Z",
+      "databaseId": 31145849307,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "cfb9eaecf6edac4fad17b3e7e4320c8192cc4b2f",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31145849307"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-07T03:54:29Z",
+      "databaseId": 31145763664,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "4cf04851d315ac9baadb850fed9cd5c34eb68d7a",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31145763664"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-06T23:05:50Z",
+      "databaseId": 31129761162,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "3f9a07795dcc5a03b76968ec2e34be0bee9cf0e8",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31129761162"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-06T23:05:07Z",
+      "databaseId": 31129727199,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "3f9a07795dcc5a03b76968ec2e34be0bee9cf0e8",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31129727199"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-06T23:04:03Z",
+      "databaseId": 31129673453,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "3f9a07795dcc5a03b76968ec2e34be0bee9cf0e8",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31129673453"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-06T13:24:31Z",
+      "databaseId": 31105768574,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "9dba8cf0512379ededd248db849ba8574f2c1805",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31105768574"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-08-06T04:16:09Z",
+      "databaseId": 31070781160,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "25fd1229d5a7c4f63bbfe036e8552eb85e7567ba",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31070781160"
+    },
+    {
+      "conclusion": "failure",
+      "createdAt": "2026-08-06T04:07:37Z",
+      "databaseId": 31070360779,
+      "displayTitle": "Release DDM SNOC Windows",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "51b6b9678ac381905d9296283d92b74863e19857",
+      "status": "completed",
+      "url": "https://github.com/bkpcloud-app/snoc/actions/runs/31070360779"
+    }
+  ],
+  "release": {
+    "assets": [
+      {
+        "apiUrl": "https://api.github.com/repos/bkpcloud-app/snoc/releases/assets/505795546",
+        "contentType": "application/zip",
+        "createdAt": "2026-08-07T23:26:58Z",
+        "digest": "sha256:5e5c3fa934ecbaace3d29e4aa717bf748fe8283b886da115f6c551dd3d1a9d1a",
+        "downloadCount": 0,
+        "id": "RA_kwDOTno2lc4eJdPa",
+        "label": "",
+        "name": "DDM-SNOC-WINDOWS-AD-SEED-2.0.27.zip",
+        "size": 58610,
+        "state": "uploaded",
+        "updatedAt": "2026-08-07T23:26:59Z",
+        "url": "https://github.com/bkpcloud-app/snoc/releases/download/ddm-snoc-windows-v2.0.27/DDM-SNOC-WINDOWS-AD-SEED-2.0.27.zip"
+      },
+      {
+        "apiUrl": "https://api.github.com/repos/bkpcloud-app/snoc/releases/assets/505795550",
+        "contentType": "application/octet-stream",
+        "createdAt": "2026-08-07T23:26:58Z",
+        "digest": "sha256:c753b90571768d0165e3a3a14f0c54cdf9225617379ecbf91b766e5a64b1360d",
+        "downloadCount": 0,
+        "id": "RA_kwDOTno2lc4eJdPe",
+        "label": "",
+        "name": "DDM-SNOC-WINDOWS-AD-SEED-2.0.27.zip.sha256",
+        "size": 103,
+        "state": "uploaded",
+        "updatedAt": "2026-08-07T23:26:58Z",
+        "url": "https://github.com/bkpcloud-app/snoc/releases/download/ddm-snoc-windows-v2.0.27/DDM-SNOC-WINDOWS-AD-SEED-2.0.27.zip.sha256"
+      },
+      {
+        "apiUrl": "https://api.github.com/repos/bkpcloud-app/snoc/releases/assets/505795551",
+        "contentType": "application/zip",
+        "createdAt": "2026-08-07T23:26:58Z",
+        "digest": "sha256:4db75d2a5358ecffebb2d95d91b2d947d5198efeb889456954f479b06ac37062",
+        "downloadCount": 0,
+        "id": "RA_kwDOTno2lc4eJdPf",
+        "label": "",
+        "name": "DDM-SNOC-WINDOWS-MOTOR-2.0.27.zip",
+        "size": 248892,
+        "state": "uploaded",
+        "updatedAt": "2026-08-07T23:26:58Z",
+        "url": "https://github.com/bkpcloud-app/snoc/releases/download/ddm-snoc-windows-v2.0.27/DDM-SNOC-WINDOWS-MOTOR-2.0.27.zip"
+      },
+      {
+        "apiUrl": "https://api.github.com/repos/bkpcloud-app/snoc/releases/assets/505795549",
+        "contentType": "application/octet-stream",
+        "createdAt": "2026-08-07T23:26:58Z",
+        "digest": "sha256:48ce8c6dafcc2838d26a1200d5f043ebd3a416b19860fa53e7e3c5c77b2f6585",
+        "downloadCount": 0,
+        "id": "RA_kwDOTno2lc4eJdPd",
+        "label": "",
+        "name": "DDM-SNOC-WINDOWS-MOTOR-2.0.27.zip.sha256",
+        "size": 101,
+        "state": "uploaded",
+        "updatedAt": "2026-08-07T23:26:58Z",
+        "url": "https://github.com/bkpcloud-app/snoc/releases/download/ddm-snoc-windows-v2.0.27/DDM-SNOC-WINDOWS-MOTOR-2.0.27.zip.sha256"
+      },
+      {
+        "apiUrl": "https://api.github.com/repos/bkpcloud-app/snoc/releases/assets/505795547",
+        "contentType": "application/json",
+        "createdAt": "2026-08-07T23:26:58Z",
+        "digest": "sha256:d2b3089f4d63f4b7ec34c7971d69c01fcc175706c4c524a5499a99b906109edd",
+        "downloadCount": 0,
+        "id": "RA_kwDOTno2lc4eJdPb",
+        "label": "",
+        "name": "DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.27.json",
+        "size": 1475,
+        "state": "uploaded",
+        "updatedAt": "2026-08-07T23:26:58Z",
+        "url": "https://github.com/bkpcloud-app/snoc/releases/download/ddm-snoc-windows-v2.0.27/DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.27.json"
+      },
+      {
+        "apiUrl": "https://api.github.com/repos/bkpcloud-app/snoc/releases/assets/505795552",
+        "contentType": "application/octet-stream",
+        "createdAt": "2026-08-07T23:26:59Z",
+        "digest": "sha256:685a246d9a024b4210c71ebd439ece5cab3041aef8144c04a97eed2cc2767c2d",
+        "downloadCount": 0,
+        "id": "RA_kwDOTno2lc4eJdPg",
+        "label": "",
+        "name": "DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.27.json.sha256",
+        "size": 113,
+        "state": "uploaded",
+        "updatedAt": "2026-08-07T23:26:59Z",
+        "url": "https://github.com/bkpcloud-app/snoc/releases/download/ddm-snoc-windows-v2.0.27/DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.27.json.sha256"
+      }
+    ],
+    "tagName": "ddm-snoc-windows-v2.0.27",
+    "targetCommitish": "main",
+    "url": "https://github.com/bkpcloud-app/snoc/releases/tag/ddm-snoc-windows-v2.0.27"
+  }
+}
