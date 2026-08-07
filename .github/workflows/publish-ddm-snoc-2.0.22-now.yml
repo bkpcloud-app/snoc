@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - '.github/workflows/publish-ddm-snoc-2.0.22-now.yml'
+  pull_request:
+    paths:
+      - '.github/workflows/publish-ddm-snoc-2.0.22-now.yml'
   workflow_dispatch:
 
 permissions:
