@@ -1,0 +1,71 @@
+name: Publish missing DDM SNOC Windows 2.0.21
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish-ddm-snoc-2.0.21-now.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Trigger official release workflow and wait for six assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ddm-snoc-windows-v2.0.21
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists; validating assets."
+          else
+            gh workflow run ddm-snoc-windows-release.yml \
+              --repo "$GITHUB_REPOSITORY" \
+              -f release_tag="$TAG"
+          fi
+
+          ok=0
+          for i in $(seq 1 160); do
+            if json=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease,assets 2>/dev/null); then
+              draft=$(jq -r '.isDraft' <<<"$json")
+              pre=$(jq -r '.isPrerelease' <<<"$json")
+              motor=$(jq '[.assets[] | select(.name=="DDM-SNOC-WINDOWS-MOTOR-2.0.21.zip")] | length' <<<"$json")
+              motorhash=$(jq '[.assets[] | select(.name=="DDM-SNOC-WINDOWS-MOTOR-2.0.21.zip.sha256")] | length' <<<"$json")
+              seed=$(jq '[.assets[] | select(.name=="DDM-SNOC-WINDOWS-AD-SEED-2.0.21.zip")] | length' <<<"$json")
+              seedhash=$(jq '[.assets[] | select(.name=="DDM-SNOC-WINDOWS-AD-SEED-2.0.21.zip.sha256")] | length' <<<"$json")
+              manifest=$(jq '[.assets[] | select(.name=="DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.21.json")] | length' <<<"$json")
+              manifesthash=$(jq '[.assets[] | select(.name=="DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.21.json.sha256")] | length' <<<"$json")
+              if [[ "$draft" == "false" && "$pre" == "false" && "$motor" == "1" && "$motorhash" == "1" && "$seed" == "1" && "$seedhash" == "1" && "$manifest" == "1" && "$manifesthash" == "1" ]]; then
+                ok=1
+                break
+              fi
+            fi
+            echo "Waiting for official release 2.0.21... attempt=$i"
+            sleep 15
+          done
+
+          if [[ "$ok" != "1" ]]; then
+            echo "Official release 2.0.21 was not completed with all six required assets." >&2
+            exit 1
+          fi
+
+          motor_digest=$(gh api "/repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[] | select(.name=="DDM-SNOC-WINDOWS-MOTOR-2.0.21.zip") | .digest')
+          if [[ ! "$motor_digest" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
+            echo "MOTOR release digest is missing or invalid: $motor_digest" >&2
+            exit 1
+          fi
+
+          content=$(printf 'TAG=%s\nSTATUS=STABLE\nASSETS=6/6\nMOTOR_DIGEST=%s\n' "$TAG" "$motor_digest" | base64 -w0)
+          gh api --method PUT "/repos/$GITHUB_REPOSITORY/contents/release-status/ddm-snoc-windows-v2.0.21-published.txt" \
+            -f message='status(windows): confirmar release oficial 2.0.21' \
+            -f content="$content" \
+            -f branch='main' >/dev/null
+
+          echo "RELEASE_2_0_21_READY"
