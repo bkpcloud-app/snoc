@@ -28,7 +28,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          & .\windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.23-ForwardOnly-v4.ps1 -RepositoryRoot $env:GITHUB_WORKSPACE
+          & .\windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.23-ForwardOnly-v5.ps1 -RepositoryRoot $env:GITHUB_WORKSPACE
       - name: Validate 240 scenarios
         shell: powershell
         run: |
@@ -50,7 +50,7 @@ jobs:
           $ErrorActionPreference='Stop'
           git config user.name 'bkpcloud-app'
           git config user.email 'actions@github.com'
-          git add windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1 windows/zabbix-agent-deployment/config/DDM-Product.ps1 windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1 windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1 windows/zabbix-agent-deployment/CHANGELOG.md
+          git add windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1 windows/zabbix-agent-deployment/endpoint/Invoke-DDM-SNOC-Daily.ps1 windows/zabbix-agent-deployment/config/DDM-Product.ps1 windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1 windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1 windows/zabbix-agent-deployment/CHANGELOG.md
           if (-not (git status --porcelain)) { Write-Host 'No materialized changes to commit.'; exit 0 }
           git commit -m 'fix(windows): 2.0.23 forward-only sem backup ou rollback'
           git push origin HEAD:fix/ddm-snoc-windows-2.0.23-forward-only
