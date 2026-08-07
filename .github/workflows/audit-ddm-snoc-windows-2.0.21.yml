@@ -154,7 +154,7 @@ jobs:
           $ErrorActionPreference='Stop'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- windows/zabbix-agent-deployment/config/DDM-Product.ps1 windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1 windows/zabbix-agent-deployment/central/lib/DDM-Central-Client.ps1 windows/zabbix-agent-deployment/central/lib/Invoke-DDM-Central-Publish.ps1 windows/zabbix-agent-deployment/tools/Test-DDM-CentralPathIdentity.ps1 windows/zabbix-agent-deployment/CHANGELOG.md windows/zabbix-agent-deployment/docs/RELEASE-2.0.21.md .github/workflows/ddm-snoc-windows-validation.yml .github/workflows/ddm-snoc-windows-release.yml
+          git add -- windows/zabbix-agent-deployment/config/DDM-Product.ps1 windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1 windows/zabbix-agent-deployment/central/lib/DDM-Central-Client.ps1 windows/zabbix-agent-deployment/central/lib/Invoke-DDM-Central-Publish.ps1 windows/zabbix-agent-deployment/tools/Test-DDM-CentralPathIdentity.ps1 windows/zabbix-agent-deployment/CHANGELOG.md windows/zabbix-agent-deployment/docs/RELEASE-2.0.21.md
           git diff --cached --quiet
           if($LASTEXITCODE -eq 0){Write-Host 'AUDITED_SOURCE_ALREADY_COMMITTED=1';exit 0}
           git commit -m 'fix(windows): materialize audited CentralRoot identity 2.0.21'
