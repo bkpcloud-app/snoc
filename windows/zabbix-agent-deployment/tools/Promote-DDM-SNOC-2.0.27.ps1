@@ -25,23 +25,12 @@ if($Config -match "ProductVersion\s*=\s*'2\.0\.27'"){
 }
 if($Config -notmatch "ProductVersion\s*=\s*'2\.0\.26'"){throw 'Expected source version 2.0.26.'}
 
-$Anchor="function Assert-LegacyConfigurationSafe(`$Client){"
-$Helper=@'
-function Normalize-LegacyConfigLine([string]$Line){
-    if($null -eq $Line){return ''}
-    $Text=[string]$Line
-    while($Text.Length -gt 0 -and @([char]0xFEFF,[char]0x200B,[char]0x2060) -contains $Text[0]){$Text=$Text.Substring(1)}
-    return $Text.Trim()
-}
-
-function Assert-LegacyConfigurationSafe($Client){
-'@
-$Engine=ReplaceOne $Engine $Anchor $Helper 'helper-anchor'
-$Engine=ReplaceOne $Engine '$Text=([string]$Line).Trim();if(Test-DDMBlank $Text -or $Text.StartsWith(''#''))' '$Text=Normalize-LegacyConfigLine ([string]$Line);if(Test-DDMBlank $Text -or $Text.StartsWith(''#''))' 'main-config-normalization'
-$Engine=ReplaceOne $Engine '$Active=@(Get-Content -LiteralPath $File.FullName -ErrorAction Stop|Where-Object{$T=([string]$_).Trim();-not(Test-DDMBlank $T) -and -not$T.StartsWith(''#'')})' '$Active=@(Get-Content -LiteralPath $File.FullName -ErrorAction Stop|Where-Object{$T=Normalize-LegacyConfigLine ([string]$_);-not(Test-DDMBlank $T) -and -not$T.StartsWith(''#'')})' 'include-normalization'
+$OldHelper="function Normalize-DDMLegacyConfigLine([string]`$Line){`$Text=([string]`$Line).Trim();`$Text=`$Text -replace '^(?:\uFEFF|\u200B|\u2060|\u00EF\u00BB\u00BF)+','';return `$Text.Trim()}"
+$NewHelper="function Normalize-DDMLegacyConfigLine([string]`$Line){`$Text=[string]`$Line;`$Text=`$Text -replace '^(?:\u00EF\u00BB\u00BF)+','';`$Text=`$Text -replace '^[\p{C}\p{Z}\s]+','';return `$Text.Trim()}"
+$Engine=ReplaceOne $Engine $OldHelper $NewHelper 'legacy-normalizer'
 
 $Config=ReplaceOne $Config "ProductVersion           = '2.0.26'" "ProductVersion           = '2.0.27'" 'product-version'
-if($ChangeLog -notmatch '(?m)^## 2\.0\.27 '){$ChangeLog="## 2.0.27 - 2026-08-07`n- Normaliza BOM e caracteres zero-width antes de classificar linhas do config legado.`n- Corrige falso bloqueio em comentarios do zabbix_agent2.conf e includes legados.`n- Adiciona regressao com a linha real observada no SRV-AE.`n`n"+$ChangeLog}
+if($ChangeLog -notmatch '(?m)^## 2\.0\.27 '){$ChangeLog="## 2.0.27 - 2026-08-07`n- Normaliza qualquer caractere Unicode de controle, formatacao ou separacao antes de classificar linhas do config legado.`n- Corrige falso bloqueio em comentarios do zabbix_agent2.conf e includes legados.`n- Adiciona regressao com a linha real observada no SRV-AE e multiplos prefixos invisiveis.`n`n"+$ChangeLog}
 
 $Regression=@'
 #requires -Version 5.1
@@ -53,19 +42,28 @@ $Text=[IO.File]::ReadAllText($EnginePath)
 $Tokens=$null;$Errors=$null
 $Ast=[Management.Automation.Language.Parser]::ParseFile($EnginePath,[ref]$Tokens,[ref]$Errors)
 if(@($Errors).Count -gt 0){throw 'Engine parser failed.'}
-$Fn=@($Ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Normalize-LegacyConfigLine'},$true))
-if($Fn.Count -ne 1){throw "Normalize-LegacyConfigLine count=$($Fn.Count)"}
+$Fn=@($Ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Normalize-DDMLegacyConfigLine'},$true))
+if($Fn.Count -ne 1){throw "Normalize-DDMLegacyConfigLine count=$($Fn.Count)"}
 Invoke-Expression $Fn[0].Extent.Text
 $Real='# This is a configuration file for Zabbix agent 2 (Windows)'
-foreach($Prefix in @([char]0xFEFF,[char]0x200B,[char]0x2060)){
-    $Input=([string]$Prefix)+$Real
-    $Out=Normalize-LegacyConfigLine $Input
-    if($Out -ne $Real){throw ('Invisible-prefix normalization failed U+'+('{0:X4}' -f [int]$Prefix))}
+$Prefixes=@(
+    [string][char]0xFEFF,
+    [string][char]0x200B,
+    [string][char]0x2060,
+    [string][char]0x200E,
+    [string][char]0x202A,
+    [string][char]0x0000,
+    ([string][char]0x00EF+[string][char]0x00BB+[string][char]0x00BF)
+)
+foreach($Prefix in $Prefixes){
+    $Input=$Prefix+$Real
+    $Out=Normalize-DDMLegacyConfigLine $Input
+    if($Out -ne $Real){$Codes=@($Prefix.ToCharArray()|ForEach-Object{'U+'+('{0:X4}' -f [int]$_)}) -join ',';throw "Invisible-prefix normalization failed: $Codes"}
     if(-not $Out.StartsWith('#')){throw 'Normalized comment is not recognized as comment.'}
 }
 $Active='Server=10.1.1.201'
-if((Normalize-LegacyConfigLine $Active) -ne $Active){throw 'Active directive was altered.'}
-if(([regex]::Matches($Text,[regex]::Escape('Normalize-LegacyConfigLine ([string]')).Count) -lt 2){throw 'Both legacy parsing paths are not normalized.'}
+if((Normalize-DDMLegacyConfigLine $Active) -ne $Active){throw 'Active directive was altered.'}
+if(([regex]::Matches($Text,[regex]::Escape('Normalize-DDMLegacyConfigLine ([string]')).Count) -lt 2){throw 'Both legacy parsing paths are not normalized.'}
 Write-Host 'LEGACY_BOM_REGRESSION_OK'
 '@
 
