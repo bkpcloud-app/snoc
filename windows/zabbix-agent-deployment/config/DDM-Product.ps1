@@ -18,34 +18,58 @@ $DDMProduct = @{
     Timeout                  = 30
     LogFileSize              = 20
     DebugLevel               = 3
-
-    CurrentVersionFile       = 'CURRENT'
-    PreviousVersionFile      = 'PREVIOUS'
-    CentralOwnerFile         = '.DDM-CENTRAL-OWNER'
-    CentralLockFile          = '.DDM-CENTRAL-UPDATE.lock'
-    ProductStatusFile        = 'product-status.json'
-    EmergencyBlockFile       = 'RELEASE-BLOCKED'
-    CentralMotorFolder       = 'MOTOR'
-    CentralReleaseFolder     = 'RELEASES'
-    CentralArtifactsFolder   = 'ARTIFACTS'
-    CentralBackupFolder      = 'BACKUPS'
-    CentralLogFolder         = 'LOGS'
-    CentralLogFile           = 'DDM-SNOC-CENTRAL.log'
-    MotorManifestFile        = 'motor-manifest.clixml'
-    ReleaseManifestFile      = 'release-manifest.clixml'
-    ReleaseReadyFile         = 'READY'
-    ClientRuntimeFile        = 'CLIENTE.runtime.clixml'
-    ArtifactManifestFile     = 'artifacts.clixml'
-    RollbackFailureFile      = 'rollback.failed'
-    ReleaseBlockedFile       = 'release.blocked'
-    LastApplyStatusFile      = 'lastapply.status'
-
-    CentralLockLeaseMinutes  = 180
-    KeepLogDays              = 30
+    MaxJitterSeconds         = 900
+    KeepCentralVersions      = 4
+    KeepLocalVersions        = 3
     KeepBackupSets           = 5
+    KeepLogDays              = 30
+    KeepOfflineBackups       = 5
+    MinimumFreeSpaceMB       = 500
+    MaxOfflineCacheDays      = 14
+    CentralLockLeaseMinutes  = 180
+    StaleStagingHours        = 24
+    HttpTimeoutSeconds       = 120
+    MaxDownloadSizeMB        = 1024
 
-    AllowSystemRun           = $true
+    AllowAgent2OnServer2012  = $true
+    InstallAgent2Plugins     = $true
+    InstallAllModules        = $true
     InstallCoreOnAgent1      = $true
-    NativeOnlyModules        = @()
+    AllowSystemRun           = $true
+    NativeOnlyModules        = @('MSSQL','SQL','POSTGRESQL','MONGODB','IIS')
     BlockedModules           = @('VEEAM')
+
+    CentralMotorFolder       = 'MOTOR'
+    CentralArtifactsFolder   = 'ARTIFACTS'
+    CentralReleaseFolder     = 'RELEASES'
+    CurrentVersionFile       = 'CURRENT.txt'
+    PreviousVersionFile      = 'PREVIOUS.txt'
+    ReleaseReadyFile         = 'READY'
+    ClientConfigFile         = 'CLIENTE.ps1'
+    ClientRuntimeFile        = 'CLIENTE.runtime.clixml'
+    ClientRuntimeHashFile    = 'CLIENTE.runtime.sha256'
+    ReleaseManifestFile      = 'RELEASE-MANIFEST.clixml'
+    MotorManifestFile        = 'MOTOR-MANIFEST.clixml'
+    ArtifactManifestFile     = 'ARTIFACT-MANIFEST.clixml'
+    CentralLockFile          = '.DDM-CENTRAL-UPDATE.lock'
+    CentralOwnerFile         = 'DDM-SNOC-WINDOWS.owner'
+    RollbackRequestFile      = 'ROLLBACK-REQUEST.clixml'
+    RollbackFailureFile      = 'rollback.failed'
+    BlockedReleaseStateFile  = 'release.blocked'
+    ProductStatusFile        = 'product-status.json'
+    EmergencyBlockFile       = 'BLOCK-RELEASE.txt'
+
+    RepositoryReleaseApiUrl = 'https://api.github.com/repos/bkpcloud-app/snoc/releases?per_page=100'
+    RepositoryAssetPattern  = '^DDM-SNOC-WINDOWS-MOTOR-[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\.zip$'
+    RepositoryProductPath   = 'windows\zabbix-agent-deployment'
+    ExpectedZabbixSigner     = 'Zabbix SIA'
+
+    DefaultModuleDetection = @(
+        @{ Module='ADDS';   ServicePatterns=@('NTDS'); FilePatterns=@() },
+        @{ Module='HYPERV'; ServicePatterns=@('vmms'); FilePatterns=@() },
+        @{ Module='VEEAM';  ServicePatterns=@('VeeamBackupSvc'); FilePatterns=@() },
+        @{ Module='MSSQL';  ServicePatterns=@('MSSQLSERVER','MSSQL$*'); FilePatterns=@() },
+        @{ Module='IIS';    ServicePatterns=@('W3SVC'); FilePatterns=@() },
+        @{ Module='TOTVS';  ServicePatterns=@('*TOTVS*','*Protheus*'); FilePatterns=@('C:\TOTVS','C:\Protheus') }
+    )
 }
