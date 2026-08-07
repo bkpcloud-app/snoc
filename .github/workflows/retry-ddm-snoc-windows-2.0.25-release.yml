@@ -1,5 +1,6 @@
 name: Retry DDM SNOC Windows 2.0.25 Release
 
+# Triggered through a normal PR merge so GitHub Actions receives a real push event.
 on:
   push:
     branches:
