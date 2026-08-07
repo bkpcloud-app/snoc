@@ -1,0 +1,67 @@
+name: Trigger DDM SNOC Windows 2.0.23 Release
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/trigger-ddm-snoc-2.0.23.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  publish:
+    if: github.event.pull_request.head.ref == 'release/trigger-ddm-snoc-2.0.23'
+    runs-on: windows-2025
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Tag main, dispatch official release and wait
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Tag='ddm-snoc-windows-v2.0.23'
+          git fetch origin main --tags
+          $MainSha=(git rev-parse origin/main).Trim()
+          $Config=(git show "origin/main:windows/zabbix-agent-deployment/config/DDM-Product.ps1") -join "`n"
+          if($Config -notmatch "ProductVersion\s*=\s*'2\.0\.23'"){throw 'main nao esta em ProductVersion 2.0.23.'}
+          $Existing=(git tag -l $Tag).Trim()
+          if([string]::IsNullOrEmpty($Existing)){
+            git tag $Tag $MainSha
+            git push origin "refs/tags/$Tag"
+          } else {
+            $TagSha=(git rev-list -n 1 $Tag).Trim()
+            if($TagSha -ne $MainSha){throw "Tag $Tag aponta para $TagSha, esperado $MainSha"}
+          }
+          $Before=(Get-Date).ToUniversalTime()
+          gh workflow run ddm-snoc-windows-release.yml --repo $env:GITHUB_REPOSITORY --ref main -f "release_tag=$Tag"
+          if($LASTEXITCODE -ne 0){throw 'Falha ao disparar workflow oficial de release.'}
+          $Run=$null
+          for($i=0;$i-lt60 -and $null-eq$Run;$i++){
+            Start-Sleep -Seconds 2
+            $Items=@(gh run list --repo $env:GITHUB_REPOSITORY --workflow ddm-snoc-windows-release.yml --event workflow_dispatch --limit 10 --json databaseId,createdAt,status,conclusion | ConvertFrom-Json)
+            $Run=@($Items|Where-Object{[DateTime]$_.createdAt -ge $Before.AddSeconds(-5)}|Sort-Object {[DateTime]$_.createdAt} -Descending|Select-Object -First 1)
+            if($Run.Count -gt 0){$Run=$Run[0]}else{$Run=$null}
+          }
+          if($null-eq$Run){throw 'Run oficial de release nao foi localizado.'}
+          Write-Host "OFFICIAL_RELEASE_RUN=$($Run.databaseId)"
+          gh run watch $Run.databaseId --repo $env:GITHUB_REPOSITORY --exit-status
+          if($LASTEXITCODE -ne 0){throw "Workflow oficial de release falhou. Run=$($Run.databaseId)"}
+          $Release=gh release view $Tag --repo $env:GITHUB_REPOSITORY --json tagName,assets | ConvertFrom-Json
+          $Names=@($Release.assets|ForEach-Object{$_.name})
+          $Required=@(
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.23.zip',
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.23.zip.sha256',
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.23.zip',
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.23.zip.sha256',
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.23.json',
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.23.json.sha256'
+          )
+          foreach($Name in $Required){if($Names -notcontains $Name){throw "Asset oficial ausente: $Name"}}
+          Write-Host "RELEASE_2_0_23=SUCCESS"
+          Write-Host "MAIN_SHA=$MainSha"
