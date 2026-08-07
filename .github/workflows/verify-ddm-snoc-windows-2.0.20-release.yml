@@ -1,0 +1,140 @@
+name: Verify Published DDM SNOC Windows 2.0.20
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/verify-ddm-snoc-windows-2.0.20-release.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: verify-published-ddm-snoc-windows-2.0.20
+  cancel-in-progress: false
+
+jobs:
+  verify-published-release:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout main and tags
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Download and independently verify official assets
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Tag='ddm-snoc-windows-v2.0.20'
+          $VerifiedTag='verified-ddm-snoc-windows-2.0.20'
+          $ExpectedEngine='C83EB556020E17F894256C3A2E4F54D968A73DBBB640D4D9AE19487D5689AEDF'
+          git fetch origin --tags --force
+          $TagCommit=([string](git rev-list -n 1 $Tag)).Trim()
+          $VerifiedCommit=([string](git rev-list -n 1 $VerifiedTag)).Trim()
+          if([string]::IsNullOrWhiteSpace($TagCommit)){throw 'Tag oficial 2.0.20 ausente.'}
+          if([string]::IsNullOrWhiteSpace($VerifiedCommit)){throw 'Tag verified 2.0.20 ausente.'}
+          if($TagCommit -ne $VerifiedCommit){throw "Tags divergem. Official=$TagCommit Verified=$VerifiedCommit"}
+          git merge-base --is-ancestor $TagCommit origin/main
+          if($LASTEXITCODE -ne 0){throw 'Tag oficial nao pertence ao historico de main.'}
+
+          $ReleaseJson=gh release view $Tag --repo bkpcloud-app/snoc --json tagName,targetCommitish,isDraft,isPrerelease,assets
+          if($LASTEXITCODE -ne 0){throw 'Falha ao consultar release oficial.'}
+          $Release=$ReleaseJson|ConvertFrom-Json
+          if([bool]$Release.isDraft){throw 'Release ainda esta draft.'}
+          if([bool]$Release.isPrerelease){throw 'Release ainda esta prerelease.'}
+          if([string]$Release.tagName -ne $Tag){throw 'Release retornou tag incorreta.'}
+          $ExpectedNames=@(
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.20.zip',
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.20.zip.sha256',
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.20.zip',
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.20.zip.sha256',
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.20.json',
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.20.json.sha256'
+          )
+          $PublishedNames=@($Release.assets|ForEach-Object{[string]$_.name})
+          foreach($Name in $ExpectedNames){if($PublishedNames -notcontains $Name){throw "Asset oficial ausente: $Name"}}
+
+          $Download=Join-Path $env:RUNNER_TEMP 'DDM-SNOC-2.0.20-OFFICIAL'
+          Remove-Item $Download -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item $Download -ItemType Directory -Force|Out-Null
+          gh release download $Tag --repo bkpcloud-app/snoc --dir $Download --pattern 'DDM-SNOC-WINDOWS-*2.0.20*'
+          if($LASTEXITCODE -ne 0){throw 'Falha ao baixar assets oficiais.'}
+          foreach($Name in $ExpectedNames){if(-not(Test-Path (Join-Path $Download $Name) -PathType Leaf)){throw "Asset nao foi baixado: $Name"}}
+
+          $Pairs=@(
+            @('DDM-SNOC-WINDOWS-MOTOR-2.0.20.zip','DDM-SNOC-WINDOWS-MOTOR-2.0.20.zip.sha256'),
+            @('DDM-SNOC-WINDOWS-AD-SEED-2.0.20.zip','DDM-SNOC-WINDOWS-AD-SEED-2.0.20.zip.sha256'),
+            @('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.20.json','DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.20.json.sha256')
+          )
+          $Evidence=@()
+          foreach($Pair in $Pairs){
+            $Target=Join-Path $Download $Pair[0]
+            $Sidecar=Join-Path $Download $Pair[1]
+            $Actual=(Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash.ToUpperInvariant()
+            $Line=([string](Get-Content -LiteralPath $Sidecar -Raw)).Trim()
+            if($Line -notmatch '^([0-9A-Fa-f]{64})\s+\*(.+)$'){throw "Sidecar invalido: $($Pair[1])"}
+            $Declared=$Matches[1].ToUpperInvariant()
+            $DeclaredName=$Matches[2].Trim()
+            if($DeclaredName -ne $Pair[0]){throw "Sidecar aponta para nome incorreto: $DeclaredName"}
+            if($Actual -ne $Declared){throw "SHA divergente em $($Pair[0]). Declared=$Declared Actual=$Actual"}
+            $Evidence+=New-Object PSObject -Property @{Name=$Pair[0];Sha256=$Actual;Size=(Get-Item $Target).Length}
+          }
+
+          $Expanded=Join-Path $env:RUNNER_TEMP 'DDM-SNOC-2.0.20-OFFICIAL-EXPANDED'
+          Remove-Item $Expanded -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath (Join-Path $Download 'DDM-SNOC-WINDOWS-MOTOR-2.0.20.zip') -DestinationPath $Expanded -Force
+          $MotorRoot=Join-Path $Expanded 'DDM-SNOC-WINDOWS-MOTOR-2.0.20'
+          $Config=Join-Path $MotorRoot 'config\DDM-Product.ps1'
+          $Engine=Join-Path $MotorRoot 'engine\Install-DDM-Zabbix-Windows.ps1'
+          if(-not(Test-Path $Config -PathType Leaf) -or -not(Test-Path $Engine -PathType Leaf)){throw 'MOTOR oficial incompleto.'}
+          . $Config
+          if([string]$DDMProduct.ProductVersion -ne '2.0.20'){throw "MOTOR oficial declara $($DDMProduct.ProductVersion)"}
+          $EngineHash=(Get-FileHash -LiteralPath $Engine -Algorithm SHA256).Hash.ToUpperInvariant()
+          if($EngineHash -ne $ExpectedEngine){throw "Engine oficial divergiu do engine auditado. Expected=$ExpectedEngine Actual=$EngineHash"}
+
+          $RawClient=Join-Path $env:RUNNER_TEMP 'AGL-CLIENTE-2.0.20-GIT-RAW.bin'
+          $RawCommand='git cat-file blob '+$Tag+':windows/zabbix-agent-deployment/clients/AGL/CLIENTE.ps1 > "'+$RawClient+'"'
+          & $env:ComSpec /d /s /c $RawCommand
+          if($LASTEXITCODE -ne 0){throw 'Falha ao extrair CLIENTE.ps1 AGL bruto da tag.'}
+          $AglRawHash=(Get-FileHash -LiteralPath $RawClient -Algorithm SHA256).Hash.ToUpperInvariant()
+          if($AglRawHash -ne '0AC3D2B282E262329E49E4EEEC624FAC4889E323FDF2479C931089111E436E3F'){throw "AGL raw divergiu: $AglRawHash"}
+
+          $Manifest=Get-Content -LiteralPath (Join-Path $Download 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.20.json') -Raw | ConvertFrom-Json
+          if([string]$Manifest.ProductVersion -ne '2.0.20'){throw 'Manifest oficial declara versao incorreta.'}
+          if([string]$Manifest.GitTag -ne $Tag){throw 'Manifest oficial declara tag incorreta.'}
+          if([string]$Manifest.GitCommit -ne $TagCommit){throw "Manifest commit divergiu. Manifest=$($Manifest.GitCommit) Tag=$TagCommit"}
+
+          $EvidencePath=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\docs\RELEASE-2.0.20-OFFICIAL-EVIDENCE.md'
+          $Lines=@(
+            '# DDM SNOC Windows 2.0.20 - Evidencia oficial independente',
+            '',
+            ('Verificado em UTC: '+(Get-Date).ToUniversalTime().ToString('o')),
+            ('Tag oficial: '+$Tag),
+            ('Tag verified: '+$VerifiedTag),
+            ('Commit das duas tags: '+$TagCommit),
+            'Release draft: false',
+            'Release prerelease: false',
+            ('Engine SHA-256: '+$EngineHash),
+            ('AGL CLIENTE.ps1 Git/raw SHA-256: '+$AglRawHash),
+            '',
+            'Assets recalculados:'
+          )
+          foreach($Item in @($Evidence|Sort-Object Name)){$Lines+=('- '+$Item.Name+' | SHA-256 '+$Item.Sha256+' | bytes '+$Item.Size)}
+          $Lines+=@('', 'Resultado: PASS. Os sidecars publicados conferem com os bytes baixados e o MOTOR publicado contem o mesmo engine auditado antes da release.')
+          [IO.File]::WriteAllLines($EvidencePath,$Lines,(New-Object Text.UTF8Encoding($false)))
+          Get-Content $EvidencePath
+
+      - name: Commit independent evidence to main
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- 'windows/zabbix-agent-deployment/docs/RELEASE-2.0.20-OFFICIAL-EVIDENCE.md'
+          git commit -m 'docs(windows): record independent verification of published 2.0.20 assets'
+          git push origin HEAD:main
