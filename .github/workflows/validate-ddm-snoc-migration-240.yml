@@ -7,10 +7,11 @@ on:
       - '.github/workflows/validate-ddm-snoc-migration-240.yml'
       - '.github/workflows/ddm-snoc-windows-validation.yml'
       - '.github/workflows/ddm-snoc-windows-release.yml'
+      - '.github/workflows/audit-ddm-snoc-windows-2.0.20.yml'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   migration-240:
@@ -18,20 +19,19 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout exact PR branch
+      - name: Checkout exact source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Materialize exact 2.0.19 source
+      - name: Verify materialized 2.0.20 source
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $Patch = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.19.ps1'
-          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Patch -RepositoryRoot $env:GITHUB_WORKSPACE
-          if ($LASTEXITCODE -ne 0) {
-              throw "Promotion patch returned $LASTEXITCODE"
+          $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          . (Join-Path $Product 'config\DDM-Product.ps1')
+          if ([string]$DDMProduct.ProductVersion -ne '2.0.20') {
+              throw "ProductVersion must be 2.0.20. Current=$($DDMProduct.ProductVersion)"
           }
 
       - name: Parse all PowerShell sources
@@ -54,50 +54,45 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $global:ProductCode = '$ProductCode'
           $Script = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
-          $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240-2.0.19'
-          . $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
+          $Output = Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240-2.0.20'
+          & $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
+          if ($LASTEXITCODE -ne 0) {
+              throw "Migration validation returned $LASTEXITCODE"
+          }
 
       - name: Execute complete product validation
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
-          & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
-          & (Join-Path $Product 'tools\Test-DDM-RuntimeLexing.ps1') -ProductRoot $Product
-          & (Join-Path $Product 'tools\Test-DDM-CentralBootstrapLoad.ps1') -ProductRoot $Product
-          & (Join-Path $Product 'tools\Test-DDM-AclValidation.ps1') -ProductRoot $Product
-          & (Join-Path $Product 'tools\Test-DDM-UncCmd.ps1') -ProductRoot $Product
-          & (Join-Path $Product 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot $Product
-          & (Join-Path $Product 'tools\Test-DDM-CentralRecovery.ps1') -ProductRoot $Product
-          & (Join-Path $Product 'tools\Test-DDM-BootstrapFirstInstall.ps1') -ProductRoot $Product
+          foreach ($Test in @(
+              'Test-DDM-Repository.ps1',
+              'Test-DDM-RuntimeLexing.ps1',
+              'Test-DDM-CentralBootstrapLoad.ps1',
+              'Test-DDM-AclValidation.ps1',
+              'Test-DDM-UncCmd.ps1',
+              'Test-DDM-ForceRefresh.ps1',
+              'Test-DDM-CentralRecovery.ps1',
+              'Test-DDM-BootstrapFirstInstall.ps1'
+          )) {
+              & (Join-Path $Product ('tools\' + $Test)) -ProductRoot $Product
+              if ($LASTEXITCODE -ne 0) {
+                  throw "$Test returned $LASTEXITCODE"
+              }
+          }
 
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
-          name: DDM-SNOC-WINDOWS-2.0.19-VALIDATION
+          name: DDM-SNOC-WINDOWS-2.0.20-MIGRATION-VALIDATION
           path: |
-            ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-2.0.19
-            windows/zabbix-agent-deployment/central/Update-DDM-SNOC-Central.ps1
+            ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-2.0.20
+            windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1
             windows/zabbix-agent-deployment/config/DDM-Product.ps1
-            windows/zabbix-agent-deployment/tools/Recover-DDM-CentralUpdater.ps1
-            windows/zabbix-agent-deployment/tools/Test-DDM-CentralRecovery.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1
-            windows/zabbix-agent-deployment/tools/Test-DDM-ForceRefresh.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1
-            windows/zabbix-agent-deployment/docs/RELEASE-2.0.19.md
+            windows/zabbix-agent-deployment/tools/Test-DDM-CentralRecovery.ps1
+            windows/zabbix-agent-deployment/docs/RELEASE-2.0.20.md
           if-no-files-found: error
           retention-days: 30
-
-      - name: Commit exact validated 2.0.19 source
-        if: github.event_name == 'pull_request' && github.head_ref == 'fix/central-updater-recovery-2.0.19'
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add --all
-          if (-not (git diff --cached --quiet)) {
-              git commit -m 'release(windows): materialize validated 2.0.19 source'
-              git push origin HEAD:${{ github.head_ref }}
-          }
