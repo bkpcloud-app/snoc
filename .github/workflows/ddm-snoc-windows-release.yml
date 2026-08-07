@@ -124,7 +124,7 @@ jobs:
             'CENTRAL-TOOLS\tools\Set-DDM-CentralRelease.ps1',
             'CENTRAL-TOOLS\tools\Recover-DDM-CentralUpdater.ps1'
           )){
-            if(-not(Test-Path (Join-Path $Seed $Required) -PathType Leaf){throw "AD-SEED incompleto: $Required"}
+            if(-not(Test-Path (Join-Path $Seed $Required) -PathType Leaf)){throw "AD-SEED incompleto: $Required"}
           }
           $MotorZip=Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-' + $DDMProduct.ProductVersion + '.zip')
           $SeedZip=Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-' + $DDMProduct.ProductVersion + '.zip')
