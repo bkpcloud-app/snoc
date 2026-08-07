@@ -34,30 +34,32 @@ $S63=@'
 Add-Contains 63 'Failure writes lastapply.status' $Engine 'Join-Path $StateRoot ''lastapply.status'''
 '@.Trim()
 $Id63=@()
-for($i=0;$i-lt$ScenarioLines.Count;$i++){
-    if($ScenarioLines[$i].Trim().StartsWith('Add-Contains 63 ')){$Id63+=$i}
-}
+for($i=0;$i-lt$ScenarioLines.Count;$i++){if($ScenarioLines[$i].Trim().StartsWith('Add-Contains 63 ')){$Id63+=$i}}
 if($Id63.Count-ne1){throw "Scenario 63 count=$($Id63.Count)"}
 $ScenarioLines[$Id63[0]]=$S63
-
 $Init='if (-not (Get-Variable -Name ProductCode -Scope Global -ErrorAction SilentlyContinue)) { $global:ProductCode = ''$ProductCode'' }'
 $Out=New-Object System.Collections.Generic.List[string]
-$HasInit=$false
-$AnchorCount=0
+$HasInit=$false;$AnchorCount=0
 for($i=0;$i-lt$ScenarioLines.Count;$i++){
     if($ScenarioLines[$i].Trim()-eq$Init){$HasInit=$true}
     [void]$Out.Add([string]$ScenarioLines[$i])
-    if($ScenarioLines[$i].Trim()-eq"`$ErrorActionPreference = 'Stop'"){
-        $AnchorCount++
-        if(-not$HasInit){[void]$Out.Add($Init);$HasInit=$true}
-    }
+    if($ScenarioLines[$i].Trim()-eq"`$ErrorActionPreference = 'Stop'"){$AnchorCount++;if(-not$HasInit){[void]$Out.Add($Init);$HasInit=$true}}
 }
 if($AnchorCount-ne1){throw "ErrorActionPreference anchor count=$AnchorCount"}
 [IO.File]::WriteAllLines($Scenario,[string[]]$Out,(New-Object Text.UTF8Encoding($false)))
 $T=$null;$E=$null;[void][Management.Automation.Language.Parser]::ParseFile($Scenario,[ref]$T,[ref]$E)
 if(@($E).Count){throw (@($E|ForEach-Object{"SCENARIO L$($_.Extent.StartLineNumber): $($_.Message)"})-join"`n")}
 
-# Scripts de promoção são temporários e não fazem parte do produto validado.
+$RepoTest=Join-Path $RepositoryRoot 'windows\zabbix-agent-deployment\tools\Test-DDM-Repository.ps1'
+$Repo=[IO.File]::ReadAllText($RepoTest)
+$Old="Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.22') 'ProductVersion deve ser 2.0.22.'"
+$New="Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.23') 'ProductVersion deve ser 2.0.23.'"
+if(-not$Repo.Contains($Old)){throw 'Expectativa global 2.0.22 nao encontrada no teste de repositorio.'}
+$Repo=$Repo.Replace($Old,$New)
+[IO.File]::WriteAllText($RepoTest,$Repo,(New-Object Text.UTF8Encoding($false)))
+$T=$null;$E=$null;[void][Management.Automation.Language.Parser]::ParseFile($RepoTest,[ref]$T,[ref]$E)
+if(@($E).Count){throw (@($E|ForEach-Object{"REPOTEST L$($_.Extent.StartLineNumber): $($_.Message)"})-join"`n")}
+
 $Tools=Join-Path $RepositoryRoot 'windows\zabbix-agent-deployment\tools'
 $Self=[IO.Path]::GetFullPath($MyInvocation.MyCommand.Path)
 foreach($File in @(Get-ChildItem -LiteralPath $Tools -Filter 'Promote-DDM-SNOC-2.0.23-ForwardOnly*.ps1' -ErrorAction SilentlyContinue)){
