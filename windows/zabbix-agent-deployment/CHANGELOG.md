@@ -1,3 +1,8 @@
+## 2.0.27 - 2026-08-07
+- Normaliza qualquer caractere Unicode de controle, formatacao ou separacao antes de classificar linhas do config legado.
+- Corrige falso bloqueio em comentarios do zabbix_agent2.conf e includes legados.
+- Adiciona regressao com a linha real observada no SRV-AE e multiplos prefixos invisiveis.
+
 ## 2.0.26 - 2026-08-07
 - Corrige a classificacao de comentarios do zabbix_agent2.conf quando existe BOM ou caractere invisivel antes de #.
 - Aceita agent.ping [s|1] como sucesso funcional mesmo quando o executavel retorna ExitCode nao-zero, registrando o ExitCode como WARN.
