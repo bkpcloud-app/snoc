@@ -47,17 +47,15 @@ if (-not $AlreadyPromoted) {
 function Normalize-DDMLegacyConfigLine([string]$Line){$Text=([string]$Line).Trim();$Text=$Text -replace '^(?:\uFEFF|\u200B|\u2060|\u00EF\u00BB\u00BF)+','';return $Text.Trim()}
 function Assert-LegacyConfigurationSafe($Client){
 '@
-    $Engine = Replace-ExactlyOnce $Engine $LegacyFunctionAnchor $LegacyFunctionReplacement 'legacy normalizer helper'
+    $Engine = Replace-ExactlyOnce -Text $Engine -Old $LegacyFunctionAnchor -New $LegacyFunctionReplacement -Label 'legacy normalizer helper'
 
-    $Engine = Replace-ExactlyOnce $Engine \
-        '$Text=([string]$Line).Trim();if(Test-DDMBlank $Text -or $Text.StartsWith(''#''))' \
-        '$Text=Normalize-DDMLegacyConfigLine ([string]$Line);if(Test-DDMBlank $Text -or $Text.StartsWith(''#''))' \
-        'main legacy line normalization'
+    $OldMainLine = '$Text=([string]$Line).Trim();if(Test-DDMBlank $Text -or $Text.StartsWith(''#''))'
+    $NewMainLine = '$Text=Normalize-DDMLegacyConfigLine ([string]$Line);if(Test-DDMBlank $Text -or $Text.StartsWith(''#''))'
+    $Engine = Replace-ExactlyOnce -Text $Engine -Old $OldMainLine -New $NewMainLine -Label 'main legacy line normalization'
 
-    $Engine = Replace-ExactlyOnce $Engine \
-        '$T=([string]$_).Trim();-not(Test-DDMBlank $T) -and -not$T.StartsWith(''#'')' \
-        '$T=Normalize-DDMLegacyConfigLine ([string]$_);-not(Test-DDMBlank $T) -and -not$T.StartsWith(''#'')' \
-        'included legacy line normalization'
+    $OldIncludeLine = '$T=([string]$_).Trim();-not(Test-DDMBlank $T) -and -not$T.StartsWith(''#'')'
+    $NewIncludeLine = '$T=Normalize-DDMLegacyConfigLine ([string]$_);-not(Test-DDMBlank $T) -and -not$T.StartsWith(''#'')'
+    $Engine = Replace-ExactlyOnce -Text $Engine -Old $OldIncludeLine -New $NewIncludeLine -Label 'included legacy line normalization'
 
     $OldLegacyFileLine = @'
                 $Full=$File.FullName.ToLowerInvariant();if($Full -like '*\ddm\*' -or $Full -like '*\plugins.d\*'){continue};if($Approved -contains $Full){continue}
@@ -65,7 +63,7 @@ function Assert-LegacyConfigurationSafe($Client){
     $NewLegacyFileLine = @'
                 $Full=$File.FullName.ToLowerInvariant();$VendorPluginConfig=($Root -eq $DDMProduct.Agent2Directory -and $File.DirectoryName -ieq (Join-Path $DDMProduct.Agent2Directory 'zabbix_agent2.d') -and @('ember.conf','mssql.conf','mongodb.conf','postgresql.conf') -contains $File.Name.ToLowerInvariant());if($Full -like '*\ddm\*' -or $Full -like '*\plugins.d\*' -or $VendorPluginConfig){continue};if($Approved -contains $Full){continue}
 '@
-    $Engine = Replace-ExactlyOnce $Engine $OldLegacyFileLine $NewLegacyFileLine 'official Agent2 plugin configs'
+    $Engine = Replace-ExactlyOnce -Text $Engine -Old $OldLegacyFileLine -New $NewLegacyFileLine -Label 'official Agent2 plugin configs'
 
     $OldPing = @'
 if($LASTEXITCODE -ne 0 -or ($Out -join ' ') -notmatch '\[[A-Za-z]\|1\]'){throw "agent.ping falhou: $($Out -join ' ')"}
@@ -73,12 +71,9 @@ if($LASTEXITCODE -ne 0 -or ($Out -join ' ') -notmatch '\[[A-Za-z]\|1\]'){throw "
     $NewPing = @'
 $AgentPingExitCode=$LASTEXITCODE;$AgentPingText=($Out -join ' ');if($AgentPingText -notmatch '(?i)\bagent\.ping\b.*\[[A-Za-z]\|1\]'){throw "agent.ping falhou: ExitCode=$AgentPingExitCode; $AgentPingText"};if($AgentPingExitCode -ne 0){Log ("agent.ping retornou valor valido com ExitCode="+$AgentPingExitCode+"; resposta aceita.") 'WARN'}
 '@
-    $Engine = Replace-ExactlyOnce $Engine $OldPing $NewPing 'agent.ping functional result'
+    $Engine = Replace-ExactlyOnce -Text $Engine -Old $OldPing -New $NewPing -Label 'agent.ping functional result'
 
-    $Config = Replace-ExactlyOnce $Config \
-        "ProductVersion           = '2.0.25'" \
-        "ProductVersion           = '2.0.26'" \
-        'product version'
+    $Config = Replace-ExactlyOnce -Text $Config -Old "ProductVersion           = '2.0.25'" -New "ProductVersion           = '2.0.26'" -Label 'product version'
 
     $OldRepoBlock = @'
 Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.25') 'ProductVersion deve ser 2.0.25.'
@@ -96,10 +91,11 @@ Assert-DDMTest ($EnginePingRegression.Contains('function Normalize-DDMLegacyConf
 Assert-DDMTest ($EnginePingRegression.Contains('\uFEFF')) 'Normalizador deve remover BOM Unicode antes de classificar comentarios.'
 Assert-DDMTest ($EnginePingRegression.Contains('$VendorPluginConfig')) 'Configuracoes oficiais do pacote Agent2 Plugins devem ser reconhecidas no estado parcial do piloto.'
 Assert-DDMTest ($EnginePingRegression.Contains("@('ember.conf','mssql.conf','mongodb.conf','postgresql.conf')")) 'Lista oficial de configuracoes Agent2 Plugins incompleta.'
-Assert-DDMTest (((([char]0xFEFF).ToString() + '# comment').Trim() -replace '^(?:\uFEFF|\u200B|\u2060|\u00EF\u00BB\u00BF)+','').Trim().StartsWith('#')) 'Regressao BOM: comentario com U+FEFF nao foi reconhecido.'
+$BomRegression = ((([char]0xFEFF).ToString() + '# comment').Trim() -replace '^(?:\uFEFF|\u200B|\u2060|\u00EF\u00BB\u00BF)+','').Trim()
+Assert-DDMTest ($BomRegression.StartsWith('#')) 'Regressao BOM: comentario com U+FEFF nao foi reconhecido.'
 Assert-DDMTest ('agent.ping                                    [s|1]' -match '(?i)\bagent\.ping\b.*\[[A-Za-z]\|1\]') 'Regressao agent.ping: resposta real [s|1] nao foi reconhecida.'
 '@
-    $RepositoryTest = Replace-ExactlyOnce $RepositoryTest $OldRepoBlock $NewRepoBlock 'repository regressions'
+    $RepositoryTest = Replace-ExactlyOnce -Text $RepositoryTest -Old $OldRepoBlock -New $NewRepoBlock -Label 'repository regressions'
 
     if ($ChangeLog -notmatch '(?m)^## 2\.0\.26 ') {
         $ChangeLog = @'
