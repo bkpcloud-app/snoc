@@ -1,4 +1,5 @@
 name: Publish DDM SNOC Windows 2.0.25
+# Merge-triggered one-time publisher for the audited 2.0.25 package.
 
 on:
   push:
