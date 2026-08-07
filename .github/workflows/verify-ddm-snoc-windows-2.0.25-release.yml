@@ -53,7 +53,7 @@ jobs:
             $Expected=((Get-Content -LiteralPath $ShaFile -ErrorAction Stop | Select-Object -First 1) -split '\s+')[0].Trim().ToUpperInvariant()
             $Actual=(Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToUpperInvariant()
             if($Actual -ne $Expected){throw "SHA256 divergente para $ZipName. Expected=$Expected Actual=$Actual"}
-            Write-Host "ASSET_SHA256_OK=$ZipName:$Actual"
+            Write-Host ("ASSET_SHA256_OK={0}:{1}" -f $ZipName,$Actual)
           }
 
           $ManifestPath=Join-Path $Dist 'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.25.json'
