@@ -27,4 +27,18 @@ $T=$null;$E=$null;[void][Management.Automation.Language.Parser]::ParseFile($Temp
 if(@($E).Count){throw (@($E|ForEach-Object{"TEMP L$($_.Extent.StartLineNumber): $($_.Message)"})-join"`n")}
 & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Temp -RepositoryRoot $RepositoryRoot
 if($LASTEXITCODE-ne0){throw "Materializador v8 retornou $LASTEXITCODE"}
+
+# O validador oficial costuma receber esta variavel pelo workflow. Torna-lo autocontido evita dependencia externa.
+$Scenario=Join-Path $RepositoryRoot 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
+$ScenarioLines=@(Get-Content -LiteralPath $Scenario)
+$Init='if (-not (Get-Variable -Name ProductCode -Scope Global -ErrorAction SilentlyContinue)) { $global:ProductCode = ''$ProductCode'' }'
+if(-not(@($ScenarioLines|Where-Object{$_.Trim()-eq$Init}).Count)){
+    $Anchor=@();for($i=0;$i-lt$ScenarioLines.Count;$i++){if($ScenarioLines[$i].Trim()-eq"`$ErrorActionPreference = 'Stop'"){$Anchor+=$i}}
+    if($Anchor.Count-ne1){throw "ErrorActionPreference anchor count=$($Anchor.Count)"}
+    $Out=New-Object System.Collections.Generic.List[string]
+    for($i=0;$i-lt$ScenarioLines.Count;$i++){[void]$Out.Add([string]$ScenarioLines[$i]);if($i-eq$Anchor[0]){[void]$Out.Add($Init)}}
+    [IO.File]::WriteAllLines($Scenario,[string[]]$Out,(New-Object Text.UTF8Encoding($false)))
+}
+$T=$null;$E=$null;[void][Management.Automation.Language.Parser]::ParseFile($Scenario,[ref]$T,[ref]$E)
+if(@($E).Count){throw (@($E|ForEach-Object{"SCENARIO L$($_.Extent.StartLineNumber): $($_.Message)"})-join"`n")}
 Write-Host 'FORWARD_ONLY_V8=PASS'
