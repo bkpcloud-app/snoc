@@ -49,7 +49,6 @@ echo "Backup: $BACKUP"
 
 install -d -o tomcat -g tomcat -m 0755 "$BRAND_DIR"
 
-# PNG transparente mínimo: evita o ícone quebrado nativo.
 printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' \
     | base64 -d > "${BRAND_DIR}/logo.png"
 chown tomcat:tomcat "${BRAND_DIR}/logo.png"
@@ -177,7 +176,9 @@ body {
     min-width: 74px;
     margin-right: 16px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #ffd12e 0%, #ff8a2a 100%);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop stop-color='%23ffd12e'/%3E%3Cstop offset='1' stop-color='%23ff7f27'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='50' cy='50' r='49' fill='url(%23g)'/%3E%3Cg fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 25h20l10-10h10'/%3E%3Ccircle cx='47' cy='15' r='4'/%3E%3Cpath d='M2 38h33'/%3E%3Ccircle cx='41' cy='38' r='4'/%3E%3Cpath d='M2 51h25l11 11h11'/%3E%3Ccircle cx='55' cy='62' r='4'/%3E%3Cpath d='M2 64h17l12 12h9'/%3E%3Ccircle cx='46' cy='76' r='4'/%3E%3Cpath d='M2 77h10'/%3E%3Ccircle cx='18' cy='77' r='4'/%3E%3C/g%3E%3C/svg%3E");
+    background-size: cover;
+    background-position: center;
     box-shadow: 0 8px 24px rgba(245,130,32,.24);
 }
 
@@ -339,7 +340,8 @@ grep -q 'ddm-branding.css' "$INDEX" || fail "CSS DDM não referenciado"
 
 NAME_JSON="$(curl -fsS http://127.0.0.1:8080/rest/public/name)"
 echo "Rebranding API: $NAME_JSON"
-printf '%s' "$NAME_JSON" | grep -q 'DDM Gestão Móvel' || fail "API ainda não retornou DDM Gestão Móvel"
+printf '%s' "$NAME_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="OK"; assert d.get("data",{}).get("appName")=="DDM Gestão Móvel"' \
+    || fail "API ainda não retornou DDM Gestão Móvel"
 
 HTTP="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/)"
 HTTPS="$(curl -sS --resolve "${FQDN}:443:127.0.0.1" -o /dev/null -w '%{http_code}' "https://${FQDN}/")"
