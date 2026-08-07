@@ -30,7 +30,7 @@ jobs:
           $MainSha=(git rev-parse origin/main).Trim()
           $Config=(git show "origin/main:windows/zabbix-agent-deployment/config/DDM-Product.ps1") -join "`n"
           if($Config -notmatch "ProductVersion\s*=\s*'2\.0\.23'"){throw 'main nao esta em ProductVersion 2.0.23.'}
-          $Existing=(git tag -l $Tag).Trim()
+          $Existing=[string](git tag -l $Tag)
           if([string]::IsNullOrEmpty($Existing)){
             git tag $Tag $MainSha
             git push origin "refs/tags/$Tag"
