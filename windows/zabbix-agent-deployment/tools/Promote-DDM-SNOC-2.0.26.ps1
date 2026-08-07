@@ -75,17 +75,28 @@ $AgentPingExitCode=$LASTEXITCODE;$AgentPingText=($Out -join ' ');if($AgentPingTe
 
     $Config = Replace-ExactlyOnce -Text $Config -Old "ProductVersion           = '2.0.25'" -New "ProductVersion           = '2.0.26'" -Label 'product version'
 
-    $OldRepoBlock = @'
+    $OldRepoVersion = @'
 Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.25') 'ProductVersion deve ser 2.0.25.'
-$EnginePingRegression = Read-DDMRaw 'engine\Install-DDM-Zabbix-Windows.ps1'
-Assert-DDMTest ($EnginePingRegression.Contains('\[[A-Za-z]\|1\]')) 'Validacao agent.ping deve aceitar o marcador de tipo retornado pelo Zabbix, inclusive [s|1].'
-Assert-DDMTest (-not $EnginePingRegression.Contains('\[t\|1\]')) 'Validacao agent.ping antiga e restrita a [t|1] ainda esta presente.'
 '@
-    $NewRepoBlock = @'
+    $NewRepoVersion = @'
 Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.26') 'ProductVersion deve ser 2.0.26.'
-$EnginePingRegression = Read-DDMRaw 'engine\Install-DDM-Zabbix-Windows.ps1'
+'@
+    $RepositoryTest = Replace-ExactlyOnce -Text $RepositoryTest -Old $OldRepoVersion -New $NewRepoVersion -Label 'repository product version'
+
+    $OldRepoPingAccept = @'
+Assert-DDMTest ($EnginePingRegression.Contains('\[[A-Za-z]\|1\]')) 'Validacao agent.ping deve aceitar o marcador de tipo retornado pelo Zabbix, inclusive [s|1].'
+'@
+    $NewRepoPingAccept = @'
 Assert-DDMTest ($EnginePingRegression.Contains('$AgentPingExitCode=$LASTEXITCODE')) 'Validacao agent.ping deve registrar o ExitCode sem usa-lo como falso negativo quando a resposta funcional for valida.'
 Assert-DDMTest ($EnginePingRegression.Contains('$AgentPingText -notmatch ''(?i)\bagent\.ping\b.*\[[A-Za-z]\|1\]''')) 'Validacao agent.ping deve aceitar a resposta funcional real agent.ping [s|1].'
+'@
+    $RepositoryTest = Replace-ExactlyOnce -Text $RepositoryTest -Old $OldRepoPingAccept -New $NewRepoPingAccept -Label 'repository agent ping acceptance'
+
+    $OldRepoPingLegacy = @'
+Assert-DDMTest (-not $EnginePingRegression.Contains('\[t\|1\]')) 'Validacao agent.ping antiga e restrita a [t|1] ainda esta presente.'
+'@
+    $NewRepoRegressions = @'
+Assert-DDMTest (-not $EnginePingRegression.Contains('\[t\|1\]')) 'Validacao agent.ping antiga e restrita a [t|1] ainda esta presente.'
 Assert-DDMTest (-not $EnginePingRegression.Contains('$LASTEXITCODE -ne 0 -or ($Out -join')) 'Padrao antigo que rejeitava [s|1] por ExitCode nao-zero ainda esta presente.'
 Assert-DDMTest ($EnginePingRegression.Contains('function Normalize-DDMLegacyConfigLine')) 'Normalizador de linhas legadas ausente.'
 Assert-DDMTest ($EnginePingRegression.Contains('\uFEFF')) 'Normalizador deve remover BOM Unicode antes de classificar comentarios.'
@@ -95,7 +106,7 @@ $BomRegression = ((([char]0xFEFF).ToString() + '# comment').Trim() -replace '^(?
 Assert-DDMTest ($BomRegression.StartsWith('#')) 'Regressao BOM: comentario com U+FEFF nao foi reconhecido.'
 Assert-DDMTest ('agent.ping                                    [s|1]' -match '(?i)\bagent\.ping\b.*\[[A-Za-z]\|1\]') 'Regressao agent.ping: resposta real [s|1] nao foi reconhecida.'
 '@
-    $RepositoryTest = Replace-ExactlyOnce -Text $RepositoryTest -Old $OldRepoBlock -New $NewRepoBlock -Label 'repository regressions'
+    $RepositoryTest = Replace-ExactlyOnce -Text $RepositoryTest -Old $OldRepoPingLegacy -New $NewRepoRegressions -Label 'repository pilot regressions'
 
     if ($ChangeLog -notmatch '(?m)^## 2\.0\.26 ') {
         $ChangeLog = @'
