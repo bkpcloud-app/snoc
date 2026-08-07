@@ -23,12 +23,20 @@ jobs:
           T="$RUNNER_TEMP/tomcat9"
           H="$RUNNER_TEMP/home"
           WEB="$GITHUB_WORKSPACE/assets/backup-cloud/gestao-movel/branding/web"
-          mkdir -p "$T/conf/Catalina/localhost" "$T/webapps/ROOT/css" "$H"
+          mkdir -p "$T/conf/Catalina/localhost" "$T/webapps/ROOT/css" "$T/webapps/ROOT/app/components/main/view" "$H"
           cat > "$T/conf/Catalina/localhost/ROOT.xml" <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
-          <Context><Parameter name="sample.parameter" value="sample" override="false"/></Context>
+          <Context>
+            <Parameter name="rebranding.name" value="DDM Gestão Móvel" override="false"/>
+            <Parameter name="rebranding.vendor.name" value="DDMTI" override="false"/>
+            <Parameter name="rebranding.logo" value="/images/old.png" override="false"/>
+          </Context>
           EOF
           echo 'body { margin: 0; }' > "$T/webapps/ROOT/css/main.css"
+          cat > "$T/webapps/ROOT/app/components/main/view/login.html" <<'EOF'
+          <div class="login-logo" ng-if="rebranding"><img src="rest/public/logo"><span class="logo">{{rebranding.appName}}</span></div>
+          <div ng-if="!isIE"><div class='panel panel-default login'>FORM</div></div>
+          EOF
 
           for run in 1 2; do
             BC_TEST_MODE=1 BC_BASE="$H" BC_TOMCAT="$T" BC_RAW_BASE="file://$WEB" bash "$WEB/apply-branding.sh"
@@ -36,16 +44,25 @@ jobs:
           done
 
           HERO="$T/webapps/ROOT/images/backup-cloud/backupcloud-gestao-movel-login.jpg"
+          LOGO="$T/webapps/ROOT/images/backup-cloud/backup-cloud-logo.png"
+          LOGIN="$T/webapps/ROOT/app/components/main/view/login.html"
           test -s "$HERO"
-          echo 'e1d00fa50a8c1519631ed4d89bac5683c5e73db8c2b8e565dd4fab0ab5ee2659  '"$HERO" | sha256sum -c -
-          python3 - "$HERO" "$T/conf/Catalina/localhost/ROOT.xml" <<'PY'
+          test -s "$LOGO"
+          echo '5dcf016dcd91781457494cba552676c10ddaa682d01cc64e5480ce476737a07a  '"$HERO" | sha256sum -c -
+          python3 - "$HERO" "$LOGO" "$LOGIN" "$T/conf/Catalina/localhost/ROOT.xml" <<'PY'
           from pathlib import Path
           import sys, xml.etree.ElementTree as ET
           hero=Path(sys.argv[1]).read_bytes()
+          logo=Path(sys.argv[2]).read_bytes()
+          login=Path(sys.argv[3]).read_text(encoding='utf-8')
+          p=Path(sys.argv[4]); ET.parse(p); s=p.read_text(encoding='utf-8')
           assert hero.startswith(b'\xff\xd8\xff') and hero.endswith(b'\xff\xd9')
-          p=Path(sys.argv[2]); ET.parse(p); s=p.read_text(encoding='utf-8')
+          assert logo.startswith(b'\x89PNG\r\n\x1a\n')
+          assert login.count('BACKUPCLOUD GESTAO MOVEL HERO - INICIO') == 1
+          assert 'backupcloud-gestao-movel-login.jpg?v=2026080712' in login
           for item in ['name="rebranding.name" value="BackupCloud | Gestão Móvel"','name="rebranding.vendor.name" value="BackupCloud"','name="rebranding.mobile.name" value="Gestão Móvel"']:
               assert item in s
-          print('Branding validation OK')
+          assert 'name="rebranding.logo" value="'+str(Path(sys.argv[2]))+'"' in s
+          print('Branding validation v12 OK')
           PY
           test "$(grep -c 'BACKUPCLOUD GESTAO MOVEL - INICIO' "$T/webapps/ROOT/css/main.css")" -eq 1
