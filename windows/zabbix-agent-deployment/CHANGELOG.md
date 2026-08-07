@@ -1,3 +1,8 @@
+## 2.0.22 - 2026-08-07
+- Corrige o diagnostico enganoso em que uma falha atual podia exibir lastapply.status antigo.
+- GPO-DIARIA.cmd preserva o codigo de retorno da execucao atual e imprime o DAILY mais recente em caso de falha.
+- Exibe tambem ollback.failed, elease.blocked, lastapply.status e product-status.json no mesmo comando.
+- Mantem a migracao Agent 1 para Agent 2 transacional; nenhuma falha e mascarada como erro historico.
 ## 2.0.21 - 2026-08-07
 - Corrige a validacao de CentralRoot que tratava o namespace de dominio NETLOGON e o NETLOGON do proprio DC como caminhos diferentes.
 - Aceita somente a equivalencia segura entre \\DOMINIO\NETLOGON\caminho e \\DC-LOCAL\NETLOGON\mesmo-caminho, preservando o bloqueio para outro servidor, share ou caminho relativo.
