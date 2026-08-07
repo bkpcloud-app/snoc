@@ -1,4 +1,4 @@
-name: Dispatch DDM SNOC Windows 2.0.27
+name: Verify DDM SNOC Windows 2.0.27 Release
 
 on:
   push:
@@ -12,15 +12,16 @@ permissions:
   actions: write
 
 jobs:
-  dispatch:
+  verify-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
 
-      - name: Create exact release tag and dispatch official workflow
+      - name: Wait for official release and verify published MOTOR
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -28,14 +29,83 @@ jobs:
           set -euo pipefail
           TARGET='34ad078aba992c5a7f16a9b518788d602e23121b'
           TAG='ddm-snoc-windows-v2.0.27'
+          VERSION='2.0.27'
+          MOTOR="DDM-SNOC-WINDOWS-MOTOR-${VERSION}.zip"
+          MOTOR_SHA="${MOTOR}.sha256"
+          MANIFEST="DDM-SNOC-WINDOWS-RELEASE-MANIFEST-${VERSION}.json"
+          MANIFEST_SHA="${MANIFEST}.sha256"
+
           git fetch origin main --tags
-          git merge-base --is-ancestor "$TARGET" origin/main
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            CURRENT="$(git rev-list -n1 "$TAG")"
-            test "$CURRENT" = "$TARGET"
-          else
-            git tag "$TAG" "$TARGET"
-            git push origin "refs/tags/$TAG"
+          test "$(git rev-list -n1 "$TAG")" = "$TARGET"
+
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            ACTIVE="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ddm-snoc-windows-release.yml --limit 20 --json databaseId,status,event --jq '[.[] | select(.event=="workflow_dispatch" and (.status=="queued" or .status=="in_progress"))][0].databaseId // empty')"
+            if [ -z "$ACTIVE" ]; then
+              gh workflow run ddm-snoc-windows-release.yml --repo "$GITHUB_REPOSITORY" --ref main -f release_tag="$TAG"
+            fi
           fi
-          gh workflow run ddm-snoc-windows-release.yml --repo "$GITHUB_REPOSITORY" --ref main -f release_tag="$TAG"
-          echo "DISPATCHED=$TAG TARGET=$TARGET"
+
+          for i in $(seq 1 90); do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 10
+          done
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+
+          mapfile -t ASSETS < <(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | sort)
+          for required in \
+            "DDM-SNOC-WINDOWS-MOTOR-${VERSION}.zip" \
+            "DDM-SNOC-WINDOWS-MOTOR-${VERSION}.zip.sha256" \
+            "DDM-SNOC-WINDOWS-AD-SEED-${VERSION}.zip" \
+            "DDM-SNOC-WINDOWS-AD-SEED-${VERSION}.zip.sha256" \
+            "DDM-SNOC-WINDOWS-RELEASE-MANIFEST-${VERSION}.json" \
+            "DDM-SNOC-WINDOWS-RELEASE-MANIFEST-${VERSION}.json.sha256"; do
+            printf '%s\n' "${ASSETS[@]}" | grep -Fxq "$required"
+          done
+
+          mkdir -p "$RUNNER_TEMP/release-verify"
+          cd "$RUNNER_TEMP/release-verify"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p "$MOTOR" -p "$MOTOR_SHA" -p "$MANIFEST" -p "$MANIFEST_SHA"
+
+          MOTOR_EXPECTED="$(awk '{print toupper($1)}' "$MOTOR_SHA")"
+          MOTOR_ACTUAL="$(sha256sum "$MOTOR" | awk '{print toupper($1)}')"
+          test "$MOTOR_ACTUAL" = "$MOTOR_EXPECTED"
+
+          MANIFEST_EXPECTED="$(awk '{print toupper($1)}' "$MANIFEST_SHA")"
+          MANIFEST_ACTUAL="$(sha256sum "$MANIFEST" | awk '{print toupper($1)}')"
+          test "$MANIFEST_ACTUAL" = "$MANIFEST_EXPECTED"
+          test "$(jq -r '.ProductVersion' "$MANIFEST")" = "$VERSION"
+          test "$(jq -r '.GitTag' "$MANIFEST")" = "$TAG"
+          test "$(jq -r '.GitCommit' "$MANIFEST")" = "$TARGET"
+
+          mkdir expanded
+          unzip -q "$MOTOR" -d expanded
+          PRODUCT="$RUNNER_TEMP/release-verify/expanded/DDM-SNOC-WINDOWS-MOTOR-${VERSION}"
+          test -f "$PRODUCT/engine/Install-DDM-Zabbix-Windows.ps1"
+          test -f "$PRODUCT/tools/Test-DDM-LegacyBom.ps1"
+          ENGINE_SHA="$(sha256sum "$PRODUCT/engine/Install-DDM-Zabbix-Windows.ps1" | awk '{print toupper($1)}')"
+
+          pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PRODUCT/tools/Test-DDM-LegacyBom.ps1" -ProductRoot "$PRODUCT"
+
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p ops/release-proofs
+          PROOF='ops/release-proofs/ddm-snoc-windows-v2.0.27.json'
+          jq -n \
+            --arg tag "$TAG" \
+            --arg target "$TARGET" \
+            --arg motor_sha256 "$MOTOR_ACTUAL" \
+            --arg engine_sha256 "$ENGINE_SHA" \
+            --arg manifest_sha256 "$MANIFEST_ACTUAL" \
+            --arg verified_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{tag:$tag,target_commit:$target,motor_sha256:$motor_sha256,engine_sha256:$engine_sha256,manifest_sha256:$manifest_sha256,assets_verified:6,legacy_bom_regression:"PASS",official_release:"PASS",verified_at_utc:$verified_at_utc}' > "$PROOF"
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$PROOF"
+          git commit -m 'docs(windows): record verified 2.0.27 release proof'
+          git push origin HEAD:main
+
+          echo "RELEASE_VERIFIED=$TAG"
+          echo "MOTOR_SHA256=$MOTOR_ACTUAL"
+          echo "ENGINE_SHA256=$ENGINE_SHA"
