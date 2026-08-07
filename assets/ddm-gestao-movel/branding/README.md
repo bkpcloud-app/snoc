@@ -14,11 +14,18 @@
 - Marca/fornecedor: **DDMTI Soluções**
 - Identidade principal: laranja/amarelo da DDM TI, grafite/preto e branco.
 - Logo-matriz escolhido: versão quadrada completa com círculo laranja/amarelo e texto `ddm.ti`.
-- Endpoint público atual: `https://mobgw.bkpcloud.app.br:9091`
+- Endpoint público atual: `https://mobgw.bkpcloud.app.br`
+- HTTPS público: TCP 443.
+- MQTT público: TCP 31000.
 
 ## Uso no Headwind MDM
 
 O web panel usa o mecanismo de rebranding para nome, logo, fornecedor e links. Cores, favicon e acabamento visual ficam em camada separada para facilitar reaplicação após upgrades.
+
+## Scripts
+
+- `web/set-public-url-443.sh` — fixa a URL pública do Headwind em HTTPS/443 e mantém o MQTT em `mobgw.bkpcloud.app.br:31000`.
+- `web/apply-branding.sh` — aplica a identidade visual DDM no painel web.
 
 ## Regra
 
