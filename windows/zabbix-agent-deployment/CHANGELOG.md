@@ -1,3 +1,9 @@
+## 2.0.23 - 2026-08-07
+- Migracao Windows forward-only: sem criar backup de migracao e sem rollback automatico.
+- Em falha, grava lastapply.status e encerra no ponto atual para ajuste manual.
+- Agent 1 so e removido depois da validacao do Agent 2, plugins, configuracao e porta.
+- rollback.failed antigo deixa de bloquear uma nova tentativa.
+
 ## 2.0.22 - 2026-08-07
 - Corrige o diagnostico enganoso em que uma falha atual podia exibir lastapply.status antigo.
 - GPO-DIARIA.cmd preserva o codigo de retorno da execucao atual e imprime o DAILY mais recente em caso de falha.

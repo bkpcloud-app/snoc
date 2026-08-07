@@ -138,7 +138,7 @@ Write-Host '3/12 Contrato global do produto'
 . (Join-Path $ProductRoot 'config\DDM-Product.ps1')
 Assert-DDMTest ($DDMProduct.ProductName -eq 'DDM SNOC Windows') 'ProductName invalido.'
 Assert-DDMTest ($DDMProduct.ProductCode -eq 'DDM-SNOC-WINDOWS') 'ProductCode invalido.'
-Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.22') 'ProductVersion deve ser 2.0.22.'
+Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.23') 'ProductVersion deve ser 2.0.23.'
 Assert-DDMTest ($DDMProduct.ClientSchemaVersion -eq 3) 'Schema deve ser 3.'
 Assert-DDMTest ([bool]$DDMProduct.AllowAgent2OnServer2012) 'Server 2012 deve permanecer habilitado para Agent 2.'
 Assert-DDMTest ([bool]$DDMProduct.InstallAgent2Plugins) 'Plugins Agent 2 devem permanecer habilitados.'
@@ -368,7 +368,6 @@ foreach ($Required in @(
     'Warnings',
     'HardBlocks',
     'proxy_ativo_tcp_10051_indisponivel',
-    'rollback_pendente',
     'release_bloqueada',
     'DEGRADED'
 )) {
@@ -377,25 +376,26 @@ foreach ($Required in @(
 Assert-DDMTest ($Endpoint.IndexOf("`$Warnings+='proxy_ativo_tcp_10051_indisponivel'") -ge 0) 'Falha do proxy nao esta classificada como warning.'
 Assert-DDMTest ($Endpoint.IndexOf("`$Drift+='proxy_ativo_tcp_10051_indisponivel'") -lt 0) 'Falha do proxy ainda dispara reparo.'
 
-Write-Host '8/12 MSI, migracao, repair e rollback'
+Write-Host '8/12 MSI, migracao e repair forward-only'
 $Engine = Read-DDMRaw 'engine\Install-DDM-Zabbix-Windows.ps1'
 foreach ($Required in @(
     '$NeedMsi=$Mode -eq ''Apply''',
     'Repair recusado porque o estado MSI diverge',
     'Assert-LegacyConfigurationSafe',
-    'LocalPackageSha256',
-    'Rollback incompleto',
     'InstallCoreOnAgent1',
     'BlockedModules',
-    '$TransactionCommitted=$true',
-    'IMPLEMENTED_AND_VALIDATED'
+    'IMPLEMENTED_AND_VALIDATED',
+    'Write-DDMAtomicText (Join-Path $StateRoot ''lastapply.status'')'
 )) {
     Assert-DDMTest ($Engine.Contains($Required)) "Motor sem invariante: $Required"
 }
-Assert-DDMTest ($Engine.LastIndexOf('Backup-State $Products') -lt $Engine.LastIndexOf('Stop-Agents')) 'Backup deve ocorrer antes da parada do agente.'
-Assert-DDMTest ($Engine.LastIndexOf('$TransactionCommitted=$true') -gt $Engine.LastIndexOf('Export-Clixml -LiteralPath $Temp')) 'Commit ocorre antes do estado final.'
-Assert-DDMTest ($Engine -notmatch '(?i)Set-ItemProperty[^\r\n]*\s-Type\b') 'Rollback usa parametro invalido Set-ItemProperty -Type.'
-Assert-DDMTest ($Engine.Contains('try{Remove-OldState}catch')) 'Limpeza pos-commit ainda pode acionar rollback.'
+foreach ($Forbidden in @('MigrationBackups','function Backup-State','function Invoke-Rollback','function Get-RestoreProperties','function Restore-ServiceSnapshot','snapshot.clixml','Rollback incompleto','$TransactionCommitted','Rollback MSI indisponivel','reg.exe export','reg.exe import')) {
+    Assert-DDMTest (-not $Engine.Contains($Forbidden)) "Motor forward-only contem mecanismo proibido: $Forbidden"
+}
+Assert-DDMTest ($Engine.LastIndexOf('Stop-Agents') -lt $Engine.LastIndexOf("Invoke-Msi 'INSTALL'")) 'Agentes devem parar antes da instalacao alvo.'
+Assert-DDMTest ($Engine.LastIndexOf('Test-AgentConfig $Target.Family') -lt $Engine.LastIndexOf('Start-Service $Target.Service')) 'Configuracao deve ser validada antes de iniciar o alvo.'
+Assert-DDMTest ($Engine.LastIndexOf('Test-DDMPortOwnedByProcess') -lt $Engine.LastIndexOf('Remove-OppositeProduct $Target.Family')) 'Agent 1 so pode ser removido apos validar a porta do Agent 2.'
+Assert-DDMTest ($Engine.Contains('try{Remove-OldState}catch')) 'Limpeza pos-aplicacao deve permanecer nao-fatal.'
 
 Write-Host '9/12 Modulos locais'
 foreach ($Module in @('CORE', 'ADDS', 'HYPERV', 'TOTVS', 'VEEAM')) {

@@ -18,13 +18,11 @@ $ProductRoot=Split-Path -Parent $EngineRoot
 . (Join-Path $ProductRoot 'lib\DDM-Common.ps1')
 $StateRoot=$DDMProduct.StateDirectory
 $LogRoot=Join-Path $StateRoot 'Logs'
-$BackupRoot=Join-Path $StateRoot 'MigrationBackups'
 New-Item $LogRoot -ItemType Directory -Force | Out-Null
-New-Item $BackupRoot -ItemType Directory -Force | Out-Null
 $RunId=Get-Date -Format 'yyyyMMdd-HHmmss'
 $LogFile=Join-Path $LogRoot ("ENGINE-{0}-{1}.log" -f $env:COMPUTERNAME,$RunId)
 $Mutex=New-Object System.Threading.Mutex($false,'Global\DDM_SNOC_WINDOWS_ENGINE')
-$Locked=$false;$TransactionCommitted=$false;$RebootRequired=$false;$MsiChanged=$false
+$Locked=$false;$RebootRequired=$false;$MsiChanged=$false
 function Log([string]$M,[string]$L='INFO'){$X='{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'),$L,$M;Write-Host $X;Add-Content $LogFile $X -Encoding UTF8}
 
 function Test-Admin {$Id=[Security.Principal.WindowsIdentity]::GetCurrent();$P=New-Object Security.Principal.WindowsPrincipal($Id);return $P.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)}
@@ -109,51 +107,6 @@ function Assert-LegacyConfigurationSafe($Client){
     }
 }
 
-function Backup-State($Products,$Agent1Snapshot,$Agent2Snapshot,[bool]$RequireMsi,$Identity,$Client){
-    $Root=Join-Path $BackupRoot $RunId;New-Item $Root -ItemType Directory -Force|Out-Null
-    foreach($D in @($DDMProduct.Agent1Directory,$DDMProduct.Agent2Directory)){if(Test-Path $D){Copy-Item $D (Join-Path $Root (Split-Path -Leaf $D)) -Recurse -Force}}
-    foreach($ServiceName in @('Zabbix Agent','Zabbix Agent 2')){
-        $ServiceRegistryPath='HKLM:\SYSTEM\CurrentControlSet\Services\'+$ServiceName
-        if(Test-Path -LiteralPath $ServiceRegistryPath){
-            $RegFile=Join-Path $Root (($ServiceName -replace ' ','_')+'.reg')
-            & reg.exe export ("HKLM\SYSTEM\CurrentControlSet\Services\"+$ServiceName) $RegFile /y 2>$null|Out-Null
-            if($LASTEXITCODE -ne 0){throw "Falha ao exportar registro do servico $ServiceName. ExitCode=$LASTEXITCODE"}
-        }
-    }
-    $ProductBackups=@()
-    foreach($P in @($Products)){
-        $Local=Get-LocalPackage $P.ProductCode;$Copy='';$Hash=''
-        if(-not(Test-DDMBlank $Local) -and (Test-Path $Local)){$Copy=Join-Path $Root (([string]$P.Family)+'-'+([string]$P.DisplayVersion)+'-'+([string]$P.ProductCode -replace '[{}-]','')+'.msi');Copy-Item $Local $Copy -Force;Test-ZabbixSignature $Copy $false;$Hash=Get-DDMSha256 $Copy}
-        elseif($RequireMsi -and @('AGENT1','AGENT2','PLUGINS') -contains $P.Family){throw "Rollback MSI indisponivel para $($P.DisplayName) $($P.DisplayVersion)."}
-        $ProductBackups+=New-Object PSObject -Property @{DisplayName=$P.DisplayName;DisplayVersion=$P.DisplayVersion;ProductCode=$P.ProductCode;Family=$P.Family;LocalPackage=$Copy;LocalPackageSha256=$Hash;InstallLocation=$P.InstallLocation}
-    }
-    $ListenPort=if($Client.Communication.ListenPort){[int]$Client.Communication.ListenPort}else{[int]$DDMProduct.ListenPort};$RollbackIdentity=New-Object PSObject -Property @{Server=[string]$Identity.Proxy;ServerActive=[string]$Identity.ProxyActive;Hostname=[string]$Identity.Hostname;HostMetadata=[string]$Identity.Metadata;ListenPort=$ListenPort};$Snapshot=New-Object PSObject -Property @{Products=$ProductBackups;Agent1Service=$Agent1Snapshot;Agent2Service=$Agent2Snapshot;RollbackIdentity=$RollbackIdentity;MsiChanged=$RequireMsi;CreatedAt=(Get-Date).ToUniversalTime().ToString('o')}
-    Export-DDMClixmlAtomic $Snapshot (Join-Path $Root 'snapshot.clixml') 8;return $Root
-}
-
-function Get-RestoreProperties($Product,$Snapshot){$Properties=@('ADDLOCAL=ALL','DONOTSTART=1','SKIP=fw');if(@('AGENT1','AGENT2') -contains [string]$Product.Family){$Properties+='STARTUPTYPE=automatic';$RollbackIdentity=$Snapshot.RollbackIdentity;if($RollbackIdentity){$Properties+=('SERVER="'+[string]$RollbackIdentity.Server+'"'),('SERVERACTIVE="'+[string]$RollbackIdentity.ServerActive+'"'),('HOSTNAME="'+[string]$RollbackIdentity.Hostname+'"'),('HOSTMETADATA="'+[string]$RollbackIdentity.HostMetadata+'"'),('LISTENPORT="'+[string]$RollbackIdentity.ListenPort+'"')}};if(-not(Test-DDMBlank $Product.InstallLocation)){$Properties+=('INSTALLFOLDER="'+[string]$Product.InstallLocation+'"')};return $Properties}
-function Restore-ServiceSnapshot($Snap){
-    if(-not[bool]$Snap.Exists){if(Get-Service $Snap.Name -ErrorAction SilentlyContinue){Stop-Service $Snap.Name -Force -ErrorAction SilentlyContinue;& sc.exe delete $Snap.Name|Out-Null};return}
-    if(-not(Get-Service $Snap.Name -ErrorAction SilentlyContinue) -and -not(Test-DDMBlank $Snap.PathName)){$StartCode=if([string]$Snap.StartMode -eq 'Auto'){'auto'}elseif([string]$Snap.StartMode -eq 'Disabled'){'disabled'}else{'demand'};& sc.exe create ([string]$Snap.Name) ('binPath= '+[string]$Snap.PathName) ('start= '+$StartCode) ('DisplayName= '+[string]$Snap.DisplayName)|Out-Null;if($LASTEXITCODE -ne 0){throw "Falha ao recriar servico $($Snap.Name)"}}
-    $Startup=if([string]$Snap.StartMode -eq 'Auto'){'Automatic'}elseif([string]$Snap.StartMode -eq 'Disabled'){'Disabled'}else{'Manual'};Set-Service $Snap.Name -StartupType $Startup
-    if(-not(Test-DDMBlank $Snap.Sddl)){& sc.exe sdset $Snap.Name ([string]$Snap.Sddl)|Out-Null}
-    if([int]$Snap.DelayedAutoStart -eq 1){$ServiceKey=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(('SYSTEM\CurrentControlSet\Services\'+$Snap.Name),$true);if($null -eq $ServiceKey){throw ('Chave do servico nao encontrada: '+$Snap.Name)};try{$ServiceKey.SetValue('DelayedAutoStart',1,[Microsoft.Win32.RegistryValueKind]::DWord)}finally{$ServiceKey.Close()}}else{Remove-ItemProperty -LiteralPath ('HKLM:\SYSTEM\CurrentControlSet\Services\'+$Snap.Name) -Name DelayedAutoStart -ErrorAction SilentlyContinue}
-    if([string]$Snap.Status -eq 'Running'){Start-Service $Snap.Name}else{Stop-Service $Snap.Name -Force -ErrorAction SilentlyContinue}
-}
-
-function Invoke-Rollback([string]$Backup){
-    $Errors=@();Stop-Service 'Zabbix Agent' -Force -ErrorAction SilentlyContinue;Stop-Service 'Zabbix Agent 2' -Force -ErrorAction SilentlyContinue
-    $Snap=Import-DDMClixmlSafe (Join-Path $Backup 'snapshot.clixml')
-    if([bool]$Snap.MsiChanged){
-        foreach($Current in @(Get-ZabbixProducts)){$Was=@($Snap.Products|Where-Object{$_.ProductCode -eq $Current.ProductCode}).Count -gt 0;if(-not$Was){try{Invoke-Msi 'REMOVE' $Current.ProductCode @() $Current.DisplayName}catch{$Errors+=$_.Exception.Message}}}
-        foreach($P in @($Snap.Products)){$Exists=@(Get-ZabbixProducts|Where-Object{$_.ProductCode -eq $P.ProductCode}).Count -gt 0;if(-not$Exists -and -not(Test-DDMBlank $P.LocalPackage) -and (Test-Path $P.LocalPackage)){try{if((Get-DDMSha256 $P.LocalPackage) -ne ([string]$P.LocalPackageSha256).ToUpperInvariant()){throw 'MSI rollback alterado'};Test-ZabbixSignature $P.LocalPackage $false;Invoke-Msi 'INSTALL' $P.LocalPackage (Get-RestoreProperties $P $Snap) $P.DisplayName}catch{$Errors+=$_.Exception.Message}}}
-    }
-    foreach($Dir in @($DDMProduct.Agent1Directory,$DDMProduct.Agent2Directory)){$Saved=Join-Path $Backup (Split-Path -Leaf $Dir);try{if(Test-Path $Dir){Remove-Item $Dir -Recurse -Force};if(Test-Path $Saved){Copy-Item $Saved $Dir -Recurse -Force}}catch{$Errors+=$_.Exception.Message}}
-    foreach($RegFile in @(Get-ChildItem -LiteralPath $Backup -ErrorAction SilentlyContinue|Where-Object{-not$_.PSIsContainer -and $_.Extension -ieq '.reg'})){& reg.exe import $RegFile.FullName 2>$null|Out-Null}
-    try{Restore-ServiceSnapshot $Snap.Agent1Service}catch{$Errors+=$_.Exception.Message};try{Restore-ServiceSnapshot $Snap.Agent2Service}catch{$Errors+=$_.Exception.Message}
-    if($Errors.Count -gt 0){throw "Rollback incompleto: $($Errors -join ' | ')"};Remove-Item -LiteralPath (Join-Path $StateRoot $DDMProduct.RollbackFailureFile) -Force -ErrorAction SilentlyContinue
-}
-
 function Install-ManagedModules([string]$InstallRoot,[string]$Family){
     $ModulesRoot=Join-Path $ProductRoot 'modules';$IncludeParent=Join-Path $InstallRoot $(if($Family -eq 'AGENT2'){'zabbix_agent2.d'}else{'zabbix_agentd.d'});$ScriptsParent=Join-Path $InstallRoot 'scripts';$IncludeRoot=Join-Path $IncludeParent 'ddm';$ScriptsRoot=Join-Path $ScriptsParent 'ddm'
     $IncludeStage=Join-Path $IncludeParent ('ddm.staging-'+[guid]::NewGuid().ToString('N'));$ScriptsStage=Join-Path $ScriptsParent ('ddm.staging-'+[guid]::NewGuid().ToString('N'));New-Item $IncludeStage -ItemType Directory -Force|Out-Null;New-Item $ScriptsStage -ItemType Directory -Force|Out-Null
@@ -191,7 +144,7 @@ function Write-AgentConfig([string]$Family,[string]$InstallRoot,$Identity,$Clien
 }
 function Test-AgentConfig([string]$Family,[string]$InstallRoot,$Pair){$Exe=Join-Path $InstallRoot $(if($Family -eq 'AGENT2'){'zabbix_agent2.exe'}else{'zabbix_agentd.exe'});if($Family -eq 'AGENT2'){$Out=@(& $Exe -c $Pair.Temp -T 2>&1);if($LASTEXITCODE -ne 0){throw "Validacao -T falhou: $($Out -join ' ')"}};$Out=@(& $Exe -c $Pair.Temp -t agent.ping 2>&1);if($LASTEXITCODE -ne 0 -or ($Out -join ' ') -notmatch '\[t\|1\]'){throw "agent.ping falhou: $($Out -join ' ')"};Move-Item $Pair.Temp $Pair.Final -Force}
 function Test-PendingReboot{if(Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending'){return $true};if(Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'){return $true};return $false}
-function Remove-OldState{$Backups=@(Get-ChildItem $BackupRoot|Where-Object{$_.PSIsContainer}|Sort-Object LastWriteTime -Descending);foreach($Old in @($Backups|Select-Object -Skip ([int]$DDMProduct.KeepBackupSets))){Remove-Item $Old.FullName -Recurse -Force -ErrorAction SilentlyContinue};$Cutoff=(Get-Date).AddDays(-[int]$DDMProduct.KeepLogDays);foreach($Old in @(Get-ChildItem $LogRoot -ErrorAction SilentlyContinue|Where-Object{-not$_.PSIsContainer -and $_.LastWriteTime -lt $Cutoff})){Remove-Item $Old.FullName -Force -ErrorAction SilentlyContinue}}
+function Remove-OldState{$Cutoff=(Get-Date).AddDays(-[int]$DDMProduct.KeepLogDays);foreach($Old in @(Get-ChildItem $LogRoot -ErrorAction SilentlyContinue|Where-Object{-not$_.PSIsContainer -and $_.LastWriteTime -lt $Cutoff})){Remove-Item $Old.FullName -Force -ErrorAction SilentlyContinue}}
 
 try{
     $Locked=$Mutex.WaitOne(0,$false);if(-not$Locked){throw 'Outra instalacao esta ativa.'};if($Mode -ne 'Diagnose' -and -not(Test-Admin)){throw 'Execute como Administrador ou SYSTEM.'};if((Get-DDMSha256 $ClientRuntimePath) -ne $ClientRuntimeSha256){throw 'Hash do cliente divergente.'}
@@ -202,7 +155,6 @@ try{
     $NeedMsi=$Mode -eq 'Apply'
     if($Mode -eq 'Repair' -and ($TargetProducts.Count -ne 1 -or $OppositeProducts.Count -gt 0 -or -not$PluginOk)){throw 'Repair recusado porque o estado MSI diverge; use Apply.'}
     $A1=Get-ServiceSnapshot 'Zabbix Agent';$A2=Get-ServiceSnapshot 'Zabbix Agent 2';foreach($Snap in @($A1,$A2)){if($Snap.Exists -and -not(Test-DDMBlank $Snap.StartName) -and [string]$Snap.StartName -notmatch '^(?i)(LocalSystem|NT AUTHORITY\\SYSTEM)$'){throw "Servico $($Snap.Name) usa conta personalizada; migracao automatica bloqueada."}}
-    $Backup=Backup-State $Products $A1 $A2 $NeedMsi $Identity $Client
     try{
         Stop-Agents
         $InstallRoot=if($Target.Family -eq 'AGENT2'){$DDMProduct.Agent2Directory}else{$DDMProduct.Agent1Directory}
@@ -214,10 +166,9 @@ try{
         $PluginVersion=if($Target.Family -eq 'AGENT2'){$DesiredAgentVersion}else{''};$Pending=($RebootRequired -or (Test-PendingReboot))
         $Good=New-Object PSObject -Property @{ReleaseId=$DesiredReleaseId;ProductVersion=$DesiredProductVersion;AgentVersion=$DesiredAgentVersion;PluginVersion=$PluginVersion;ClientSourceSha256=$ClientSourceSha256;ClientRuntimeSha256=$ClientRuntimeSha256;ClientConfigVersion=[string]$Client.ConfigVersion;ClientId=[string]$Client.ClientId;Family=$Target.Family;Architecture=$Target.Architecture;Hostname=$Identity.Hostname;Proxy=$Identity.Proxy;ProxyActive=$Identity.ProxyActive;Metadata=$Identity.Metadata;GeneratedConfigSha256=(Get-DDMSha256 $Pair.Final);ManagedModuleFiles=$Managed;RebootRequired=$Pending;AppliedAt=(Get-Date).ToUniversalTime().ToString('o');Status='IMPLEMENTED_AND_VALIDATED'}
         $Temp=Join-Path $StateRoot ('last-good-state-'+[guid]::NewGuid().ToString('N')+'.clixml');$Good|Export-Clixml -LiteralPath $Temp -Depth 10;$Check=Import-DDMClixmlSafe $Temp;if([string]$Check.ReleaseId -ne $DesiredReleaseId){throw 'Estado final invalido.'};Move-Item $Temp (Join-Path $StateRoot 'last-good-state.clixml') -Force
-        Set-DDMLocalSecureAcl $StateRoot;Write-DDMAtomicText (Join-Path $StateRoot 'lastapply.status') ("OK - "+(Get-Date -Format s)+"`r`n") 'ASCII';if($Pending){Write-DDMAtomicText (Join-Path $StateRoot 'reboot.required') ((Get-Date -Format s)+"`r`n") 'ASCII'}else{Remove-Item (Join-Path $StateRoot 'reboot.required') -Force -ErrorAction SilentlyContinue};Remove-Item (Join-Path $StateRoot $DDMProduct.RollbackFailureFile) -Force -ErrorAction SilentlyContinue
-        $TransactionCommitted=$true
+        Set-DDMLocalSecureAcl $StateRoot;Write-DDMAtomicText (Join-Path $StateRoot 'lastapply.status') ("OK - "+(Get-Date -Format s)+"`r`n") 'ASCII';if($Pending){Write-DDMAtomicText (Join-Path $StateRoot 'reboot.required') ((Get-Date -Format s)+"`r`n") 'ASCII'}else{Remove-Item (Join-Path $StateRoot 'reboot.required') -Force -ErrorAction SilentlyContinue}
         try{Remove-OldState}catch{Log ("Limpeza pos-commit falhou: "+$_.Exception.Message) 'WARN'}
         if($Pending){exit 3010}else{exit 0}
-    }catch{$Failure=$_;$RollbackFailure='';if(-not$TransactionCommitted){try{Invoke-Rollback $Backup}catch{$RollbackFailure=$_.Exception.Message}};if(-not(Test-DDMBlank $RollbackFailure)){Write-DDMAtomicText (Join-Path $StateRoot $DDMProduct.RollbackFailureFile) ($RollbackFailure+"`r`n") 'UTF8'};Write-DDMAtomicText (Join-Path $StateRoot 'lastapply.status') ("ERROR - "+(Get-Date -Format s)+" - "+$Failure.Exception.Message+"`r`n") 'UTF8';throw $Failure}
+    }catch{$Failure=$_;Write-DDMAtomicText (Join-Path $StateRoot 'lastapply.status') ("ERROR - "+(Get-Date -Format s)+" - "+$Failure.Exception.Message+"`r`n") 'UTF8';throw $Failure}
 }catch{Log $_.Exception.Message 'ERROR';exit 1}
 finally{if($Locked){try{$Mutex.ReleaseMutex()}catch{}};$Mutex.Close()}

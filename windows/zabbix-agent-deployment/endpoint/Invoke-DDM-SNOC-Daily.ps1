@@ -128,7 +128,6 @@ function Test-DDMCompliance($Target,$Identity,$Client) {
     if($LastStatus -like 'ERROR*'){$Warnings+='ultima_aplicacao_registrou_erro'}
     if(Test-PendingReboot){$Warnings+='reboot_pendente'}
     if(-not(Test-DDMTcp $Identity.ProxyActive 10051 3000)){$Warnings+='proxy_ativo_tcp_10051_indisponivel'}
-    if(Test-Path -LiteralPath (Join-Path $StateRoot $DDMProduct.RollbackFailureFile)){$Blocks+='rollback_pendente'}
     if(Test-Path -LiteralPath (Join-Path $StateRoot $DDMProduct.BlockedReleaseStateFile)){$Blocks+='release_bloqueada'}
     return New-Object PSObject -Property @{Compliant=($Drift.Count -eq 0);DriftReasons=@($Drift|Sort-Object -Unique);Warnings=@($Warnings|Sort-Object -Unique);HardBlocks=@($Blocks|Sort-Object -Unique);ActualVersion=$ActualVersion;Binary=$Binary;Config=$Config}
 }

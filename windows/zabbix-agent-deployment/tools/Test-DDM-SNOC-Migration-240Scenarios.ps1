@@ -7,6 +7,7 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
+if (-not (Get-Variable -Name ProductCode -Scope Global -ErrorAction SilentlyContinue)) { $global:ProductCode = '$ProductCode' }
 
 $ProductRoot = Join-Path $RepositoryRoot 'windows\zabbix-agent-deployment'
 $EnginePath = Join-Path $ProductRoot 'engine\Install-DDM-Zabbix-Windows.ps1'
@@ -156,29 +157,29 @@ Add-Contains 47 'Rooted legacy paths are rejected' $Engine '[System.IO.Path]::Is
 Add-Contains 48 'Parent traversal in legacy paths is rejected' $Engine 'Caminho legado inseguro'
 Add-Contains 49 'Legacy TLS requires explicit migration' $Engine 'Configuracao TLS legada exige migracao explicita'
 Add-Contains 50 'Unknown legacy directives are rejected' $Engine 'Diretiva legada nao catalogada'
-Add-Contains 51 'Both agent directories are included in backup' $Engine '$DDMProduct.Agent1Directory,$DDMProduct.Agent2Directory'
-Add-Regex 52 'Only existing service registry keys are exported' $Engine 'Test-Path -LiteralPath \$ServiceRegistryPath.*?reg\.exe export.*?LASTEXITCODE -ne 0'
-Add-Contains 53 'MSI LocalPackage is copied to rollback set' $Engine 'Copy-Item $Local $Copy -Force'
-Add-Contains 54 'Migration blocks when rollback MSI is unavailable' $Engine 'Rollback MSI indisponivel'
-Add-Contains 55 'Rollback MSI signature is checked' $Engine 'Test-ZabbixSignature $Copy $false'
-Add-Contains 56 'Rollback MSI SHA256 is stored' $Engine 'LocalPackageSha256=$Hash'
-Add-Contains 57 'Transaction snapshot is stored in CLIXML' $Engine 'snapshot.clixml'
-Add-Regex 58 'Rollback reinstall uses DONOTSTART and SERVER identity' $Engine 'Get-RestoreProperties.*?DONOTSTART=1.*?SERVER='
-Add-Contains 59 'Rollback reinstall preserves INSTALLFOLDER' $Engine 'INSTALLFOLDER='
-Add-Contains 60 'Rollback removes products created by failed attempt' $Engine 'if(-not$Was){try{Invoke-Msi'
-Add-Contains 61 'Rollback reinstalls products removed by failed attempt' $Engine 'if(-not$Exists -and -not(Test-DDMBlank $P.LocalPackage)'
-Add-Contains 62 'Rollback verifies MSI SHA256 before reinstall' $Engine 'MSI rollback alterado'
-Add-Contains 63 'Rollback verifies MSI signature before reinstall' $Engine 'Test-ZabbixSignature $P.LocalPackage $false'
-Add-Contains 64 'Rollback restores agent directories' $Engine 'Copy-Item $Saved $Dir -Recurse -Force'
-Add-Contains 65 'Rollback imports service registry data' $Engine '& reg.exe import'
-Add-Contains 66 'Rollback restores Agent 1 service snapshot' $Engine 'Restore-ServiceSnapshot $Snap.Agent1Service'
-Add-Contains 67 'Rollback restores Agent 2 service snapshot' $Engine 'Restore-ServiceSnapshot $Snap.Agent2Service'
-Add-Contains 68 'Rollback errors are aggregated' $Engine 'Rollback incompleto:'
+Add-Result 51 'STATIC' 'Migration backup root is absent' (-not (Has-Text $Engine 'MigrationBackups')) 'MigrationBackups must be absent'
+Add-Result 52 'STATIC' 'Backup-State function is absent' (-not (Has-Text $Engine 'function Backup-State')) 'Backup-State must be absent'
+Add-Result 53 'STATIC' 'Invoke-Rollback function is absent' (-not (Has-Text $Engine 'function Invoke-Rollback')) 'Invoke-Rollback must be absent'
+Add-Result 54 'STATIC' 'Restore properties are absent' (-not (Has-Text $Engine 'Get-RestoreProperties')) 'restore properties must be absent'
+Add-Result 55 'STATIC' 'Service restore is absent' (-not (Has-Text $Engine 'Restore-ServiceSnapshot')) 'service restore must be absent'
+Add-Result 56 'STATIC' 'Rollback snapshot is absent' (-not (Has-Text $Engine 'snapshot.clixml')) 'snapshot must be absent'
+Add-Result 57 'STATIC' 'Registry export is absent' (-not (Has-Text $Engine 'reg.exe export')) 'registry export must be absent'
+Add-Result 58 'STATIC' 'Registry import is absent' (-not (Has-Text $Engine 'reg.exe import')) 'registry import must be absent'
+Add-Result 59 'STATIC' 'Rollback aggregation is absent' (-not (Has-Text $Engine 'Rollback incompleto')) 'rollback aggregation must be absent'
+Add-Result 60 'STATIC' 'Transaction rollback marker is absent' (-not (Has-Text $Engine '$TransactionCommitted')) 'transaction rollback marker must be absent'
+Add-Result 61 'STATIC' 'Rollback MSI blocker is absent' (-not (Has-Text $Engine 'Rollback MSI indisponivel')) 'rollback blocker must be absent'
+Add-Result 62 'STATIC' 'Migration backup directory is not created' (-not (Has-Text $Engine 'New-Item $BackupRoot')) 'backup directory creation must be absent'
+Add-Contains 63 'Failure writes lastapply.status' $Engine 'Join-Path $StateRoot ''lastapply.status'''
+Add-Contains 64 'Failure is rethrown without rollback' $Engine 'catch{$Failure=$_;Write-DDMAtomicText'
+Add-Order 65 'Agents stop before target install' $Transaction 'Stop-Agents' "Invoke-Msi 'INSTALL'"
+Add-Order 66 'Configuration validates before target start' $Transaction 'Test-AgentConfig $Target.Family' 'Start-Service $Target.Service'
+Add-Order 67 'Port validates before Agent 1 removal' $Transaction 'Test-DDMPortOwnedByProcess' 'Remove-OppositeProduct $Target.Family'
+Add-Order 68 'Target starts before Agent 1 removal' $Transaction 'Start-Service $Target.Service' 'Remove-OppositeProduct $Target.Family'
 Add-Contains 69 'Modules are deployed through staging' $Engine 'ddm.staging-'
 Add-Contains 70 'Duplicate UserParameter keys are rejected' $Engine 'UserParameter duplicado:'
 Add-Contains 71 'MSSQL MongoDB PostgreSQL plugin files are checked' $Engine "@('mssql.conf','mongodb.conf','postgresql.conf')"
 Add-Contains 72 'Plugin package must be unique and current' $Engine 'Pacote de plugins ausente, duplicado ou em versao divergente.'
-Add-Order 73 'Rollback backup completes before stopping agents' $Transaction 'Backup-State $Products $A1 $A2 $NeedMsi $Identity $Client' 'Stop-Agents'
+Add-Order 73 'Forward-only stops agents before target install' $Transaction 'Stop-Agents' "Invoke-Msi 'INSTALL'"
 Add-Order 74 'Configuration is validated before target service starts' $Transaction 'Test-AgentConfig $Target.Family' 'Start-Service $Target.Service'
 Add-Order 75 'Port ownership is verified before Agent 1 removal' $Transaction 'Test-DDMPortOwnedByProcess' 'Remove-OppositeProduct $Target.Family'
 Add-Result 76 'STATIC' 'Target MSI receives mandatory SERVER' (Has-Text $InstallBlock 'SERVER=') $InstallBlock
@@ -189,9 +190,10 @@ Add-Result 80 'STATIC' 'Target MSI receives LISTENPORT' (Has-Text $InstallBlock 
 
 # 081-160: 16 fault points across five distinct starting states.
 $FaultSteps = @(
-    'Preflight','Snapshot','Backup','Stop','InstallTarget','InstallPlugins','StageModules','WriteConfig',
-    'ValidateConfig','StartTarget','VerifyPort','VerifyPlugins','RemoveOppositeProduct','RemoveOppositeService','WriteState','Commit'
+    'Preflight','Inventory','Stop','InstallTarget','InstallPlugins','StageModules','WriteConfig','ValidateConfig',
+    'StartTarget','VerifyPort','VerifyPlugins','PreRemoveValidation','RemoveOppositeProduct','RemoveOppositeService','WriteState','Commit'
 )
+
 $Variants = @(
     [pscustomobject]@{Name='A1_RUNNING';A1Product=$true;A1Service='Running';A2Product=$false;A2Service='Absent';Plugins=$false},
     [pscustomobject]@{Name='A1_STOPPED';A1Product=$true;A1Service='Stopped';A2Product=$false;A2Service='Absent';Plugins=$false},
@@ -226,15 +228,11 @@ function Same-State {
 
 function Run-FaultModel {
     param($Initial,[string]$FaultStep)
-
     $Original = Copy-State $Initial
     $State = Copy-State $Initial
-    $BackupReady = $false
     $Failed = $false
-    $RolledBack = $false
-
     foreach ($Step in $FaultSteps) {
-        if ($Step -eq 'Backup') { $BackupReady = $true }
+        if ($Step -eq $FaultStep) { $Failed = $true; break }
         if ($Step -eq 'Stop') {
             if ($State.A1Service -ne 'Absent') { $State.A1Service = 'Stopped' }
             if ($State.A2Service -ne 'Absent') { $State.A2Service = 'Stopped' }
@@ -244,27 +242,9 @@ function Run-FaultModel {
         if ($Step -eq 'StartTarget') { $State.A2Service = 'Running' }
         if ($Step -eq 'RemoveOppositeProduct') { $State.A1Product = $false }
         if ($Step -eq 'RemoveOppositeService') { $State.A1Service = 'Absent' }
-        if ($Step -eq 'Commit' -and $Step -ne $FaultStep) { $State.Committed = $true }
-
-        if ($Step -eq $FaultStep) {
-            $Failed = $true
-            if ($BackupReady -and -not $State.Committed) {
-                $State = Copy-State $Original
-                $RolledBack = $true
-            }
-            elseif (-not $BackupReady) {
-                $State = Copy-State $Original
-            }
-            break
-        }
+        if ($Step -eq 'Commit') { $State.Committed = $true }
     }
-
-    return [pscustomobject]@{
-        Failed=$Failed
-        RolledBack=$RolledBack
-        State=$State
-        Original=$Original
-    }
+    return [pscustomobject]@{Failed=$Failed;RolledBack=$false;State=$State;Original=$Original}
 }
 
 $FaultId = 81
@@ -279,8 +259,8 @@ foreach ($Variant in $Variants) {
             Committed=$false
         }
         $Outcome = Run-FaultModel $Initial $FaultStep
-        $Passed = $Outcome.Failed -and (Same-State $Outcome.State $Outcome.Original) -and -not $Outcome.State.Committed
-        $Evidence = 'Rollback={0};A1={1}/{2};A2={3}/{4};Plugins={5}' -f $Outcome.RolledBack,$Outcome.State.A1Product,$Outcome.State.A1Service,$Outcome.State.A2Product,$Outcome.State.A2Service,$Outcome.State.Plugins
+        $Passed = $Outcome.Failed -and -not $Outcome.State.Committed
+        $Evidence = 'ForwardOnly=1;A1={0}/{1};A2={2}/{3};Plugins={4}' -f $Outcome.State.A1Product,$Outcome.State.A1Service,$Outcome.State.A2Product,$Outcome.State.A2Service,$Outcome.State.Plugins
         Add-Result $FaultId 'FAULT' ($Variant.Name + ': failure at ' + $FaultStep) $Passed $Evidence
         $FaultId++
     }
@@ -300,11 +280,11 @@ function Plan-State {
     $NeedPluginMsi = $PluginVersion -ne 'CURRENT'
     $MsiChange = $NeedTargetMsi -or $NeedPluginMsi -or $A1Product
     $ConfigSafe = $Condition -ne 1
-    $RollbackAvailable = $Condition -ne 2
+    $ArtifactsAvailable = $Condition -ne 2
     $CustomAccount = $Condition -eq 3
     $PortValid = $Condition -ne 4
     $PendingReboot = $Condition -eq 0 -and $A1Service -eq 'Stopped'
-    $Blocked = (-not $ConfigSafe) -or ($MsiChange -and -not $RollbackAvailable) -or $CustomAccount
+    $Blocked = (-not $ConfigSafe) -or ($MsiChange -and -not $ArtifactsAvailable) -or $CustomAccount
     $RemovalAllowed = (-not $Blocked) -and $PortValid
     $ExitCode = if ($Blocked -or -not $PortValid) { 1 } elseif ($PendingReboot) { 3010 } else { 0 }
 
