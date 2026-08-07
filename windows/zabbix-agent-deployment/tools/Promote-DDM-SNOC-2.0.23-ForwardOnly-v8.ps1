@@ -56,4 +56,11 @@ if($AnchorCount-ne1){throw "ErrorActionPreference anchor count=$AnchorCount"}
 [IO.File]::WriteAllLines($Scenario,[string[]]$Out,(New-Object Text.UTF8Encoding($false)))
 $T=$null;$E=$null;[void][Management.Automation.Language.Parser]::ParseFile($Scenario,[ref]$T,[ref]$E)
 if(@($E).Count){throw (@($E|ForEach-Object{"SCENARIO L$($_.Extent.StartLineNumber): $($_.Message)"})-join"`n")}
+
+# Scripts de promoção são temporários e não fazem parte do produto validado.
+$Tools=Join-Path $RepositoryRoot 'windows\zabbix-agent-deployment\tools'
+$Self=[IO.Path]::GetFullPath($MyInvocation.MyCommand.Path)
+foreach($File in @(Get-ChildItem -LiteralPath $Tools -Filter 'Promote-DDM-SNOC-2.0.23-ForwardOnly*.ps1' -ErrorAction SilentlyContinue)){
+    if([IO.Path]::GetFullPath($File.FullName) -ne $Self){Remove-Item -LiteralPath $File.FullName -Force}
+}
 Write-Host 'FORWARD_ONLY_V8=PASS'
