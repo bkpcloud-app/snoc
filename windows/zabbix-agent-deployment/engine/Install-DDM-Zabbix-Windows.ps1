@@ -87,20 +87,21 @@ function Get-ApprovedLegacyFiles($Client,[string]$Root){
     return $Result
 }
 
+function Normalize-DDMLegacyConfigLine([string]$Line){$Text=([string]$Line).Trim();$Text=$Text -replace '^(?:\uFEFF|\u200B|\u2060|\u00EF\u00BB\u00BF)+','';return $Text.Trim()}
 function Assert-LegacyConfigurationSafe($Client){
     $AllowedDirectives=@('LogFile','LogFileSize','DebugLevel','Server','ServerActive','Hostname','HostMetadata','ListenPort','Timeout','UnsafeUserParameters','AllowKey','DenyKey','Include','StartAgents','LogRemoteCommands','Plugins.SystemRun.LogRemoteCommands','PidFile','ControlSocket','SourceIP','ListenIP','RefreshActiveChecks','BufferSend','BufferSize','MaxLinesPerSecond')
     foreach($Root in @($DDMProduct.Agent1Directory,$DDMProduct.Agent2Directory)){
         if(-not(Test-Path $Root)){continue}
         $Main=Join-Path $Root $(if($Root -eq $DDMProduct.Agent2Directory){'zabbix_agent2.conf'}else{'zabbix_agentd.conf'})
         if(Test-Path $Main){
-            foreach($Line in @(Get-Content -LiteralPath $Main -ErrorAction Stop)){$Text=([string]$Line).Trim();if(Test-DDMBlank $Text -or $Text.StartsWith('#')){continue};if($Text -notmatch '^(?<key>[^=]+)='){throw "Linha ativa nao reconhecida no config legado: $Text"};$Key=$Matches['key'].Trim();if($Key -like 'TLS*'){throw "Configuracao TLS legada exige migracao explicita: $Key"};if($AllowedDirectives -notcontains $Key){throw "Diretiva legada nao catalogada: $Key"}}
+            foreach($Line in @(Get-Content -LiteralPath $Main -ErrorAction Stop)){$Text=Normalize-DDMLegacyConfigLine ([string]$Line);if(Test-DDMBlank $Text -or $Text.StartsWith('#')){continue};if($Text -notmatch '^(?<key>[^=]+)='){throw "Linha ativa nao reconhecida no config legado: $Text"};$Key=$Matches['key'].Trim();if($Key -like 'TLS*'){throw "Configuracao TLS legada exige migracao explicita: $Key"};if($AllowedDirectives -notcontains $Key){throw "Diretiva legada nao catalogada: $Key"}}
         }
         $Approved=Get-ApprovedLegacyFiles $Client $Root
         foreach($IncludeDir in @((Join-Path $Root 'zabbix_agentd.d'),(Join-Path $Root 'zabbix_agent2.d'))){
             if(-not(Test-Path $IncludeDir)){continue}
             foreach($File in @(Get-ChildItem -LiteralPath $IncludeDir -Recurse -Force|Where-Object{-not$_.PSIsContainer -and $_.Extension -ieq '.conf'})){
-                $Full=$File.FullName.ToLowerInvariant();if($Full -like '*\ddm\*' -or $Full -like '*\plugins.d\*'){continue};if($Approved -contains $Full){continue}
-                $Active=@(Get-Content -LiteralPath $File.FullName -ErrorAction Stop|Where-Object{$T=([string]$_).Trim();-not(Test-DDMBlank $T) -and -not$T.StartsWith('#')})
+                $Full=$File.FullName.ToLowerInvariant();$VendorPluginConfig=($Root -eq $DDMProduct.Agent2Directory -and $File.DirectoryName -ieq (Join-Path $DDMProduct.Agent2Directory 'zabbix_agent2.d') -and @('ember.conf','mssql.conf','mongodb.conf','postgresql.conf') -contains $File.Name.ToLowerInvariant());if($Full -like '*\ddm\*' -or $Full -like '*\plugins.d\*' -or $VendorPluginConfig){continue};if($Approved -contains $Full){continue}
+                $Active=@(Get-Content -LiteralPath $File.FullName -ErrorAction Stop|Where-Object{$T=Normalize-DDMLegacyConfigLine ([string]$_);-not(Test-DDMBlank $T) -and -not$T.StartsWith('#')})
                 if($Active.Count -gt 0){throw "Arquivo legado ativo nao catalogado em Legacy.ManagedFiles: $($File.FullName)"}
             }
         }
@@ -142,7 +143,7 @@ function Write-AgentConfig([string]$Family,[string]$InstallRoot,$Identity,$Clien
     else{$Lines+='StartAgents=5';if($AllowRun){$Lines+='LogRemoteCommands=1'};$Lines+=('Include='+$InstallRoot+'\zabbix_agentd.d\ddm\*.conf')}
     $Temp=$Config+'.new-'+[guid]::NewGuid().ToString('N');[System.IO.File]::WriteAllText($Temp,(($Lines -join "`r`n")+"`r`n"),(New-Object System.Text.UTF8Encoding($false)));return New-Object PSObject -Property @{Final=$Config;Temp=$Temp;ListenPort=$ListenPort}
 }
-function Test-AgentConfig([string]$Family,[string]$InstallRoot,$Pair){$Exe=Join-Path $InstallRoot $(if($Family -eq 'AGENT2'){'zabbix_agent2.exe'}else{'zabbix_agentd.exe'});if($Family -eq 'AGENT2'){$Out=@(& $Exe -c $Pair.Temp -T 2>&1);if($LASTEXITCODE -ne 0){throw "Validacao -T falhou: $($Out -join ' ')"}};$Out=@(& $Exe -c $Pair.Temp -t agent.ping 2>&1);if($LASTEXITCODE -ne 0 -or ($Out -join ' ') -notmatch '\[[A-Za-z]\|1\]'){throw "agent.ping falhou: $($Out -join ' ')"};Move-Item $Pair.Temp $Pair.Final -Force}
+function Test-AgentConfig([string]$Family,[string]$InstallRoot,$Pair){$Exe=Join-Path $InstallRoot $(if($Family -eq 'AGENT2'){'zabbix_agent2.exe'}else{'zabbix_agentd.exe'});if($Family -eq 'AGENT2'){$Out=@(& $Exe -c $Pair.Temp -T 2>&1);if($LASTEXITCODE -ne 0){throw "Validacao -T falhou: $($Out -join ' ')"}};$Out=@(& $Exe -c $Pair.Temp -t agent.ping 2>&1);$AgentPingExitCode=$LASTEXITCODE;$AgentPingText=($Out -join ' ');if($AgentPingText -notmatch '(?i)\bagent\.ping\b.*\[[A-Za-z]\|1\]'){throw "agent.ping falhou: ExitCode=$AgentPingExitCode; $AgentPingText"};if($AgentPingExitCode -ne 0){Log ("agent.ping retornou valor valido com ExitCode="+$AgentPingExitCode+"; resposta aceita.") 'WARN'};Move-Item $Pair.Temp $Pair.Final -Force}
 function Test-PendingReboot{if(Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending'){return $true};if(Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'){return $true};return $false}
 function Remove-OldState{$Cutoff=(Get-Date).AddDays(-[int]$DDMProduct.KeepLogDays);foreach($Old in @(Get-ChildItem $LogRoot -ErrorAction SilentlyContinue|Where-Object{-not$_.PSIsContainer -and $_.LastWriteTime -lt $Cutoff})){Remove-Item $Old.FullName -Force -ErrorAction SilentlyContinue}}
 
