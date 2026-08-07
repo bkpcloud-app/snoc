@@ -22,6 +22,13 @@ $RepositoryTest=ReadText $RepositoryTestPath
 $ChangeLog=ReadText $ChangeLogPath
 
 if($Config -match "ProductVersion\s*=\s*'2\.0\.27'"){
+    $Bad="'Regressao Unicode: comentario com caractere invisivel nao foi reconhecido.'Assert-DDMTest ('agent.ping"
+    if($RepositoryTest.Contains($Bad)){
+        $Good="'Regressao Unicode: comentario com caractere invisivel nao foi reconhecido.'`nAssert-DDMTest ('agent.ping"
+        $RepositoryTest=$RepositoryTest.Replace($Bad,$Good)
+        WriteText $RepositoryTestPath $RepositoryTest
+        Write-Host 'COMMITTED_TEST_FORMAT_FIXED=YES'
+    }
     Write-Host 'ALREADY_2_0_27=YES'
     exit 0
 }
@@ -50,7 +57,7 @@ $NewBomRegression=@'
 $BomRegression = ((([char]0x200E).ToString() + '# comment') -replace '^(?:\u00EF\u00BB\u00BF)+','' -replace '^[\p{C}\p{Z}\s]+','').Trim()
 Assert-DDMTest ($BomRegression.StartsWith('#')) 'Regressao Unicode: comentario com caractere invisivel nao foi reconhecido.'
 '@
-$RepositoryTest=$RepositoryTest.Substring(0,$BomStart)+$NewBomRegression+$RepositoryTest.Substring($BomEnd)
+$RepositoryTest=$RepositoryTest.Substring(0,$BomStart)+$NewBomRegression+"`n"+$RepositoryTest.Substring($BomEnd)
 
 if($ChangeLog -notmatch '(?m)^## 2\.0\.27 '){$ChangeLog="## 2.0.27 - 2026-08-07`n- Normaliza qualquer caractere Unicode de controle, formatacao ou separacao antes de classificar linhas do config legado.`n- Corrige falso bloqueio em comentarios do zabbix_agent2.conf e includes legados.`n- Adiciona regressao com a linha real observada no SRV-AE e multiplos prefixos invisiveis.`n`n"+$ChangeLog}
 
