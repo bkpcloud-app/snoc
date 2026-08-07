@@ -1,0 +1,54 @@
+name: Diagnose DDM SNOC Windows 2.0.25 Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/diag-ddm-snoc-windows-2.0.25-release.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Capture latest repair/release runs and failed logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p windows/zabbix-agent-deployment/docs/diag-2.0.25
+          gh run list --repo bkpcloud-app/snoc --workflow repair-publish-ddm-snoc-windows-2.0.25-assets.yml --limit 5 --json databaseId,status,conclusion,headSha,createdAt,url > windows/zabbix-agent-deployment/docs/diag-2.0.25/repair-runs.json
+          gh run list --repo bkpcloud-app/snoc --workflow ddm-snoc-windows-release.yml --limit 10 --json databaseId,status,conclusion,headSha,createdAt,event,url > windows/zabbix-agent-deployment/docs/diag-2.0.25/release-runs.json
+          REPAIR_ID=$(gh run list --repo bkpcloud-app/snoc --workflow repair-publish-ddm-snoc-windows-2.0.25-assets.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -n "$REPAIR_ID" ] && [ "$REPAIR_ID" != "null" ]; then
+            gh run view "$REPAIR_ID" --repo bkpcloud-app/snoc --log-failed > windows/zabbix-agent-deployment/docs/diag-2.0.25/repair-failed.log 2>&1 || true
+            gh run view "$REPAIR_ID" --repo bkpcloud-app/snoc --json databaseId,status,conclusion,jobs,url > windows/zabbix-agent-deployment/docs/diag-2.0.25/repair-detail.json || true
+          fi
+          RELEASE_ID=$(gh run list --repo bkpcloud-app/snoc --workflow ddm-snoc-windows-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ]; then
+            gh run view "$RELEASE_ID" --repo bkpcloud-app/snoc --log-failed > windows/zabbix-agent-deployment/docs/diag-2.0.25/release-failed.log 2>&1 || true
+            gh run view "$RELEASE_ID" --repo bkpcloud-app/snoc --json databaseId,status,conclusion,jobs,url > windows/zabbix-agent-deployment/docs/diag-2.0.25/release-detail.json || true
+          fi
+
+      - name: Commit diagnostic evidence
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add windows/zabbix-agent-deployment/docs/diag-2.0.25
+          if git diff --cached --quiet; then
+            echo 'No diagnostic changes.'
+            exit 0
+          fi
+          git commit -m 'diag(windows): capture 2.0.25 release failure'
+          git push origin HEAD:main
