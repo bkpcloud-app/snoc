@@ -87,7 +87,7 @@ function Get-ApprovedLegacyFiles($Client,[string]$Root){
     return $Result
 }
 
-function Normalize-DDMLegacyConfigLine([string]$Line){$Text=([string]$Line).Trim();$Text=$Text -replace '^(?:\uFEFF|\u200B|\u2060|\u00EF\u00BB\u00BF)+','';return $Text.Trim()}
+function Normalize-DDMLegacyConfigLine([string]$Line){$Text=[string]$Line;$Text=$Text -replace '^(?:\u00EF\u00BB\u00BF)+','';$Text=$Text -replace '^[\p{C}\p{Z}\s]+','';return $Text.Trim()}
 function Assert-LegacyConfigurationSafe($Client){
     $AllowedDirectives=@('LogFile','LogFileSize','DebugLevel','Server','ServerActive','Hostname','HostMetadata','ListenPort','Timeout','UnsafeUserParameters','AllowKey','DenyKey','Include','StartAgents','LogRemoteCommands','Plugins.SystemRun.LogRemoteCommands','PidFile','ControlSocket','SourceIP','ListenIP','RefreshActiveChecks','BufferSend','BufferSize','MaxLinesPerSecond')
     foreach($Root in @($DDMProduct.Agent1Directory,$DDMProduct.Agent2Directory)){
