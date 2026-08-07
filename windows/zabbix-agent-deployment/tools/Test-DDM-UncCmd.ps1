@@ -44,6 +44,10 @@ $AutomaticText = [IO.File]::ReadAllText((Join-Path $ProductRoot 'templates\centr
 Assert-DDMUncTest ($AutomaticText.Contains('call "%UPDATECMD%"')) 'ATUALIZAR-AD-AUTOMATICO.cmd nao chama o atualizador oficial.'
 Assert-DDMUncTest ($AutomaticText.Contains('SINCRONIZAR-CLIENTE.ps1')) 'ATUALIZAR-AD-AUTOMATICO.cmd nao contempla sincronizacao do cliente.'
 
+$GpoText = [IO.File]::ReadAllText((Join-Path $ProductRoot 'templates\central\GPO-DIARIA.cmd'))
+Assert-DDMUncTest (-not $GpoText.Contains('^|')) 'GPO-DIARIA.cmd contem caret literal antes de pipe dentro do PowerShell -Command.'
+Assert-DDMUncTest ($GpoText.Contains('-ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1')) 'GPO-DIARIA.cmd nao contem o pipeline PowerShell valido do diagnostico.'
+
 if ($env:GITHUB_ACTIONS -ne 'true') {
     Write-Host 'UNC_CMD_STATIC_OK; teste SMB integral reservado ao pipeline Windows.' -ForegroundColor Green
     exit 0
