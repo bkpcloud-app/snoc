@@ -1,0 +1,56 @@
+name: Publish DDM SNOC Windows 2.0.20 Once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/publish-ddm-snoc-windows-2.0.20.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: publish-ddm-snoc-windows-2.0.20-once
+  cancel-in-progress: false
+
+jobs:
+  tag-and-dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact main commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Verify main product and create exact tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/main'
+          grep -F "ProductVersion           = '2.0.20'" windows/zabbix-agent-deployment/config/DDM-Product.ps1 >/dev/null
+          git fetch origin --tags
+          if git rev-parse -q --verify refs/tags/ddm-snoc-windows-v2.0.20 >/dev/null; then
+            EXISTING="$(git rev-parse refs/tags/ddm-snoc-windows-v2.0.20^{})"
+            CURRENT="$(git rev-parse HEAD)"
+            test "$EXISTING" = "$CURRENT"
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a ddm-snoc-windows-v2.0.20 HEAD -m 'DDM SNOC Windows 2.0.20 audited release candidate'
+            git push origin refs/tags/ddm-snoc-windows-v2.0.20
+          fi
+          echo "TAG_COMMIT=$(git rev-parse refs/tags/ddm-snoc-windows-v2.0.20^{})"
+
+      - name: Dispatch official release workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run ddm-snoc-windows-release.yml --repo bkpcloud-app/snoc --ref main -f release_tag=ddm-snoc-windows-v2.0.20
+          echo 'OFFICIAL_RELEASE_DISPATCHED=ddm-snoc-windows-v2.0.20'
