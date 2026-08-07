@@ -138,7 +138,7 @@ Write-Host '3/12 Contrato global do produto'
 . (Join-Path $ProductRoot 'config\DDM-Product.ps1')
 Assert-DDMTest ($DDMProduct.ProductName -eq 'DDM SNOC Windows') 'ProductName invalido.'
 Assert-DDMTest ($DDMProduct.ProductCode -eq 'DDM-SNOC-WINDOWS') 'ProductCode invalido.'
-Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.18') 'ProductVersion deve ser 2.0.18.'
+Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.20') 'ProductVersion deve ser 2.0.20.'
 Assert-DDMTest ($DDMProduct.ClientSchemaVersion -eq 3) 'Schema deve ser 3.'
 Assert-DDMTest ([bool]$DDMProduct.AllowAgent2OnServer2012) 'Server 2012 deve permanecer habilitado para Agent 2.'
 Assert-DDMTest ([bool]$DDMProduct.InstallAgent2Plugins) 'Plugins Agent 2 devem permanecer habilitados.'

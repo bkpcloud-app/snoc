@@ -1,3 +1,9 @@
+## 2.0.20 - 2026-08-07
+- Invalida operacionalmente a candidata 2.0.19, cuja publicacao final parou antes dos 240 cenarios por contrato de versao inconsistente.
+- Alinha ProductVersion e o teste oficial de repositorio na mesma versao.
+- Inclui recuperacao central nos controles ativos, no AD-SEED e nos validadores de fonte e MOTOR final.
+- Mantem o motor de migracao transacional corrigido: backup antes da parada, exportacao apenas de servicos existentes e rollback MSI com identidade completa.
+- Exige novamente 240/240 no fonte e 240/240 no ZIP final antes de qualquer uso no SRV-AE.
 ## 2.0.18 - 2026-08-06
 - Remove backups `*.previous-*` soltos da raiz do NETLOGON.
 - Organiza trocas dos controles centrais em `BACKUPS\CENTRAL-CONTROLS\<CONTROLE>`.
