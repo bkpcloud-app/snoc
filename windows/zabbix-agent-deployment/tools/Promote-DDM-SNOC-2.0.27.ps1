@@ -8,6 +8,7 @@ $ProductRoot=Join-Path $RepositoryRoot 'windows\zabbix-agent-deployment'
 $EnginePath=Join-Path $ProductRoot 'engine\Install-DDM-Zabbix-Windows.ps1'
 $ConfigPath=Join-Path $ProductRoot 'config\DDM-Product.ps1'
 $TestPath=Join-Path $ProductRoot 'tools\Test-DDM-LegacyBom.ps1'
+$RepositoryTestPath=Join-Path $ProductRoot 'tools\Test-DDM-Repository.ps1'
 $ChangeLogPath=Join-Path $ProductRoot 'CHANGELOG.md'
 $Utf8=New-Object Text.UTF8Encoding($false)
 
@@ -17,6 +18,7 @@ function ReplaceOne([string]$Text,[string]$Old,[string]$New,[string]$Name){$Coun
 
 $Engine=ReadText $EnginePath
 $Config=ReadText $ConfigPath
+$RepositoryTest=ReadText $RepositoryTestPath
 $ChangeLog=ReadText $ChangeLogPath
 
 if($Config -match "ProductVersion\s*=\s*'2\.0\.27'"){
@@ -30,6 +32,8 @@ $NewHelper="function Normalize-DDMLegacyConfigLine([string]`$Line){`$Text=[strin
 $Engine=ReplaceOne $Engine $OldHelper $NewHelper 'legacy-normalizer'
 
 $Config=ReplaceOne $Config "ProductVersion           = '2.0.26'" "ProductVersion           = '2.0.27'" 'product-version'
+$RepositoryTest=$RepositoryTest.Replace("ProductVersion -eq '2.0.26'","ProductVersion -eq '2.0.27'").Replace('ProductVersion deve ser 2.0.26.','ProductVersion deve ser 2.0.27.')
+if($RepositoryTest -notmatch "ProductVersion -eq '2\.0\.27'"){throw 'Repository validator version assertion was not updated.'}
 if($ChangeLog -notmatch '(?m)^## 2\.0\.27 '){$ChangeLog="## 2.0.27 - 2026-08-07`n- Normaliza qualquer caractere Unicode de controle, formatacao ou separacao antes de classificar linhas do config legado.`n- Corrige falso bloqueio em comentarios do zabbix_agent2.conf e includes legados.`n- Adiciona regressao com a linha real observada no SRV-AE e multiplos prefixos invisiveis.`n`n"+$ChangeLog}
 
 $Regression=@'
@@ -69,10 +73,11 @@ Write-Host 'LEGACY_BOM_REGRESSION_OK'
 
 WriteText $EnginePath $Engine
 WriteText $ConfigPath $Config
+WriteText $RepositoryTestPath $RepositoryTest
 WriteText $ChangeLogPath $ChangeLog
 WriteText $TestPath $Regression
 
-foreach($Path in @($EnginePath,$ConfigPath,$TestPath)){$T=$null;$E=$null;[void][Management.Automation.Language.Parser]::ParseFile($Path,[ref]$T,[ref]$E);if(@($E).Count-gt 0){throw (@($E|ForEach-Object{"$Path L$($_.Extent.StartLineNumber): $($_.Message)"})-join ' | ')}}
+foreach($Path in @($EnginePath,$ConfigPath,$RepositoryTestPath,$TestPath)){$T=$null;$E=$null;[void][Management.Automation.Language.Parser]::ParseFile($Path,[ref]$T,[ref]$E);if(@($E).Count-gt 0){throw (@($E|ForEach-Object{"$Path L$($_.Extent.StartLineNumber): $($_.Message)"})-join ' | ')}}
 & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $TestPath -ProductRoot $ProductRoot
 if($LASTEXITCODE-ne 0){throw "Regression test returned $LASTEXITCODE"}
 Write-Host ('ENGINE_SHA256='+(Get-FileHash $EnginePath -Algorithm SHA256).Hash.ToUpperInvariant())
