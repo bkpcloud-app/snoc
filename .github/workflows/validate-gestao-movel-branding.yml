@@ -1,0 +1,90 @@
+name: Validate Gestao Movel Branding
+
+on:
+  push:
+    paths:
+      - 'assets/backup-cloud/gestao-movel/branding/web/**'
+      - '.github/workflows/validate-gestao-movel-branding.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate shell syntax
+        run: bash -n assets/backup-cloud/gestao-movel/branding/web/apply-branding.sh
+
+      - name: Build isolated fake MDM tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          T="$RUNNER_TEMP/tomcat9"
+          mkdir -p "$T/conf/Catalina/localhost" "$T/webapps/ROOT/css" "$RUNNER_TEMP/home"
+          cat > "$T/conf/Catalina/localhost/ROOT.xml" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Context>
+              <Parameter name="sample.parameter" value="sample" override="false"/>
+          </Context>
+          EOF
+          cat > "$T/webapps/ROOT/css/main.css" <<'EOF'
+          body { margin: 0; }
+          EOF
+
+      - name: Run installer in isolated test mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          WEB="$GITHUB_WORKSPACE/assets/backup-cloud/gestao-movel/branding/web"
+          BC_TEST_MODE=1 \
+          BC_BASE="$RUNNER_TEMP/home" \
+          BC_TOMCAT="$RUNNER_TEMP/tomcat9" \
+          BC_RAW_BASE="file://$WEB" \
+          bash "$WEB/apply-branding.sh"
+
+      - name: Validate resulting files
+        shell: bash
+        run: |
+          set -euo pipefail
+          T="$RUNNER_TEMP/tomcat9"
+          test -s "$T/webapps/ROOT/images/backup-cloud/backup-cloud-logo.png"
+          python3 - "$T/webapps/ROOT/images/backup-cloud/backup-cloud-logo.png" <<'PY'
+          from pathlib import Path
+          import struct, sys
+          p = Path(sys.argv[1])
+          d = p.read_bytes()
+          assert d.startswith(b'\x89PNG\r\n\x1a\n')
+          assert d[12:16] == b'IHDR'
+          w, h = struct.unpack('>II', d[16:24])
+          assert w >= 100 and h >= 30
+          assert b'IEND' in d[-32:]
+          print(f'PNG OK: {w}x{h}, {len(d)} bytes')
+          PY
+          python3 - "$T/conf/Catalina/localhost/ROOT.xml" <<'PY'
+          from pathlib import Path
+          import sys, xml.etree.ElementTree as ET
+          p = Path(sys.argv[1])
+          ET.parse(p)
+          s = p.read_text(encoding='utf-8')
+          assert 'name="rebranding.name" value="Gestão Móvel"' in s
+          assert 'name="rebranding.vendor.name" value="Backup Cloud"' in s
+          assert 'name="rebranding.logo" value="/images/backup-cloud/backup-cloud-logo.png"' in s
+          print('ROOT.xml OK')
+          PY
+          test "$(grep -c 'BACKUP CLOUD GESTAO MOVEL - INICIO' "$T/webapps/ROOT/css/main.css")" -eq 1
+
+      - name: Run a second time to validate idempotency
+        shell: bash
+        run: |
+          set -euo pipefail
+          WEB="$GITHUB_WORKSPACE/assets/backup-cloud/gestao-movel/branding/web"
+          sleep 1
+          BC_TEST_MODE=1 \
+          BC_BASE="$RUNNER_TEMP/home" \
+          BC_TOMCAT="$RUNNER_TEMP/tomcat9" \
+          BC_RAW_BASE="file://$WEB" \
+          bash "$WEB/apply-branding.sh"
+          test "$(grep -c 'BACKUP CLOUD GESTAO MOVEL - INICIO' "$RUNNER_TEMP/tomcat9/webapps/ROOT/css/main.css")" -eq 1
+          echo 'IDEMPOTENCY OK'
