@@ -278,7 +278,7 @@ function Publish-DDMActiveControls {
     Publish-DDMFixedDirectory `
         $MotorRoot `
         (Join-Path $CentralRoot 'CENTRAL-TOOLS') `
-        @('tools\Set-DDM-CentralRelease.ps1')
+        @('tools\Set-DDM-CentralRelease.ps1','tools\Recover-DDM-CentralUpdater.ps1')
 
     $TemplatesRoot = Join-Path $MotorRoot 'templates\central'
     if (Test-Path -LiteralPath $TemplatesRoot) {

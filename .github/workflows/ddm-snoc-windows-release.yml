@@ -21,7 +21,7 @@ concurrency:
 jobs:
   release:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       DDM_RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
@@ -31,7 +31,7 @@ jobs:
           ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
 
-      - name: Validate tag origin and 300-control repository audit
+      - name: Validate tag origin and complete source suite
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
@@ -44,12 +44,30 @@ jobs:
           git fetch origin main --no-tags
           git merge-base --is-ancestor $TagCommit origin/main
           if($LASTEXITCODE -ne 0){throw 'Tag de producao deve apontar para commit pertencente a main.'}
-          & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
-          if($LASTEXITCODE -ne 0){throw "Repository validation returned $LASTEXITCODE"}
-          & (Join-Path $Product 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot $Product
-          if($LASTEXITCODE -ne 0){throw "Force validation returned $LASTEXITCODE"}
+          foreach($Test in @(
+            'Test-DDM-Repository.ps1',
+            'Test-DDM-RuntimeLexing.ps1',
+            'Test-DDM-CentralBootstrapLoad.ps1',
+            'Test-DDM-AclValidation.ps1',
+            'Test-DDM-UncCmd.ps1',
+            'Test-DDM-ForceRefresh.ps1',
+            'Test-DDM-CentralRecovery.ps1',
+            'Test-DDM-BootstrapFirstInstall.ps1'
+          )){
+            Write-Host "RUN_RELEASE_SOURCE_TEST=$Test"
+            & (Join-Path $Product ('tools\'+$Test)) -ProductRoot $Product
+            if(-not $?){throw "Release source $Test falhou."}
+          }
+          $global:ProductCode='$ProductCode'
+          $SourceScenarioOutput=Join-Path $env:RUNNER_TEMP ('DDM-SNOC-MIGRATION-240-RELEASE-SOURCE-'+$DDMProduct.ProductVersion)
+          & (Join-Path $Product 'tools\Test-DDM-SNOC-Migration-240Scenarios.ps1') -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $SourceScenarioOutput
+          if(-not $?){throw '240 cenarios do fonte oficial falharam.'}
+          "SOURCE_SCENARIO_OUTPUT=$SourceScenarioOutput" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          $EngineHash=(Get-FileHash (Join-Path $Product 'engine\Install-DDM-Zabbix-Windows.ps1') -Algorithm SHA256).Hash.ToUpperInvariant()
+          "ENGINE_SHA256=$EngineHash" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "RELEASE_TAG=$ReleaseTag"
           Write-Host "TAG_COMMIT=$TagCommit"
+          Write-Host "ENGINE_SHA256=$EngineHash"
 
       - name: Build motor and AD seed assets
         shell: powershell
@@ -70,12 +88,14 @@ jobs:
           foreach($Name in @('config','lib','central','bootstrap','endpoint','engine','modules','templates','tools','docs','clients')){
             Copy-Item (Join-Path $Product $Name) (Join-Path $Motor $Name) -Recurse -Force
           }
-          foreach($Name in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd')){
+          foreach($Name in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd','RECUPERAR-AD.cmd','ATUALIZAR-AD-AUTOMATICO.cmd')){
             Copy-Item (Join-Path $Product ('templates\central\'+$Name)) (Join-Path $Seed $Name) -Force
           }
+          Copy-Item (Join-Path $Product 'templates\central\SINCRONIZAR-CLIENTE-MAIN.ps1') (Join-Path $Seed 'SINCRONIZAR-CLIENTE.ps1') -Force
           Copy-Item (Join-Path $Product 'CLIENTE.example.ps1') (Join-Path $Seed 'CLIENTE.example.ps1') -Force
           Copy-Item (Join-Path $Product 'docs\UPDATE-AD.md') (Join-Path $Seed 'LEIA-ME-UPDATE-AD.md') -Force
           Copy-Item (Join-Path $Product 'docs\AUDITORIA-300-PONTOS.md') (Join-Path $Seed 'AUDITORIA-300-PONTOS.md') -Force
+          Copy-Item (Join-Path $Product 'tools\Recover-DDM-CentralUpdater.ps1') (Join-Path $Seed 'Recover-DDM-CentralUpdater.ps1') -Force
           $Updater=Join-Path $Seed 'CENTRAL-UPDATER'
           foreach($Rel in @('central\Update-DDM-SNOC-Central.ps1','central\lib\DDM-Central-Client.ps1','central\lib\DDM-Central-Supply.ps1','central\lib\Invoke-DDM-Central-Publish.ps1','config\DDM-Product.ps1','lib\DDM-Common.ps1')){
             $Source=Join-Path $Product $Rel
@@ -85,13 +105,26 @@ jobs:
           }
           $CentralTools=Join-Path $Seed 'CENTRAL-TOOLS'
           $RollbackDestination=Join-Path $CentralTools 'tools\Set-DDM-CentralRelease.ps1'
+          $RecoveryDestination=Join-Path $CentralTools 'tools\Recover-DDM-CentralUpdater.ps1'
           New-Item (Split-Path -Parent $RollbackDestination) -ItemType Directory -Force | Out-Null
           Copy-Item (Join-Path $Product 'tools\Set-DDM-CentralRelease.ps1') $RollbackDestination -Force
+          Copy-Item (Join-Path $Product 'tools\Recover-DDM-CentralUpdater.ps1') $RecoveryDestination -Force
           foreach($Root in @($Motor,$Seed)){
             if(Get-ChildItem $Root -Recurse -Force | Where-Object {$_.FullName -match '\\base-package\\|\\\.parts\\|New-BKPCloud-Zabbix-Client'}){throw "Conteudo legado no asset: $Root"}
           }
-          foreach($Required in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd','AUDITORIA-300-PONTOS.md','CENTRAL-UPDATER\central\Update-DDM-SNOC-Central.ps1','CENTRAL-TOOLS\tools\Set-DDM-CentralRelease.ps1')){
-            if(-not(Test-Path (Join-Path $Seed $Required))){throw "AD-SEED incompleto: $Required"}
+          foreach($Required in @(
+            'ATUALIZAR-AD.cmd',
+            'VOLTAR-RELEASE.cmd',
+            'RECUPERAR-AD.cmd',
+            'ATUALIZAR-AD-AUTOMATICO.cmd',
+            'SINCRONIZAR-CLIENTE.ps1',
+            'Recover-DDM-CentralUpdater.ps1',
+            'AUDITORIA-300-PONTOS.md',
+            'CENTRAL-UPDATER\central\Update-DDM-SNOC-Central.ps1',
+            'CENTRAL-TOOLS\tools\Set-DDM-CentralRelease.ps1',
+            'CENTRAL-TOOLS\tools\Recover-DDM-CentralUpdater.ps1'
+          )){
+            if(-not(Test-Path (Join-Path $Seed $Required) -PathType Leaf)){throw "AD-SEED incompleto: $Required"}
           }
           $MotorZip=Join-Path $Dist ('DDM-SNOC-WINDOWS-MOTOR-' + $DDMProduct.ProductVersion + '.zip')
           $SeedZip=Join-Path $Dist ('DDM-SNOC-WINDOWS-AD-SEED-' + $DDMProduct.ProductVersion + '.zip')
@@ -99,9 +132,10 @@ jobs:
           Compress-Archive -Path (Join-Path $Seed '*') -DestinationPath $SeedZip -CompressionLevel Optimal
           $Assets=@()
           foreach($Zip in @($MotorZip,$SeedZip)){
-            $Hash=(Get-FileHash $Zip -Algorithm SHA256).Hash
+            $Hash=(Get-FileHash $Zip -Algorithm SHA256).Hash.ToUpperInvariant()
             Set-Content -LiteralPath ($Zip + '.sha256') -Value ($Hash + ' *' + (Split-Path -Leaf $Zip)) -Encoding ASCII
             $Assets+=New-Object PSObject -Property @{Name=(Split-Path -Leaf $Zip);Sha256=$Hash;Size=(Get-Item $Zip).Length}
+            Write-Host "ASSET=$(Split-Path -Leaf $Zip) SHA256=$Hash SIZE=$((Get-Item $Zip).Length)"
           }
           $Manifest=New-Object PSObject -Property @{
             Product=$DDMProduct.ProductName
@@ -110,15 +144,15 @@ jobs:
             GitTag=$ReleaseTag
             GeneratedAtUtc=(Get-Date).ToUniversalTime().ToString('o')
             Assets=$Assets
-            Validation=@('PowerShell parser','PowerShell 2 surface','client negative tests','central and rollback invariants','forced refresh','240 migration scenarios on final MOTOR','exactly 300 audit controls')
+            Validation=@('PowerShell parser','PowerShell 2 surface','client negative tests','central and rollback invariants','ACL','UNC central commands','forced refresh','central recovery','bootstrap first install','240 migration scenarios on source','240 migration scenarios on final MOTOR','exactly 300 audit controls')
             ExternalPilotsRequired=$true
           }
           $ManifestPath=Join-Path $Dist ('DDM-SNOC-WINDOWS-RELEASE-MANIFEST-' + $DDMProduct.ProductVersion + '.json')
           $Manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ManifestPath -Encoding UTF8
-          $ManifestHash=(Get-FileHash $ManifestPath -Algorithm SHA256).Hash
+          $ManifestHash=(Get-FileHash $ManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
           Set-Content -LiteralPath ($ManifestPath+'.sha256') -Value ($ManifestHash+' *'+(Split-Path -Leaf $ManifestPath)) -Encoding ASCII
 
-      - name: Inspect final motor and execute 240 scenarios
+      - name: Inspect final motor with complete suite and 240 scenarios
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
@@ -137,14 +171,39 @@ jobs:
           New-Item $FinalWorkflowRoot -ItemType Directory -Force | Out-Null
           Copy-Item (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-windows-validation.yml') $FinalWorkflowRoot -Force
           Copy-Item (Join-Path $env:GITHUB_WORKSPACE '.github\workflows\ddm-snoc-windows-release.yml') $FinalWorkflowRoot -Force
-          & (Join-Path $FinalProduct 'tools\Test-DDM-Repository.ps1') -ProductRoot $FinalProduct
-          if($LASTEXITCODE -ne 0){throw "Built asset validation returned $LASTEXITCODE"}
-          & (Join-Path $FinalProduct 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot $FinalProduct
-          if($LASTEXITCODE -ne 0){throw "Built asset Force validation returned $LASTEXITCODE"}
+          foreach($Test in @(
+            'Test-DDM-Repository.ps1',
+            'Test-DDM-RuntimeLexing.ps1',
+            'Test-DDM-CentralBootstrapLoad.ps1',
+            'Test-DDM-AclValidation.ps1',
+            'Test-DDM-UncCmd.ps1',
+            'Test-DDM-ForceRefresh.ps1',
+            'Test-DDM-CentralRecovery.ps1',
+            'Test-DDM-BootstrapFirstInstall.ps1'
+          )){
+            Write-Host "RUN_RELEASE_FINAL_TEST=$Test"
+            & (Join-Path $FinalProduct ('tools\'+$Test)) -ProductRoot $FinalProduct
+            if(-not $?){throw "Final MOTOR $Test falhou."}
+          }
           $global:ProductCode='$ProductCode'
           $ScenarioOutput=Join-Path $env:RUNNER_TEMP ('DDM-SNOC-MIGRATION-240-FINAL-'+$DDMProduct.ProductVersion)
           & (Join-Path $FinalProduct 'tools\Test-DDM-SNOC-Migration-240Scenarios.ps1') -RepositoryRoot $FinalRepo -OutputDirectory $ScenarioOutput
-          if($LASTEXITCODE -ne 0){throw "Final MOTOR migration validation returned $LASTEXITCODE"}
+          if(-not $?){throw '240 cenarios do MOTOR final falharam.'}
+          "FINAL_SCENARIO_OUTPUT=$ScenarioOutput" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          $FinalEngineHash=(Get-FileHash (Join-Path $FinalProduct 'engine\Install-DDM-Zabbix-Windows.ps1') -Algorithm SHA256).Hash.ToUpperInvariant()
+          if($FinalEngineHash -ne $env:ENGINE_SHA256){throw "Engine mudou no MOTOR final. Fonte=$env:ENGINE_SHA256 Final=$FinalEngineHash"}
+          Write-Host "FINAL_ENGINE_SHA256=$FinalEngineHash"
+
+      - name: Upload release validation evidence
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: DDM-SNOC-WINDOWS-RELEASE-${{ env.DDM_RELEASE_TAG }}-EVIDENCE
+          path: |
+            ${{ env.SOURCE_SCENARIO_OUTPUT }}
+            ${{ env.FINAL_SCENARIO_OUTPUT }}
+            dist
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Publish and verify GitHub Release
         shell: powershell
