@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 022
 
-VERSION="2026.08.07.12"
+VERSION="2026.08.07.13"
 BASE="${BC_BASE:-/home/suporte}"
 TOMCAT="${BC_TOMCAT:-/var/lib/tomcat9}"
 CTX="$TOMCAT/conf/Catalina/localhost/ROOT.xml"
@@ -90,11 +90,11 @@ PY
 
 echo "[2/7] Validando aplicação atual"
 python3 - "$CTX" "$LOGIN" <<'PY'
-import sys,xml.etree.ElementTree as ET
+import sys,re,xml.etree.ElementTree as ET
 from pathlib import Path
 ET.parse(sys.argv[1])
 s=Path(sys.argv[2]).read_text(encoding='utf-8',errors='strict')
-if 'class="login' not in s and "class='login" not in s:
+if not re.search(r'''class\s*=\s*[\"'][^\"']*\blogin\b[^\"']*[\"']''', s, re.I):
     raise SystemExit('estrutura de login não reconhecida')
 print('   ROOT.xml e login.html: OK')
 PY
