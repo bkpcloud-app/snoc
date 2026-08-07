@@ -29,6 +29,11 @@ function Replace-OnceOrAssert {
     throw "$Label possui estado inesperado. OldCount=$OldCount NewCount=$NewCount"
 }
 
+function Assert-Contains {
+    param([string]$Text,[string]$Expected,[string]$Label)
+    if($Text.IndexOf($Expected,[StringComparison]::Ordinal) -lt 0){throw "$Label ausente: $Expected"}
+}
+
 $ConfigPath=Join-Path $ProductRoot 'config\DDM-Product.ps1'
 $RepoTestPath=Join-Path $ProductRoot 'tools\Test-DDM-Repository.ps1'
 $PublisherPath=Join-Path $ProductRoot 'central\lib\Invoke-DDM-Central-Publish.ps1'
@@ -51,28 +56,23 @@ $Publisher=Replace-OnceOrAssert $Publisher "@('tools\Set-DDM-CentralRelease.ps1'
 Write-NormalizedText $PublisherPath $Publisher
 
 $Validation=Read-NormalizedText $ValidationPath
-$Needle="          & (Join-Path `$Product 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot `$Product"
-$Validation=Replace-OnceOrAssert $Validation $Needle ($Needle+"`n          & (Join-Path `$Product 'tools\Test-DDM-CentralRecovery.ps1') -ProductRoot `$Product") 'Validation recovery source'
-$BuiltNeedle="          & (Join-Path `$ExpandedProduct 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot `$ExpandedProduct"
-$Validation=Replace-OnceOrAssert $Validation $BuiltNeedle ($BuiltNeedle+"`n          & (Join-Path `$ExpandedProduct 'tools\Test-DDM-CentralRecovery.ps1') -ProductRoot `$ExpandedProduct") 'Validation recovery built asset'
-Write-NormalizedText $ValidationPath $Validation
+Assert-Contains $Validation "& (Join-Path `$Product 'tools\Test-DDM-CentralRecovery.ps1') -ProductRoot `$Product" 'Validacao de recuperacao no fonte'
+Assert-Contains $Validation "& (Join-Path `$ExpandedProduct 'tools\Test-DDM-CentralRecovery.ps1') -ProductRoot `$ExpandedProduct" 'Validacao de recuperacao no MOTOR montado'
 
 $Release=Read-NormalizedText $ReleasePath
-$ReleaseForce="          & (Join-Path `$Product 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot `$Product"
-$Release=Replace-OnceOrAssert $Release $ReleaseForce ($ReleaseForce+"`n          & (Join-Path `$Product 'tools\Test-DDM-CentralRecovery.ps1') -ProductRoot `$Product") 'Release recovery source'
-$Release=Replace-OnceOrAssert $Release "          foreach(`$Name in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd')){" "          foreach(`$Name in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd','RECUPERAR-AD.cmd','ATUALIZAR-AD-AUTOMATICO.cmd')){" 'AD-SEED commands'
-$ClientExample="          Copy-Item (Join-Path `$Product 'CLIENTE.example.ps1') (Join-Path `$Seed 'CLIENTE.example.ps1') -Force"
-$ClientExpanded=$ClientExample+"`n          Copy-Item (Join-Path `$Product 'templates\central\SINCRONIZAR-CLIENTE-MAIN.ps1') (Join-Path `$Seed 'SINCRONIZAR-CLIENTE.ps1') -Force`n          Copy-Item (Join-Path `$Product 'tools\Recover-DDM-CentralUpdater.ps1') (Join-Path `$Seed 'Recover-DDM-CentralUpdater.ps1') -Force"
-$Release=Replace-OnceOrAssert $Release $ClientExample $ClientExpanded 'AD-SEED client sync and recovery root'
-$RollbackCopy="          Copy-Item (Join-Path `$Product 'tools\Set-DDM-CentralRelease.ps1') `$RollbackDestination -Force"
-$RollbackExpanded=$RollbackCopy+"`n          `$RecoveryDestination=Join-Path `$CentralTools 'tools\Recover-DDM-CentralUpdater.ps1'`n          Copy-Item (Join-Path `$Product 'tools\Recover-DDM-CentralUpdater.ps1') `$RecoveryDestination -Force"
-$Release=Replace-OnceOrAssert $Release $RollbackCopy $RollbackExpanded 'AD-SEED recovery tool'
-$RequiredOld="          foreach(`$Required in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd','AUDITORIA-300-PONTOS.md','CENTRAL-UPDATER\central\Update-DDM-SNOC-Central.ps1','CENTRAL-TOOLS\tools\Set-DDM-CentralRelease.ps1')){"
-$RequiredNew="          foreach(`$Required in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd','RECUPERAR-AD.cmd','ATUALIZAR-AD-AUTOMATICO.cmd','SINCRONIZAR-CLIENTE.ps1','Recover-DDM-CentralUpdater.ps1','AUDITORIA-300-PONTOS.md','CENTRAL-UPDATER\central\Update-DDM-SNOC-Central.ps1','CENTRAL-TOOLS\tools\Set-DDM-CentralRelease.ps1','CENTRAL-TOOLS\tools\Recover-DDM-CentralUpdater.ps1')){"
-if($Release.IndexOf($RequiredNew,[StringComparison]::Ordinal) -lt 0 -and $Release.IndexOf($RequiredOld,[StringComparison]::Ordinal) -ge 0){$Release=$Release.Replace($RequiredOld,$RequiredNew)}
-$FinalForce="          & (Join-Path `$FinalProduct 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot `$FinalProduct"
-$Release=Replace-OnceOrAssert $Release $FinalForce ($FinalForce+"`n          & (Join-Path `$FinalProduct 'tools\Test-DDM-CentralRecovery.ps1') -ProductRoot `$FinalProduct") 'Final MOTOR recovery validation'
-Write-NormalizedText $ReleasePath $Release
+foreach($Required in @(
+    "'Test-DDM-CentralRecovery.ps1'",
+    "'Test-DDM-SNOC-Migration-240Scenarios.ps1'",
+    "'RECUPERAR-AD.cmd'",
+    "'ATUALIZAR-AD-AUTOMATICO.cmd'",
+    "'SINCRONIZAR-CLIENTE.ps1'",
+    "'Recover-DDM-CentralUpdater.ps1'",
+    'RUN_RELEASE_SOURCE_TEST=',
+    'RUN_RELEASE_FINAL_TEST=',
+    'FINAL_ENGINE_SHA256='
+)){
+    Assert-Contains $Release $Required 'Contrato do workflow oficial de release'
+}
 
 $ChangeLog=Read-NormalizedText $ChangeLogPath
 if($ChangeLog -notmatch '(?m)^## 2\.0\.20 '){
