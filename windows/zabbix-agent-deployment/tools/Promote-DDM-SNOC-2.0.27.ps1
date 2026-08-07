@@ -34,6 +34,25 @@ $Engine=ReplaceOne $Engine $OldHelper $NewHelper 'legacy-normalizer'
 $Config=ReplaceOne $Config "ProductVersion           = '2.0.26'" "ProductVersion           = '2.0.27'" 'product-version'
 $RepositoryTest=$RepositoryTest.Replace("ProductVersion -eq '2.0.26'","ProductVersion -eq '2.0.27'").Replace('ProductVersion deve ser 2.0.26.','ProductVersion deve ser 2.0.27.')
 if($RepositoryTest -notmatch "ProductVersion -eq '2\.0\.27'"){throw 'Repository validator version assertion was not updated.'}
+
+$OldBomStatic=@'
+Assert-DDMTest ($EnginePingRegression.Contains('\uFEFF')) 'Normalizador deve remover BOM Unicode antes de classificar comentarios.'
+'@.Trim()
+$NewBomStatic=@'
+Assert-DDMTest ($EnginePingRegression.Contains('\p{C}') -and $EnginePingRegression.Contains('\p{Z}')) 'Normalizador deve remover caracteres Unicode de controle, formatacao e separacao antes de classificar comentarios.'
+'@.Trim()
+$RepositoryTest=ReplaceOne $RepositoryTest $OldBomStatic $NewBomStatic 'repository-bom-static'
+
+$OldBomRegression=@'
+$BomRegression = ((([char]0xFEFF).ToString() + '# comment').Trim() -replace '^(?:\uFEFF|\u200B|\u2060|\u00EF\u00BB\u00BF)+','').Trim()
+Assert-DDMTest ($BomRegression.StartsWith('#')) 'Regressao BOM: comentario com U+FEFF nao foi reconhecido.'
+'@.Trim()
+$NewBomRegression=@'
+$BomRegression = ((([char]0x200E).ToString() + '# comment') -replace '^(?:\u00EF\u00BB\u00BF)+','' -replace '^[\p{C}\p{Z}\s]+','').Trim()
+Assert-DDMTest ($BomRegression.StartsWith('#')) 'Regressao Unicode: comentario com caractere invisivel nao foi reconhecido.'
+'@.Trim()
+$RepositoryTest=ReplaceOne $RepositoryTest $OldBomRegression $NewBomRegression 'repository-bom-regression'
+
 if($ChangeLog -notmatch '(?m)^## 2\.0\.27 '){$ChangeLog="## 2.0.27 - 2026-08-07`n- Normaliza qualquer caractere Unicode de controle, formatacao ou separacao antes de classificar linhas do config legado.`n- Corrige falso bloqueio em comentarios do zabbix_agent2.conf e includes legados.`n- Adiciona regressao com a linha real observada no SRV-AE e multiplos prefixos invisiveis.`n`n"+$ChangeLog}
 
 $Regression=@'
