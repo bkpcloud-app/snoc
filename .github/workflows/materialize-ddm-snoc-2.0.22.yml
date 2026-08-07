@@ -59,18 +59,18 @@ jobs:
           & $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
           if (-not $?) { throw 'Migration validation returned failure.' }
 
-      - name: Remove temporary materializer and commit validated source
+      - name: Commit validated product source
         shell: powershell
         env:
           HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           $ErrorActionPreference = 'Stop'
+          git checkout -- .github/workflows/validate-ddm-snoc-migration-240.yml
           git rm --ignore-unmatch windows/zabbix-agent-deployment/tools/Promote-DDM-SNOC-2.0.22.ps1
-          git rm --ignore-unmatch .github/workflows/materialize-ddm-snoc-2.0.22.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          if (-not (git status --porcelain)) { throw 'No validated 2.0.22 changes to commit.' }
+          git add windows/zabbix-agent-deployment
+          if (-not (git status --porcelain -- windows/zabbix-agent-deployment)) { throw 'No validated 2.0.22 product changes to commit.' }
           git commit -m 'fix(windows): materialize validated 2.0.22 runtime diagnostics'
           git push origin HEAD:$env:HEAD_BRANCH
 
