@@ -1,0 +1,86 @@
+name: Promote and Validate DDM SNOC Windows 2.0.25
+
+on:
+  pull_request:
+    paths:
+      - 'windows/zabbix-agent-deployment/**'
+      - '.github/workflows/promote-ddm-snoc-windows-2.0.25.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  promote-validate:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Apply exact 2.0.25 correction
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Patch=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.25.ps1'
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Patch -RepositoryRoot $env:GITHUB_WORKSPACE
+          if($LASTEXITCODE -ne 0){throw "Promotion patch returned $LASTEXITCODE"}
+
+      - name: Parse PowerShell
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          foreach($File in @(Get-ChildItem $Product -Filter '*.ps1' -Recurse)){
+            $Tokens=$null;$Errors=$null
+            [void][Management.Automation.Language.Parser]::ParseFile($File.FullName,[ref]$Tokens,[ref]$Errors)
+            if(@($Errors).Count -gt 0){throw (@($Errors|ForEach-Object{"$($File.FullName) L$($_.Extent.StartLineNumber): $($_.Message)"}) -join "`r`n")}
+          }
+
+      - name: Run 240 migration scenarios
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $global:ProductCode='$ProductCode'
+          $Script=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Test-DDM-SNOC-Migration-240Scenarios.ps1'
+          $Output=Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240-2.0.25'
+          & $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
+          if(-not $?){throw '240 migration scenarios returned failure.'}
+
+      - name: Run complete product validation
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          foreach($Test in @(
+            'Test-DDM-Repository.ps1',
+            'Test-DDM-RuntimeLexing.ps1',
+            'Test-DDM-CentralBootstrapLoad.ps1',
+            'Test-DDM-AclValidation.ps1',
+            'Test-DDM-UncCmd.ps1',
+            'Test-DDM-ForceRefresh.ps1',
+            'Test-DDM-CentralRecovery.ps1',
+            'Test-DDM-CentralPathIdentity.ps1',
+            'Test-DDM-BootstrapFirstInstall.ps1'
+          )){
+            & (Join-Path $Product ('tools\'+$Test)) -ProductRoot $Product
+            if(-not $?){throw "$Test returned failure."}
+          }
+
+      - name: Commit validated product source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git config user.name 'bkpcloud-app'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -- 'windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1' 'windows/zabbix-agent-deployment/config/DDM-Product.ps1' 'windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1' 'windows/zabbix-agent-deployment/CHANGELOG.md'
+          $Pending=(git status --porcelain -- 'windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1' 'windows/zabbix-agent-deployment/config/DDM-Product.ps1' 'windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1' 'windows/zabbix-agent-deployment/CHANGELOG.md')
+          if($Pending){
+            git commit -m 'fix(windows): accept valid agent.ping output in 2.0.25'
+            git push origin HEAD:${{ github.head_ref }}
+          }
+          else{
+            Write-Host 'SOURCE_ALREADY_MATERIALIZED=YES'
+          }
