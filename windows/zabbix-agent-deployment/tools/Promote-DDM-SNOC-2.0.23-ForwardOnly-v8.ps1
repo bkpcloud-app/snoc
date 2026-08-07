@@ -16,11 +16,12 @@ $S[$Id73]='Add-Order 73 ''Forward-only stops agents before target install'' $Tra
 '@.Trim()
 $Changed=0
 for($i=0;$i-lt$Lines.Count;$i++){
+    if($Lines[$i].Trim()-eq'return $L'){$Lines[$i]=$Lines[$i].Replace('return $L','return ,$L');$Changed++;continue}
     if($Lines[$i] -like '*Add-Contains 63*Failure writes lastapply.status*'){$Lines[$i]=$R63;$Changed++;continue}
     if($Lines[$i] -like '*Add-Order 65*Agents stop before target install*'){$Lines[$i]=$R65;$Changed++;continue}
     if($Lines[$i].Trim().StartsWith('$S[$Id73]=')){$Lines[$i]=$R73;$Changed++;continue}
 }
-if($Changed-ne3){throw "Esperava corrigir 3 linhas; corrigidas=$Changed"}
+if($Changed-ne4){throw "Esperava corrigir 4 linhas; corrigidas=$Changed"}
 [IO.File]::WriteAllLines($Temp,$Lines,(New-Object Text.UTF8Encoding($false)))
 $T=$null;$E=$null;[void][Management.Automation.Language.Parser]::ParseFile($Temp,[ref]$T,[ref]$E)
 if(@($E).Count){throw (@($E|ForEach-Object{"TEMP L$($_.Extent.StartLineNumber): $($_.Message)"})-join"`n")}
