@@ -1,0 +1,41 @@
+name: Dispatch DDM SNOC Windows 2.0.27
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/dispatch-ddm-snoc-windows-2.0.27.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Create exact release tag and dispatch official workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET='34ad078aba992c5a7f16a9b518788d602e23121b'
+          TAG='ddm-snoc-windows-v2.0.27'
+          git fetch origin main --tags
+          git merge-base --is-ancestor "$TARGET" origin/main
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            CURRENT="$(git rev-list -n1 "$TAG")"
+            test "$CURRENT" = "$TARGET"
+          else
+            git tag "$TAG" "$TARGET"
+            git push origin "refs/tags/$TAG"
+          fi
+          gh workflow run ddm-snoc-windows-release.yml --repo "$GITHUB_REPOSITORY" --ref main -f release_tag="$TAG"
+          echo "DISPATCHED=$TAG TARGET=$TARGET"
