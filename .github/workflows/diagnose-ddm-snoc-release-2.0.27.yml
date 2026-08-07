@@ -1,0 +1,40 @@
+name: Diagnose DDM SNOC Windows 2.0.27 Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/diagnose-ddm-snoc-release-2.0.27.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Record workflow and release state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ops/release-proofs
+          OUT='ops/release-proofs/ddm-snoc-windows-v2.0.27-runs.json'
+          RUNS="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ddm-snoc-windows-release.yml --limit 20 --json databaseId,status,conclusion,event,createdAt,headBranch,headSha,url,displayTitle)"
+          if gh release view ddm-snoc-windows-v2.0.27 --repo "$GITHUB_REPOSITORY" --json tagName,targetCommitish,url,assets > /tmp/release.json 2>/dev/null; then
+            RELEASE="$(cat /tmp/release.json)"
+          else
+            RELEASE='null'
+          fi
+          jq -n --argjson runs "$RUNS" --argjson release "$RELEASE" '{runs:$runs,release:$release}' > "$OUT"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$OUT"
+          git commit -m 'docs(windows): record 2.0.27 release diagnostics'
+          git push origin HEAD:main
