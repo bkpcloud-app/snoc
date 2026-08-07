@@ -29,7 +29,7 @@ jobs:
           set -euo pipefail
           repo="$GITHUB_REPOSITORY"
           main_sha=$(gh api "/repos/$repo/git/ref/heads/main" --jq '.object.sha')
-          version=$(gh api "/repos/$repo/contents/windows/zabbix-agent-deployment/config/DDM-Product.ps1?ref=$main_sha" --jq -r '.content' | base64 -d | sed -n "s/.*ProductVersion[[:space:]]*=[[:space:]]*'\([^']*\)'.*/\1/p" | head -n1)
+          version=$(gh api "/repos/$repo/contents/windows/zabbix-agent-deployment/config/DDM-Product.ps1?ref=$main_sha" --jq '.content' | base64 -d | sed -n "s/.*ProductVersion[[:space:]]*=[[:space:]]*'\([^']*\)'.*/\1/p" | head -n1)
           if [[ "$version" != "2.0.22" ]]; then
             echo "main is not 2.0.22: $version" >&2
             exit 1
