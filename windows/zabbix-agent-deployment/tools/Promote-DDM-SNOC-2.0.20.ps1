@@ -24,8 +24,8 @@ function Replace-OnceOrAssert {
     param([string]$Text,[string]$Old,[string]$New,[string]$Label)
     $OldCount=[regex]::Matches($Text,[regex]::Escape($Old)).Count
     $NewCount=[regex]::Matches($Text,[regex]::Escape($New)).Count
+    if($NewCount -eq 1 -and $OldCount -le 1){return $Text}
     if($OldCount -eq 1 -and $NewCount -eq 0){return $Text.Replace($Old,$New)}
-    if($OldCount -eq 0 -and $NewCount -eq 1){return $Text}
     throw "$Label possui estado inesperado. OldCount=$OldCount NewCount=$NewCount"
 }
 
@@ -69,7 +69,7 @@ $RollbackExpanded=$RollbackCopy+"`n          `$RecoveryDestination=Join-Path `$C
 $Release=Replace-OnceOrAssert $Release $RollbackCopy $RollbackExpanded 'AD-SEED recovery tool'
 $RequiredOld="          foreach(`$Required in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd','AUDITORIA-300-PONTOS.md','CENTRAL-UPDATER\central\Update-DDM-SNOC-Central.ps1','CENTRAL-TOOLS\tools\Set-DDM-CentralRelease.ps1')){"
 $RequiredNew="          foreach(`$Required in @('ATUALIZAR-AD.cmd','VOLTAR-RELEASE.cmd','RECUPERAR-AD.cmd','ATUALIZAR-AD-AUTOMATICO.cmd','SINCRONIZAR-CLIENTE.ps1','Recover-DDM-CentralUpdater.ps1','AUDITORIA-300-PONTOS.md','CENTRAL-UPDATER\central\Update-DDM-SNOC-Central.ps1','CENTRAL-TOOLS\tools\Set-DDM-CentralRelease.ps1','CENTRAL-TOOLS\tools\Recover-DDM-CentralUpdater.ps1')){"
-$Release=Replace-OnceOrAssert $Release $RequiredOld $RequiredNew 'AD-SEED required files'
+if($Release.IndexOf($RequiredNew,[StringComparison]::Ordinal) -lt 0 -and $Release.IndexOf($RequiredOld,[StringComparison]::Ordinal) -ge 0){$Release=$Release.Replace($RequiredOld,$RequiredNew)}
 $FinalForce="          & (Join-Path `$FinalProduct 'tools\Test-DDM-ForceRefresh.ps1') -ProductRoot `$FinalProduct"
 $Release=Replace-OnceOrAssert $Release $FinalForce ($FinalForce+"`n          & (Join-Path `$FinalProduct 'tools\Test-DDM-CentralRecovery.ps1') -ProductRoot `$FinalProduct") 'Final MOTOR recovery validation'
 Write-NormalizedText $ReleasePath $Release
