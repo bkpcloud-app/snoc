@@ -1,3 +1,9 @@
+## 2.0.26 - 2026-08-07
+- Corrige a classificacao de comentarios do zabbix_agent2.conf quando existe BOM ou caractere invisivel antes de #.
+- Aceita agent.ping [s|1] como sucesso funcional mesmo quando o executavel retorna ExitCode nao-zero, registrando o ExitCode como WARN.
+- Reconhece ember.conf, mssql.conf, mongodb.conf e postgresql.conf instalados pelo MSI oficial Agent2 Plugins no estado parcial do piloto.
+- Mantem o modelo forward-only da 2.0.23: Agent 1 so e removido depois de Agent 2, plugins, configuracao e porta estarem validados.
+- Adiciona regressao especifica para o erro real observado no SRV-AE.
 ## 2.0.25 - 2026-08-07
 - Corrige falso negativo do teste local agent.ping no Zabbix Agent 2 7.0.29.
 - Aceita o marcador de tipo real retornado por -t agent.ping, incluindo [s|1], mantendo a exigencia de valor 1 e ExitCode 0.
@@ -12,7 +18,9 @@
 ## 2.0.22 - 2026-08-07
 - Corrige o diagnostico enganoso em que uma falha atual podia exibir lastapply.status antigo.
 - GPO-DIARIA.cmd preserva o codigo de retorno da execucao atual e imprime o DAILY mais recente em caso de falha.
-- Exibe tambem ollback.failed, elease.blocked, lastapply.status e product-status.json no mesmo comando.
+- Exibe tambem 
+ollback.failed, 
+elease.blocked, lastapply.status e product-status.json no mesmo comando.
 - Mantem a migracao Agent 1 para Agent 2 transacional; nenhuma falha e mascarada como erro historico.
 ## 2.0.21 - 2026-08-07
 - Corrige a validacao de CentralRoot que tratava o namespace de dominio NETLOGON e o NETLOGON do proprio DC como caminhos diferentes.
