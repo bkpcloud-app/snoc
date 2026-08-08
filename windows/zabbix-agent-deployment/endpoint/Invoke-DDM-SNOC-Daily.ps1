@@ -77,7 +77,11 @@ function Test-AgentConfiguration([string]$Family,[string]$Binary,[string]$Config
     if (-not (Test-Path -LiteralPath $Binary) -or -not (Test-Path -LiteralPath $Config)) { return $false }
     if ($Family -eq 'AGENT2') { $Out=@(& $Binary -c $Config -T 2>&1);if($LASTEXITCODE -ne 0){Log ("Validacao -T falhou: "+($Out -join ' ')) 'WARN';return $false} }
     $Out=@(& $Binary -c $Config -t agent.ping 2>&1)
-    return ($LASTEXITCODE -eq 0 -and ($Out -join ' ') -match '\[t\|1\]')
+    $AgentPingExitCode=$LASTEXITCODE
+    $AgentPingText=($Out -join ' ')
+    if($AgentPingText -notmatch '(?i)\bagent\.ping\b.*\[[A-Za-z]\|1\]'){Log ("agent.ping funcional invalido: ExitCode="+$AgentPingExitCode+"; "+$AgentPingText) 'WARN';return $false}
+    if($AgentPingExitCode -ne 0){Log ("agent.ping retornou valor valido com ExitCode="+$AgentPingExitCode+"; resposta aceita pela pos-validacao.") 'WARN'}
+    return $true
 }
 
 function Test-DDMCompliance($Target,$Identity,$Client) {
@@ -190,6 +194,18 @@ try {
         $Action=if($MsiDrift.Count -gt 0){'Apply'}else{'Repair'}
     }
     $Engine=Join-Path $RuntimeRoot 'engine\Install-DDM-Zabbix-Windows.ps1'
+    if([string]$DDMProduct.ProductVersion -ne [string]$Desired.ProductVersion){throw "RUNTIME_PRODUCT_VERSION_DIVERGENTE esperado=$($Desired.ProductVersion) atual=$($DDMProduct.ProductVersion)"}
+    $MotorManifestPath=Join-Path $RuntimeRoot $DDMProduct.MotorManifestFile
+    if(-not(Test-Path -LiteralPath $MotorManifestPath)){throw 'Manifesto do runtime local ausente antes da execucao do motor.'}
+    if((Get-DDMSha256 $MotorManifestPath) -ne ([string]$Desired.MotorManifestSha256).ToUpperInvariant()){throw 'Manifesto do runtime local diverge do desired-state.'}
+    $MotorManifest=@(Import-DDMClixmlSafe $MotorManifestPath)
+    $EngineEntries=@($MotorManifest|Where-Object{$Rel=[string]$_.Path;if(Test-DDMBlank $Rel){$Rel=[string]$_.Name};$Rel -ieq 'engine\Install-DDM-Zabbix-Windows.ps1'})
+    if($EngineEntries.Count -ne 1){throw 'Engine nao possui entrada unica no manifesto do runtime local.'}
+    $ExpectedEngineSha256=([string]$EngineEntries[0].Sha256).ToUpperInvariant()
+    if($ExpectedEngineSha256 -notmatch '^[0-9A-F]{64}$'){throw 'SHA-256 do engine no manifesto local e invalido.'}
+    if(-not(Test-Path -LiteralPath $Engine)){throw 'Engine local ausente.'}
+    $ActualEngineSha256=Get-DDMSha256 $Engine
+    if($ActualEngineSha256 -ne $ExpectedEngineSha256){throw "ENGINE_RUNTIME_HASH_DIVERGENTE esperado=$ExpectedEngineSha256 atual=$ActualEngineSha256"}
     $Args=@('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"'+$Engine+'"'),'-Mode',$Action,'-ClientRuntimePath',('"'+$Desired.ClientRuntimePath+'"'),'-ArtifactsRoot',('"'+$Desired.ArtifactsRoot+'"'),'-DesiredProductVersion',([string]$Desired.ProductVersion),'-DesiredAgentVersion',([string]$Desired.AgentVersion),'-DesiredReleaseId',([string]$Desired.ReleaseId),'-ClientSourceSha256',([string]$Desired.ClientSourceSha256),'-ClientRuntimeSha256',([string]$Desired.ClientRuntimeSha256))
     if($Force -or $AllowDowngrade){$Args+='-Force'}
     $P=Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList ($Args -join ' ') -Wait -PassThru

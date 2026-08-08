@@ -60,6 +60,16 @@ jobs:
           & $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
           if (-not $?) { throw 'Migration validation returned failure.' }
 
+      - name: Execute SRV-AE parser and endpoint regressions
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          foreach($Test in @('Test-DDM-LegacyBom.ps1','Test-DDM-EndpointRuntimeGuard.ps1')){
+              & (Join-Path $Product ('tools\'+$Test)) -ProductRoot $Product
+              if(-not $?){throw "$Test returned failure."}
+          }
+
       - name: Execute complete product validation
         shell: powershell
         run: |
@@ -88,9 +98,12 @@ jobs:
           path: |
             ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-*
             windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1
+            windows/zabbix-agent-deployment/endpoint/Invoke-DDM-SNOC-Daily.ps1
             windows/zabbix-agent-deployment/config/DDM-Product.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1
+            windows/zabbix-agent-deployment/tools/Test-DDM-LegacyBom.ps1
+            windows/zabbix-agent-deployment/tools/Test-DDM-EndpointRuntimeGuard.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-CentralRecovery.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-CentralPathIdentity.ps1
           if-no-files-found: error
