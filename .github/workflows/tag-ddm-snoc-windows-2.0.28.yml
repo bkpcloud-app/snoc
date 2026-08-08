@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   gate-and-tag:
@@ -54,12 +55,23 @@ jobs:
             $Existing=([string](git rev-list -n 1 $Tag)).Trim()
             if($Existing -ne $Commit){throw "Existing tag points to $Existing instead of $Commit"}
             Write-Host "OFFICIAL_TAG_ALREADY_CORRECT=$Tag"
-            exit 0
+          }else{
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a $Tag $Commit -m 'DDM SNOC Windows 2.0.28 - legacy parser correction validated on SRV-AE case'
+            git push origin ('refs/tags/'+$Tag)
+            if($LASTEXITCODE -ne 0){throw "Tag push failed: $LASTEXITCODE"}
+            Write-Host "OFFICIAL_TAG_CREATED=$Tag"
+            Write-Host "OFFICIAL_TAG_COMMIT=$Commit"
           }
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a $Tag $Commit -m 'DDM SNOC Windows 2.0.28 - legacy parser correction validated on SRV-AE case'
-          git push origin ('refs/tags/'+$Tag)
-          if($LASTEXITCODE -ne 0){throw "Tag push failed: $LASTEXITCODE"}
-          Write-Host "OFFICIAL_TAG_CREATED=$Tag"
-          Write-Host "OFFICIAL_TAG_COMMIT=$Commit"
+
+      - name: Dispatch official release workflow
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Tag='ddm-snoc-windows-v2.0.28'
+          gh workflow run ddm-snoc-windows-release.yml --repo bkpcloud-app/snoc --ref main -f release_tag=$Tag
+          if($LASTEXITCODE -ne 0){throw "Official release dispatch failed: $LASTEXITCODE"}
+          Write-Host "OFFICIAL_RELEASE_DISPATCHED=$Tag"
