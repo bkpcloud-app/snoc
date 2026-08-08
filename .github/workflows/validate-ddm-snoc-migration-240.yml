@@ -23,6 +23,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Materialize exact 2.0.28 candidate
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Patch = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment\tools\Promote-DDM-SNOC-2.0.28.ps1'
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Patch -RepositoryRoot $env:GITHUB_WORKSPACE
+          if ($LASTEXITCODE -ne 0) { throw "Promotion patch returned $LASTEXITCODE" }
+
       - name: Resolve product version
         shell: powershell
         run: |
@@ -33,6 +41,7 @@ jobs:
           if ($Version -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
               throw "Invalid ProductVersion: $Version"
           }
+          if ($Version -ne '2.0.28') { throw "Expected 2.0.28, got $Version" }
           "DDM_PRODUCT_VERSION=$Version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "PRODUCT_VERSION=$Version"
 
@@ -60,6 +69,16 @@ jobs:
           & $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
           if (-not $?) { throw 'Migration validation returned failure.' }
 
+      - name: Execute legacy BOM and runtime hash regressions
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          foreach ($Test in @('Test-DDM-LegacyBom.ps1','Test-DDM-RuntimeEngineHash.ps1')) {
+              & (Join-Path $Product ('tools\' + $Test)) -ProductRoot $Product
+              if (-not $?) { throw "$Test returned failure." }
+          }
+
       - name: Execute complete product validation
         shell: powershell
         run: |
@@ -84,14 +103,16 @@ jobs:
         if: always()
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
-          name: DDM-SNOC-WINDOWS-MIGRATION-VALIDATION
+          name: DDM-SNOC-WINDOWS-MIGRATION-VALIDATION-2.0.28
           path: |
             ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-*
             windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1
+            windows/zabbix-agent-deployment/endpoint/Invoke-DDM-SNOC-Daily.ps1
             windows/zabbix-agent-deployment/config/DDM-Product.ps1
+            windows/zabbix-agent-deployment/CHANGELOG.md
             windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1
             windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1
-            windows/zabbix-agent-deployment/tools/Test-DDM-CentralRecovery.ps1
-            windows/zabbix-agent-deployment/tools/Test-DDM-CentralPathIdentity.ps1
+            windows/zabbix-agent-deployment/tools/Test-DDM-LegacyBom.ps1
+            windows/zabbix-agent-deployment/tools/Test-DDM-RuntimeEngineHash.ps1
           if-no-files-found: error
           retention-days: 30
