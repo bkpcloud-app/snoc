@@ -59,8 +59,8 @@ echo "============================================================"
 
 echo "[1/6] Validando estado atual - nenhuma alteracao"
 grep -q "BACKUPCLOUD INVENTARIO HIERARQUIA V4 - INICIO" "$SRC" || fail "hierarquia V4 nao identificada; nao vou alterar estado desconhecido"
-grep -q '?v=3.0.4' "$TC" || fail "cache V4 nao identificado; nao vou alterar estado desconhecido"
-echo "   Estado V4: OK"
+grep -Eq '\?v=3\.0\.(4|5)' "$TC" || fail "cache V4/V5 nao identificado; nao vou alterar estado desconhecido"
+echo "   Estado esperado: OK"
 
 echo "[2/6] Criando backup"
 mkdir -p "$BACKUP"
@@ -80,7 +80,7 @@ s=re.sub(r'/\* === BACKUPCLOUD INVENTARIO CENTER V5 - INICIO === \*/.*?/\* === B
 s += r'''
 
 /* === BACKUPCLOUD INVENTARIO CENTER V5 - INICIO === */
-/* Correção cirúrgica: login ocupa o viewport inteiro e o conjunto fica centralizado. */
+/* Correção cirúrgica somente no login: ocupa todo o viewport e centraliza o conjunto. */
 .page.page-center,
 .page-center{
   width:100vw!important;
@@ -92,6 +92,7 @@ s += r'''
   padding-left:0!important;
   padding-right:0!important;
   box-sizing:border-box!important;
+  overflow-x:hidden!important;
 }
 .page-center > .container,
 .page-center > .container-fluid,
@@ -100,17 +101,12 @@ s += r'''
   margin-left:auto!important;
   margin-right:auto!important;
 }
-html,body{
-  margin-left:0!important;
-  margin-right:0!important;
-  overflow-x:hidden!important;
-}
 /* === BACKUPCLOUD INVENTARIO CENTER V5 - FIM === */
 '''
 css.write_text(s,encoding='utf-8')
 
 s=tc.read_text(encoding='utf-8',errors='strict')
-s=re.sub(r'\?v=3\.0\.4', '?v=3.0.5', s)
+s=re.sub(r'\?v=3\.0\.(?:4|5)', '?v=3.0.5', s)
 tc.write_text(s,encoding='utf-8')
 PY
 
@@ -118,6 +114,7 @@ echo "[4/6] Validando arquivos alterados"
 grep -q "BACKUPCLOUD INVENTARIO CENTER V5 - INICIO" "$SRC" || fail "bloco V5 nao foi gravado"
 grep -q 'width:100vw!important' "$SRC" || fail "largura integral nao foi aplicada"
 grep -q '?v=3.0.5' "$TC" || fail "cache-buster V5 nao foi aplicado"
+[[ "$(grep -c 'BACKUPCLOUD INVENTARIO CENTER V5 - INICIO' "$SRC")" -eq 1 ]] || fail "bloco V5 duplicado"
 
 echo "[5/6] Publicando"
 if [[ "$TEST_MODE" != "1" ]]; then
