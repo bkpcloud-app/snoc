@@ -73,7 +73,8 @@ echo "[3/6] Corrigindo somente alinhamento/largura do login"
 python3 - "$SRC" "$TC" <<'PY'
 from pathlib import Path
 import re,sys
-css,tc=map(Path,sys.argv[1:])n
+css,tc=map(Path,sys.argv[1:])
+
 s=css.read_text(encoding='utf-8',errors='strict')
 s=re.sub(r'/\* === BACKUPCLOUD INVENTARIO CENTER V5 - INICIO === \*/.*?/\* === BACKUPCLOUD INVENTARIO CENTER V5 - FIM === \*/\s*','',s,flags=re.S)
 s += r'''
