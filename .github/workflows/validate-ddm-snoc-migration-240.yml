@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   migration-240:
@@ -21,7 +21,16 @@ jobs:
       - name: Checkout exact source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.head_ref || github.ref }}
           fetch-depth: 0
+
+      - name: Materialize endpoint runtime guard
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          & (Join-Path $Product 'tools\Promote-DDM-2.0.28-RuntimeGuard.ps1') -RepositoryRoot $env:GITHUB_WORKSPACE
+          if(-not $?){throw 'Runtime guard materialization failed.'}
 
       - name: Resolve product version
         shell: powershell
@@ -30,9 +39,7 @@ jobs:
           $Product = Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
           . (Join-Path $Product 'config\DDM-Product.ps1')
           $Version = [string]$DDMProduct.ProductVersion
-          if ($Version -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
-              throw "Invalid ProductVersion: $Version"
-          }
+          if ($Version -ne '2.0.28') { throw "Expected 2.0.28, got $Version" }
           "DDM_PRODUCT_VERSION=$Version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "PRODUCT_VERSION=$Version"
 
@@ -60,6 +67,16 @@ jobs:
           & $Script -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Output
           if (-not $?) { throw 'Migration validation returned failure.' }
 
+      - name: Execute SRV-AE parser and endpoint regressions
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          foreach($Test in @('Test-DDM-LegacyBom.ps1','Test-DDM-EndpointRuntimeGuard.ps1')){
+              & (Join-Path $Product ('tools\'+$Test)) -ProductRoot $Product
+              if(-not $?){throw "$Test returned failure."}
+          }
+
       - name: Execute complete product validation
         shell: powershell
         run: |
@@ -80,18 +97,33 @@ jobs:
               if (-not $?) { throw "$Test returned failure." }
           }
 
+      - name: Commit exact validated endpoint correction
+        if: success() && github.event_name == 'pull_request'
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git config user.name 'bkpcloud-app'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -- 'windows/zabbix-agent-deployment/endpoint/Invoke-DDM-SNOC-Daily.ps1' 'windows/zabbix-agent-deployment/CHANGELOG.md'
+          $Changes=git status --porcelain
+          if([string]::IsNullOrWhiteSpace(($Changes -join ''))){Write-Host 'VALIDATED_ENDPOINT_ALREADY_COMMITTED';exit 0}
+          git commit -m 'fix(windows): enforce runtime engine hash and agent.ping post-validation'
+          if($LASTEXITCODE -ne 0){throw 'git commit failed'}
+          git push origin HEAD:${{ github.head_ref }}
+          if($LASTEXITCODE -ne 0){throw 'git push failed'}
+
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
-          name: DDM-SNOC-WINDOWS-MIGRATION-VALIDATION
+          name: DDM-SNOC-WINDOWS-MIGRATION-VALIDATION-2.0.28-RUNTIME-GUARD
           path: |
             ${{ runner.temp }}/DDM-SNOC-MIGRATION-240-*
             windows/zabbix-agent-deployment/engine/Install-DDM-Zabbix-Windows.ps1
+            windows/zabbix-agent-deployment/endpoint/Invoke-DDM-SNOC-Daily.ps1
             windows/zabbix-agent-deployment/config/DDM-Product.ps1
-            windows/zabbix-agent-deployment/tools/Test-DDM-Repository.ps1
-            windows/zabbix-agent-deployment/tools/Test-DDM-SNOC-Migration-240Scenarios.ps1
-            windows/zabbix-agent-deployment/tools/Test-DDM-CentralRecovery.ps1
-            windows/zabbix-agent-deployment/tools/Test-DDM-CentralPathIdentity.ps1
+            windows/zabbix-agent-deployment/CHANGELOG.md
+            windows/zabbix-agent-deployment/tools/Test-DDM-LegacyBom.ps1
+            windows/zabbix-agent-deployment/tools/Test-DDM-EndpointRuntimeGuard.ps1
           if-no-files-found: error
           retention-days: 30
