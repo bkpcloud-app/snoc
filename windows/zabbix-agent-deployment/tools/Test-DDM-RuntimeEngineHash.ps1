@@ -26,3 +26,4 @@ if($ManifestIndex -lt 0 -or $EngineHashIndex -lt 0 -or $StartIndex -lt 0){throw 
 if(-not($ManifestIndex -lt $EngineHashIndex -and $EngineHashIndex -lt $StartIndex)){throw 'Engine hash validation must occur before process execution.'}
 
 Write-Host 'RUNTIME_ENGINE_HASH_GUARD_OK'
+# committed-source validation trigger
