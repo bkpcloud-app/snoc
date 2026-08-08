@@ -6,6 +6,11 @@ on:
       - release/tag-ddm-snoc-windows-2.0.28
     paths:
       - '.github/workflows/tag-ddm-snoc-windows-2.0.28.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/tag-ddm-snoc-windows-2.0.28.yml'
 
 permissions:
   contents: write
@@ -45,7 +50,12 @@ jobs:
           $Commit='1e3a7ae75c68c81a1b0f67e06ffa61b34b4987c0'
           git fetch origin --tags
           git rev-parse -q --verify ('refs/tags/'+$Tag) 2>$null | Out-Null
-          if($LASTEXITCODE -eq 0){throw "Tag already exists: $Tag"}
+          if($LASTEXITCODE -eq 0){
+            $Existing=([string](git rev-list -n 1 $Tag)).Trim()
+            if($Existing -ne $Commit){throw "Existing tag points to $Existing instead of $Commit"}
+            Write-Host "OFFICIAL_TAG_ALREADY_CORRECT=$Tag"
+            exit 0
+          }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git tag -a $Tag $Commit -m 'DDM SNOC Windows 2.0.28 - legacy parser correction validated on SRV-AE case'
