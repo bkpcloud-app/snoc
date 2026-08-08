@@ -1,3 +1,9 @@
+## 2.0.29 - 2026-08-07
+- Publica em nova versao imutavel o parser legado definitivo da 2.0.28 e o guard de integridade do Runtime.
+- Valida ProductVersion, MOTOR-MANIFEST e SHA-256 do engine imediatamente antes da execucao.
+- Alinha a pos-validacao agent.ping ao valor funcional real do Agent 2 7.0.29, aceitando [s|1].
+- Mantem testes permanentes do incidente real do SRV-AE e exige 240/240 antes da release.
+
 ## 2.0.28 - 2026-08-07
 - Valida ProductVersion, MOTOR-MANIFEST e SHA-256 do engine do runtime imediatamente antes da execucao.
 - Corrige a pos-validacao agent.ping para aceitar a resposta funcional real [s|1], igual ao motor, mesmo quando o executavel devolve ExitCode nao-zero.
