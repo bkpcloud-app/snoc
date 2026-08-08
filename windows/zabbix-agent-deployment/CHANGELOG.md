@@ -1,3 +1,8 @@
+## 2.0.28 - 2026-08-07
+- Corrige definitivamente a classificacao de comentarios do config legado: # antes do primeiro = e aceito mesmo com BOM, mojibake ou prefixo nao ASCII.
+- Mantem texto malformado com caracteres ASCII antes de # como erro, evitando mascarar diretivas invalidas.
+- Faz os dois caminhos do parser legado usarem a mesma funcao de decisao.
+- Amplia a regressao com a linha real do SRV-AE, prefixos UTF, mojibake cp1252/cp850, comentario contendo =, diretiva ativa e texto malformado.
 ## 2.0.27 - 2026-08-07
 - Normaliza qualquer caractere Unicode de controle, formatacao ou separacao antes de classificar linhas do config legado.
 - Corrige falso bloqueio em comentarios do zabbix_agent2.conf e includes legados.
