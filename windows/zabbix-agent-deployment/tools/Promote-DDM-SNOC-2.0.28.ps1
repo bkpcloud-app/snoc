@@ -73,7 +73,7 @@ $OldNormalizerAssertion="Assert-DDMTest (`$EnginePingRegression.Contains('functi
 $NewNormalizerAssertion=@'
 Assert-DDMTest ($EnginePingRegression.Contains('function Normalize-DDMLegacyConfigLine')) 'Normalizador de linhas legadas ausente.'
 Assert-DDMTest ($EnginePingRegression.Contains('function Test-DDMLegacyConfigCommentOrBlank')) 'Decisao real de comentario legado ausente.'
-Assert-DDMTest ($EnginePingRegression.Contains("$Hash=$Candidate.IndexOf('#')")) 'Decisao de comentario deve localizar # independentemente do prefixo de codificacao.'
+Assert-DDMTest ($EnginePingRegression.Contains('$Hash=$Candidate.IndexOf(''#'')')) 'Decisao de comentario deve localizar # independentemente do prefixo de codificacao.'
 '@
 if($RepositoryTest -notmatch 'Decisao real de comentario legado ausente'){
     $RepositoryTest=Replace-ExactlyOnce $RepositoryTest $OldNormalizerAssertion $NewNormalizerAssertion 'repository-comment-helper'
@@ -103,7 +103,7 @@ foreach($Path in @($EnginePath,$RepositoryTestPath,$LegacyTestPath)){
 
 $Final=Read-Normalized $EnginePath
 if($Final -notmatch 'function Test-DDMLegacyConfigCommentOrBlank'){throw 'Comment decision helper missing after promotion.'}
-if(([regex]::Matches($Final,[regex]::Escape('Test-DDMLegacyConfigCommentOrBlank')).Count -lt 3){throw 'Both parser paths are not wired to the comment decision helper.'}
+if(([regex]::Matches($Final,[regex]::Escape('Test-DDMLegacyConfigCommentOrBlank')).Count -lt 3)){throw 'Both parser paths are not wired to the comment decision helper.'}
 
 Write-Host ('ENGINE_SHA256='+(Get-FileHash -LiteralPath $EnginePath -Algorithm SHA256).Hash.ToUpperInvariant())
 Write-Host 'PRODUCT_VERSION=2.0.28'
