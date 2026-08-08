@@ -1,4 +1,6 @@
 ## 2.0.28 - 2026-08-07
+- Valida ProductVersion, MOTOR-MANIFEST e SHA-256 do engine do runtime imediatamente antes da execucao.
+- Corrige a pos-validacao agent.ping para aceitar a resposta funcional real [s|1], igual ao motor, mesmo quando o executavel devolve ExitCode nao-zero.
 - Corrige definitivamente a classificacao de comentarios do config legado: # antes do primeiro = e aceito mesmo com BOM, mojibake ou prefixo nao ASCII.
 - Mantem texto malformado com caracteres ASCII antes de # como erro, evitando mascarar diretivas invalidas.
 - Faz os dois caminhos do parser legado usarem a mesma funcao de decisao.
