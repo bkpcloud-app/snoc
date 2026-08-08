@@ -59,7 +59,7 @@ if(Test-DDMLegacyConfigCommentOrBlank $ActiveWithComment){throw 'Active directiv
 $Garbage='garbage # this must still be rejected by the parser'
 if(Test-DDMLegacyConfigCommentOrBlank $Garbage){throw 'Malformed active text was incorrectly hidden as comment.'}
 
-if(([regex]::Matches($Text,[regex]::Escape('Test-DDMLegacyConfigCommentOrBlank')).Count -lt 3){throw 'Both legacy parsing paths are not using the real comment decision helper.'}
+if(([regex]::Matches($Text,[regex]::Escape('Test-DDMLegacyConfigCommentOrBlank')).Count -lt 3)){throw 'Both legacy parsing paths are not using the real comment decision helper.'}
 
 Write-Host 'LEGACY_BOM_REGRESSION_OK'
 Write-Host 'LEGACY_COMMENT_DECISION_REGRESSION_OK'
