@@ -190,6 +190,18 @@ try {
         $Action=if($MsiDrift.Count -gt 0){'Apply'}else{'Repair'}
     }
     $Engine=Join-Path $RuntimeRoot 'engine\Install-DDM-Zabbix-Windows.ps1'
+    $MotorManifestPath=Join-Path $RuntimeRoot $DDMProduct.MotorManifestFile
+    if(-not(Test-Path -LiteralPath $MotorManifestPath)){throw 'Manifesto do runtime local ausente antes da execucao do motor.'}
+    if((Get-DDMSha256 $MotorManifestPath) -ne ([string]$Desired.MotorManifestSha256).ToUpperInvariant()){throw 'Manifesto do runtime local diverge do desired-state.'}
+    $MotorManifest=@(Import-DDMClixmlSafe $MotorManifestPath)
+    $EngineRelative='engine\Install-DDM-Zabbix-Windows.ps1'
+    $EngineEntries=@($MotorManifest|Where-Object{$Rel=if($_.Path){[string]$_.Path}else{[string]$_.Name};$Rel -ieq $EngineRelative})
+    if($EngineEntries.Count -ne 1){throw 'Engine nao possui entrada unica no manifesto do runtime local.'}
+    $ExpectedEngineSha256=([string]$EngineEntries[0].Sha256).ToUpperInvariant()
+    if($ExpectedEngineSha256 -notmatch '^[0-9A-F]{64}$'){throw 'SHA-256 do engine no manifesto local e invalido.'}
+    if(-not(Test-Path -LiteralPath $Engine)){throw 'Engine local ausente.'}
+    $ActualEngineSha256=Get-DDMSha256 $Engine
+    if($ActualEngineSha256 -ne $ExpectedEngineSha256){throw "ENGINE_RUNTIME_HASH_DIVERGENTE esperado=$ExpectedEngineSha256 atual=$ActualEngineSha256"}
     $Args=@('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',('"'+$Engine+'"'),'-Mode',$Action,'-ClientRuntimePath',('"'+$Desired.ClientRuntimePath+'"'),'-ArtifactsRoot',('"'+$Desired.ArtifactsRoot+'"'),'-DesiredProductVersion',([string]$Desired.ProductVersion),'-DesiredAgentVersion',([string]$Desired.AgentVersion),'-DesiredReleaseId',([string]$Desired.ReleaseId),'-ClientSourceSha256',([string]$Desired.ClientSourceSha256),'-ClientRuntimeSha256',([string]$Desired.ClientRuntimeSha256))
     if($Force -or $AllowDowngrade){$Args+='-Force'}
     $P=Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList ($Args -join ' ') -Wait -PassThru

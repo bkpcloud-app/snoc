@@ -1,3 +1,9 @@
+## 2.0.28 - 2026-08-07
+- Corrige classificacao de comentarios legados quando existe U+FFFD/BOM/zero-width antes de #.
+- Reforca a deteccao de comentarios sem relaxar diretivas ativas.
+- Valida o SHA-256 do engine local contra MOTOR-MANIFEST antes de executar o runtime.
+- Usa nova versao de runtime para impedir reutilizacao de cache 2.0.27.
+
 ## 2.0.27 - 2026-08-07
 - Normaliza qualquer caractere Unicode de controle, formatacao ou separacao antes de classificar linhas do config legado.
 - Corrige falso bloqueio em comentarios do zabbix_agent2.conf e includes legados.

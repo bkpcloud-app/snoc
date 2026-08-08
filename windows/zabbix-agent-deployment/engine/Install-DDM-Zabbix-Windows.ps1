@@ -87,21 +87,21 @@ function Get-ApprovedLegacyFiles($Client,[string]$Root){
     return $Result
 }
 
-function Normalize-DDMLegacyConfigLine([string]$Line){$Text=[string]$Line;$Text=$Text -replace '^(?:\u00EF\u00BB\u00BF)+','';$Text=$Text -replace '^[\p{C}\p{Z}\s]+','';return $Text.Trim()}
+function Normalize-DDMLegacyConfigLine([string]$Line){$Text=[string]$Line;$Text=$Text -replace '^(?:(?:\u00EF\u00BB\u00BF)|\uFEFF|\uFFFD|\u200B|\u2060|\u200E|\u200F|\u202A|\u202B|\u202C|\u202D|\u202E|\u2066|\u2067|\u2068|\u2069|\u00A0)+','';$Text=$Text -replace '^[\p{C}\p{Z}\s]+','';$Text=$Text -replace '^(?:(?:\u00EF\u00BB\u00BF)|\uFEFF|\uFFFD)+','';return $Text.Trim()}
 function Assert-LegacyConfigurationSafe($Client){
     $AllowedDirectives=@('LogFile','LogFileSize','DebugLevel','Server','ServerActive','Hostname','HostMetadata','ListenPort','Timeout','UnsafeUserParameters','AllowKey','DenyKey','Include','StartAgents','LogRemoteCommands','Plugins.SystemRun.LogRemoteCommands','PidFile','ControlSocket','SourceIP','ListenIP','RefreshActiveChecks','BufferSend','BufferSize','MaxLinesPerSecond')
     foreach($Root in @($DDMProduct.Agent1Directory,$DDMProduct.Agent2Directory)){
         if(-not(Test-Path $Root)){continue}
         $Main=Join-Path $Root $(if($Root -eq $DDMProduct.Agent2Directory){'zabbix_agent2.conf'}else{'zabbix_agentd.conf'})
         if(Test-Path $Main){
-            foreach($Line in @(Get-Content -LiteralPath $Main -ErrorAction Stop)){$Text=Normalize-DDMLegacyConfigLine ([string]$Line);if(Test-DDMBlank $Text -or $Text.StartsWith('#')){continue};if($Text -notmatch '^(?<key>[^=]+)='){throw "Linha ativa nao reconhecida no config legado: $Text"};$Key=$Matches['key'].Trim();if($Key -like 'TLS*'){throw "Configuracao TLS legada exige migracao explicita: $Key"};if($AllowedDirectives -notcontains $Key){throw "Diretiva legada nao catalogada: $Key"}}
+            foreach($Line in @(Get-Content -LiteralPath $Main -ErrorAction Stop)){$Text=Normalize-DDMLegacyConfigLine ([string]$Line);if(Test-DDMBlank $Text -or $Text -match '^[^A-Za-z0-9_.=]*#'){continue};if($Text -notmatch '^(?<key>[^=]+)='){throw "Linha ativa nao reconhecida no config legado: $Text"};$Key=$Matches['key'].Trim();if($Key -like 'TLS*'){throw "Configuracao TLS legada exige migracao explicita: $Key"};if($AllowedDirectives -notcontains $Key){throw "Diretiva legada nao catalogada: $Key"}}
         }
         $Approved=Get-ApprovedLegacyFiles $Client $Root
         foreach($IncludeDir in @((Join-Path $Root 'zabbix_agentd.d'),(Join-Path $Root 'zabbix_agent2.d'))){
             if(-not(Test-Path $IncludeDir)){continue}
             foreach($File in @(Get-ChildItem -LiteralPath $IncludeDir -Recurse -Force|Where-Object{-not$_.PSIsContainer -and $_.Extension -ieq '.conf'})){
                 $Full=$File.FullName.ToLowerInvariant();$VendorPluginConfig=($Root -eq $DDMProduct.Agent2Directory -and $File.DirectoryName -ieq (Join-Path $DDMProduct.Agent2Directory 'zabbix_agent2.d') -and @('ember.conf','mssql.conf','mongodb.conf','postgresql.conf') -contains $File.Name.ToLowerInvariant());if($Full -like '*\ddm\*' -or $Full -like '*\plugins.d\*' -or $VendorPluginConfig){continue};if($Approved -contains $Full){continue}
-                $Active=@(Get-Content -LiteralPath $File.FullName -ErrorAction Stop|Where-Object{$T=Normalize-DDMLegacyConfigLine ([string]$_);-not(Test-DDMBlank $T) -and -not$T.StartsWith('#')})
+                $Active=@(Get-Content -LiteralPath $File.FullName -ErrorAction Stop|Where-Object{$T=Normalize-DDMLegacyConfigLine ([string]$_);-not(Test-DDMBlank $T) -and -not($T -match '^[^A-Za-z0-9_.=]*#')})
                 if($Active.Count -gt 0){throw "Arquivo legado ativo nao catalogado em Legacy.ManagedFiles: $($File.FullName)"}
             }
         }

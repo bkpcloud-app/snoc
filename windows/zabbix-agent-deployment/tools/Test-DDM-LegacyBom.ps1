@@ -18,7 +18,9 @@ $Prefixes=@(
     [string][char]0x200E,
     [string][char]0x202A,
     [string][char]0x0000,
-    ([string][char]0x00EF+[string][char]0x00BB+[string][char]0x00BF)
+    [string][char]0xFFFD,
+    ([string][char]0x00EF+[string][char]0x00BB+[string][char]0x00BF),
+    ([string][char]0xFFFD+[string][char]0xFEFF+[string][char]0x200B)
 )
 foreach($Prefix in $Prefixes){
     $Input=$Prefix+$Real
