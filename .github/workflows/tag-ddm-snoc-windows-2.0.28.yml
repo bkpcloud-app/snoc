@@ -1,0 +1,55 @@
+name: Gate and Tag DDM SNOC Windows 2.0.28
+
+on:
+  push:
+    branches:
+      - release/tag-ddm-snoc-windows-2.0.28
+    paths:
+      - '.github/workflows/tag-ddm-snoc-windows-2.0.28.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  gate-and-tag:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact production commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 1e3a7ae75c68c81a1b0f67e06ffa61b34b4987c0
+          fetch-depth: 0
+
+      - name: Reproduce and validate real SRV-AE parser case
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          . (Join-Path $Product 'config\DDM-Product.ps1')
+          if([string]$DDMProduct.ProductVersion -ne '2.0.28'){throw "Expected 2.0.28; got $($DDMProduct.ProductVersion)"}
+          & (Join-Path $Product 'tools\Test-DDM-LegacyBom.ps1') -ProductRoot $Product
+          if(-not $?){throw 'Real legacy parser regression failed.'}
+          & (Join-Path $Product 'tools\Test-DDM-Repository.ps1') -ProductRoot $Product
+          if(-not $?){throw 'Repository validation failed.'}
+          $EngineHash=(Get-FileHash (Join-Path $Product 'engine\Install-DDM-Zabbix-Windows.ps1') -Algorithm SHA256).Hash.ToUpperInvariant()
+          Write-Host "ENGINE_SHA256=$EngineHash"
+
+      - name: Create exact official tag
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Tag='ddm-snoc-windows-v2.0.28'
+          $Commit='1e3a7ae75c68c81a1b0f67e06ffa61b34b4987c0'
+          git fetch origin --tags
+          git rev-parse -q --verify ('refs/tags/'+$Tag) 2>$null | Out-Null
+          if($LASTEXITCODE -eq 0){throw "Tag already exists: $Tag"}
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a $Tag $Commit -m 'DDM SNOC Windows 2.0.28 - legacy parser correction validated on SRV-AE case'
+          git push origin ('refs/tags/'+$Tag)
+          if($LASTEXITCODE -ne 0){throw "Tag push failed: $LASTEXITCODE"}
+          Write-Host "OFFICIAL_TAG_CREATED=$Tag"
+          Write-Host "OFFICIAL_TAG_COMMIT=$Commit"
