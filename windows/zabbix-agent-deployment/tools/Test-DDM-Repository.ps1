@@ -138,7 +138,7 @@ Write-Host '3/12 Contrato global do produto'
 . (Join-Path $ProductRoot 'config\DDM-Product.ps1')
 Assert-DDMTest ($DDMProduct.ProductName -eq 'DDM SNOC Windows') 'ProductName invalido.'
 Assert-DDMTest ($DDMProduct.ProductCode -eq 'DDM-SNOC-WINDOWS') 'ProductCode invalido.'
-Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.28') 'ProductVersion deve ser 2.0.28.'
+Assert-DDMTest ($DDMProduct.ProductVersion -eq '2.0.29') 'ProductVersion deve ser 2.0.29.'
 $EnginePingRegression = Read-DDMRaw 'engine\Install-DDM-Zabbix-Windows.ps1'
 Assert-DDMTest ($EnginePingRegression.Contains('$AgentPingExitCode=$LASTEXITCODE')) 'Validacao agent.ping deve registrar o ExitCode sem usa-lo como falso negativo quando a resposta funcional for valida.'
 Assert-DDMTest ($EnginePingRegression.Contains('$AgentPingText -notmatch ''(?i)\bagent\.ping\b.*\[[A-Za-z]\|1\]''')) 'Validacao agent.ping deve aceitar a resposta funcional real agent.ping [s|1].'
