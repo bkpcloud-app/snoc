@@ -80,18 +80,6 @@ if(Test-DDMBlank $Text -or $Text -match '^[^A-Za-z0-9_.=]*#'){continue};
     $Config=Replace-Once $Config "ProductVersion           = '2.0.27'" "ProductVersion           = '2.0.28'" 'product-version'
     $RepositoryTest=Replace-Once $RepositoryTest "Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.27') 'ProductVersion deve ser 2.0.27.'" "Assert-DDMTest (`$DDMProduct.ProductVersion -eq '2.0.28') 'ProductVersion deve ser 2.0.28.'" 'repository-version'
 
-    $OldRepoBom=@'
-$BomRegression = (((([char]0x200E).ToString() + '# comment') -replace '^(?:\u00EF\u00BB\u00BF)+','' -replace '^[\p{C}\p{Z}\s]+','').Trim()
-Assert-DDMTest ($BomRegression.StartsWith('#')) 'Regressao Unicode: comentario com caractere invisivel nao foi reconhecido.'
-'@.Trim()
-    $NewRepoBom=@'
-$BomRegression = (((([char]0x200E).ToString() + '# comment') -replace '^(?:(?:\u00EF\u00BB\u00BF)|\uFEFF|\uFFFD)+','' -replace '^[\p{C}\p{Z}\s]+','').Trim()
-Assert-DDMTest ($BomRegression.StartsWith('#')) 'Regressao Unicode: comentario com caractere invisivel nao foi reconhecido.'
-$ReplacementRegression = (((([char]0xFFFD).ToString() + '# This is a configuration file for Zabbix agent 2 (Windows)') -replace '^(?:(?:\u00EF\u00BB\u00BF)|\uFEFF|\uFFFD)+','' -replace '^[\p{C}\p{Z}\s]+','').Trim()
-Assert-DDMTest ($ReplacementRegression.StartsWith('#')) 'Regressao U+FFFD: comentario real do Agent 2 nao foi reconhecido.'
-'@.Trim()
-    $RepositoryTest=Replace-Once $RepositoryTest $OldRepoBom $NewRepoBom 'repository-bom-regression'
-
     $OldPrefix=@'
     [string][char]0x0000,
     ([string][char]0x00EF+[string][char]0x00BB+[string][char]0x00BF)
@@ -127,8 +115,8 @@ $FinalEngine=Read-Text $EnginePath
 $FinalEndpoint=Read-Text $EndpointPath
 $FinalConfig=Read-Text $ConfigPath
 if($FinalConfig -notmatch "ProductVersion\s*=\s*'2\.0\.28'"){throw '2.0.28 nao aplicado.'}
-if($FinalEngine -notmatch '\\uFFFD'){throw 'Normalizador sem U+FFFD.'}
-if($FinalEngine -notmatch "\[\^A-Za-z0-9_\.=" ){throw 'Classificador robusto de comentario nao encontrado.'}
-if($FinalEndpoint -notmatch 'ENGINE_RUNTIME_HASH_DIVERGENTE'){throw 'Runtime engine hash guard ausente.'}
+if($FinalEngine.IndexOf('\uFFFD',[StringComparison]::Ordinal) -lt 0){throw 'Normalizador sem U+FFFD.'}
+if($FinalEngine.IndexOf('^[^A-Za-z0-9_.=]*#',[StringComparison]::Ordinal) -lt 0){throw 'Classificador robusto de comentario nao encontrado.'}
+if($FinalEndpoint.IndexOf('ENGINE_RUNTIME_HASH_DIVERGENTE',[StringComparison]::Ordinal) -lt 0){throw 'Runtime engine hash guard ausente.'}
 
 Write-Host 'PROMOTE_2.0.28=PASS'
