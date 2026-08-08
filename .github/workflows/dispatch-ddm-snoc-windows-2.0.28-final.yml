@@ -1,0 +1,126 @@
+name: Dispatch DDM SNOC Windows 2.0.28 Final
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/dispatch-ddm-snoc-windows-2.0.28-final.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  dispatch-release:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout dispatcher branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Revalidate exact main before tagging
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $ExpectedMain='9479b5598988ff0e323a10333a1d1a5cf085605c'
+          git fetch origin main --tags --force
+          $Main=(git rev-parse origin/main).Trim()
+          if($Main -ne $ExpectedMain){throw "main moved. Expected=$ExpectedMain Current=$Main"}
+          git checkout --detach $ExpectedMain
+          $Product=Join-Path $env:GITHUB_WORKSPACE 'windows\zabbix-agent-deployment'
+          . (Join-Path $Product 'config\DDM-Product.ps1')
+          if([string]$DDMProduct.ProductVersion -ne '2.0.28'){throw "ProductVersion=$($DDMProduct.ProductVersion)"}
+          foreach($Test in @('Test-DDM-LegacyBom.ps1','Test-DDM-EndpointRuntimeGuard.ps1')){
+            & (Join-Path $Product ('tools\'+$Test)) -ProductRoot $Product
+            if(-not $?){throw "$Test failed"}
+          }
+          $global:ProductCode='$ProductCode'
+          $Out=Join-Path $env:RUNNER_TEMP 'DDM-SNOC-MIGRATION-240-PRETAG-2.0.28'
+          & (Join-Path $Product 'tools\Test-DDM-SNOC-Migration-240Scenarios.ps1') -RepositoryRoot $env:GITHUB_WORKSPACE -OutputDirectory $Out
+          if(-not $?){throw '240 scenarios failed before tag creation.'}
+          Write-Host 'PRETAG_VALIDATION=SUCCESS'
+          Write-Host "MAIN_SHA=$Main"
+
+      - name: Create exact production tag
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $Tag='ddm-snoc-windows-v2.0.28'
+          $Target='9479b5598988ff0e323a10333a1d1a5cf085605c'
+          $Existing=(git ls-remote --tags origin ("refs/tags/"+$Tag) 2>$null)
+          if(-not [string]::IsNullOrWhiteSpace(($Existing -join ''))){
+            git fetch origin ("refs/tags/"+$Tag+":refs/tags/"+$Tag) --force
+            $Resolved=(git rev-list -n 1 $Tag).Trim()
+            if($Resolved -ne $Target){throw "Existing tag points elsewhere: $Resolved"}
+            Write-Host "TAG_ALREADY_CORRECT=$Tag"
+            exit 0
+          }
+          git config user.name 'bkpcloud-app'
+          git config user.email 'actions@users.noreply.github.com'
+          git tag $Tag $Target
+          git push origin ("refs/tags/"+$Tag)
+          if($LASTEXITCODE -ne 0){throw 'Tag push failed.'}
+          Write-Host "TAG_CREATED=$Tag"
+          Write-Host "TAG_TARGET=$Target"
+
+      - name: Dispatch and wait official release workflow
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Tag='ddm-snoc-windows-v2.0.28'
+          $Target='9479b5598988ff0e323a10333a1d1a5cf085605c'
+          $Before=(Get-Date).ToUniversalTime().AddMinutes(-1)
+          gh workflow run ddm-snoc-windows-release.yml --repo $env:GITHUB_REPOSITORY --ref main -f ("release_tag="+$Tag)
+          if($LASTEXITCODE -ne 0){throw 'Official release workflow dispatch failed.'}
+          $RunId=$null
+          for($I=0;$I -lt 30 -and -not $RunId;$I++){
+            Start-Sleep -Seconds 3
+            $Json=gh run list --repo $env:GITHUB_REPOSITORY --workflow ddm-snoc-windows-release.yml --event workflow_dispatch --limit 20 --json databaseId,headSha,headBranch,status,conclusion,createdAt
+            if($LASTEXITCODE -ne 0){continue}
+            $Runs=@($Json|ConvertFrom-Json)
+            $Match=@($Runs|Where-Object{[string]$_.headSha -eq $Target -and [datetime]$_.createdAt -ge $Before}|Sort-Object {[datetime]$_.createdAt} -Descending|Select-Object -First 1)
+            if($Match.Count -eq 1){$RunId=[long]$Match[0].databaseId}
+          }
+          if(-not $RunId){throw 'Official release workflow run was not found.'}
+          Write-Host "OFFICIAL_RELEASE_RUN_ID=$RunId"
+          gh run watch $RunId --repo $env:GITHUB_REPOSITORY --exit-status
+          if($LASTEXITCODE -ne 0){throw "Official release workflow failed. RunId=$RunId"}
+          Write-Host 'OFFICIAL_RELEASE_WORKFLOW=SUCCESS'
+
+      - name: Verify published release and hashes
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $Tag='ddm-snoc-windows-v2.0.28'
+          $Target='9479b5598988ff0e323a10333a1d1a5cf085605c'
+          git fetch origin ("refs/tags/"+$Tag+":refs/tags/"+$Tag) --force
+          $Resolved=(git rev-list -n 1 $Tag).Trim()
+          if($Resolved -ne $Target){throw "Published tag target mismatch: $Resolved"}
+          $ReleaseJson=gh release view $Tag --repo $env:GITHUB_REPOSITORY --json tagName,assets,url
+          if($LASTEXITCODE -ne 0){throw 'Published release not found.'}
+          $Release=$ReleaseJson|ConvertFrom-Json
+          $Names=@($Release.assets|ForEach-Object{$_.name})
+          $Required=@(
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.28.zip',
+            'DDM-SNOC-WINDOWS-MOTOR-2.0.28.zip.sha256',
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.28.zip',
+            'DDM-SNOC-WINDOWS-AD-SEED-2.0.28.zip.sha256',
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.28.json',
+            'DDM-SNOC-WINDOWS-RELEASE-MANIFEST-2.0.28.json.sha256'
+          )
+          foreach($Name in $Required){if($Names -notcontains $Name){throw "Release asset missing: $Name"}}
+          $Download=Join-Path $env:RUNNER_TEMP 'release-hashes-2.0.28'
+          New-Item $Download -ItemType Directory -Force|Out-Null
+          gh release download $Tag --repo $env:GITHUB_REPOSITORY --dir $Download --pattern '*.sha256'
+          if($LASTEXITCODE -ne 0){throw 'Hash assets download failed.'}
+          Write-Host "RELEASE_URL=$($Release.url)"
+          Write-Host "TAG_TARGET=$Resolved"
+          foreach($File in @(Get-ChildItem $Download -Filter '*.sha256'|Sort-Object Name)){
+            Write-Host ("HASH_FILE="+$File.Name+" VALUE="+((Get-Content $File.FullName -Raw).Trim()))
+          }
+          Write-Host 'RELEASE_2.0.28_VERIFIED=SUCCESS'
